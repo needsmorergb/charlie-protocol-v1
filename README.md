@@ -23,8 +23,9 @@ Of the seven checks the indexer knows about, four compute and three are
 not a soft pass: it withholds its figure exactly as hard as `FAIL` does. So
 today the indexer publishes a coin's **split** and nothing else.
 
-[`ROADMAP.md`](ROADMAP.md) is the plan for closing that, in order, with what
-"done" means for each phase.
+[`.planning/ROADMAP.md`](.planning/ROADMAP.md) is the plan for closing that, in
+order, with what "done" means for each phase — five phases, and the public
+surface lands in phase 2 rather than behind the deploy gate.
 
 ## Running the indexer
 
