@@ -25,7 +25,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from . import invariants
+from . import invariants, publish
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
 from .legs import GRANDFATHERED_SEAL, Registry, split_of
@@ -62,7 +62,10 @@ def _observe(args) -> int:
         if store:
             store.append(record)
         if args.json:
-            print(json.dumps(record.as_dict(), sort_keys=True))
+            # PUB-01/PUB-02: the --json surface shares the exact same
+            # publication boundary as report.render()'s text -- neither
+            # reads a figure straight off the Observation.
+            print(json.dumps(publish.public_record(record), sort_keys=True))
         else:
             if index:
                 print("\n" + "=" * 78 + "\n")

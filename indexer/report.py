@@ -9,11 +9,18 @@ So: passing checks are indented and quiet, failures carry a `!!` gutter and
 their detail, and the report ends with what may be published rather than with a
 total. The last line of a report about fee routing should be about permission
 to speak, not about a number.
+
+PUB-01/PUB-02: every number that is a *figure* (a name in `invariants.FIGURES`)
+reaches this text through `publish.Publisher`, never through a direct read of
+an `Observation` field -- that direct read is the bypass PUB-01 forbids.
+Observed facts that are not figures (a mint's decimals, a raw seal balance
+before reconciliation, a check's own `expected`/`actual`) are unaffected; the
+rule is about the names in `invariants.FIGURES`, nothing else.
 """
 
 from __future__ import annotations
 
-from . import invariants
+from . import invariants, publish
 
 _GUTTER = {invariants.PASS: "  ok  ", invariants.FAIL: "!!FAIL", invariants.UNCHECKED: "  --  "}
 
@@ -24,9 +31,22 @@ def _lamports(value) -> str:
     return f"{value / 1_000_000_000:.9f} SOL ({value} lamports)"
 
 
+def _format_figure(name: str, value) -> str:
+    if value is None:
+        return "unknown"
+    if name == invariants.SPLIT:
+        return f"SEAL {value['seal']:>5}    BURN {value['burn']:>5}    OPS {value['paid']:>5}"
+    if name in (invariants.SEAL_TOTAL, invariants.OPS_TOTAL, invariants.BURN_TOTAL):
+        return _lamports(value)
+    if name == invariants.SUPPLY_DESTROYED:
+        return f"{value} raw units"
+    return str(value)
+
+
 def render(observation) -> str:
     out = []
     add = out.append
+    publisher = publish.Publisher(observation)
 
     add(f"mint        {observation.mint}")
     if observation.error and observation.config is None:
@@ -49,11 +69,17 @@ def render(observation) -> str:
     split = observation.split
     add("")
     add("THE FACT -- the split, in bps, read off the sharing config")
-    add(f"    SEAL {split.seal:>5}    BURN {split.burn:>5}    OPS {split.paid:>5}")
-    for attribution in split.attributions:
-        add("")
-        add(f"    {attribution.bps:>5} bps  {attribution.leg.upper():<5} {attribution.address}")
-        add(f"              {'keyless' if attribution.keyless else 'a key can exist'}: {attribution.reason}")
+    try:
+        value, backs = publisher.figure(invariants.SPLIT)
+        add(f"    {_format_figure(invariants.SPLIT, value)}    (backed by {', '.join(backs)})")
+        for attribution in split.attributions:
+            add("")
+            add(f"    {attribution.bps:>5} bps  {attribution.leg.upper():<5} {attribution.address}")
+            add(f"              {'keyless' if attribution.keyless else 'a key can exist'}: {attribution.reason}")
+    except publish.Withheld as exc:
+        name, status, detail = exc.reasons[0]
+        add(f"    withheld -- {name} ({status})")
+        add(f"    {detail}")
     if observation.seal_balances:
         add("")
         for address, lamports in observation.seal_balances.items():
@@ -78,15 +104,16 @@ def render(observation) -> str:
             elif check.actual is not None:
                 add(f"          observed {check.actual}")
 
-    verdict = observation.verdict
     add("")
-    add("THE SILENCE RULE")
-    if verdict.publishable:
-        add(f"    may publish:  {', '.join(sorted(verdict.publishable))}")
-    else:
-        add("    may publish:  nothing")
-    for figure, reasons in sorted(verdict.blocked.items()):
-        name, status, detail = reasons[0]
-        add(f"    withheld:     {figure} -- {name} ({status})")
-        add(f"                  {detail}")
+    add("FIGURES -- what may be published, and the check backing it (PUB-01/PUB-02)")
+    for figure in invariants.FIGURES:
+        try:
+            value, backs = publisher.figure(figure)
+            add(f"    {figure:<16} {_format_figure(figure, value)}")
+            add(f"    {'':<16} backed by: {', '.join(backs) if backs else '(no check named)'}")
+        except publish.Withheld as exc:
+            name, status, detail = exc.reasons[0]
+            add(f"    {figure:<16} withheld -- {name} ({status})")
+            add(f"    {'':<16} {detail}")
+
     return "\n".join(out)
