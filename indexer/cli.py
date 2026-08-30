@@ -3,6 +3,8 @@
     python -m indexer observe <mint> [<mint> ...]   read the chain, run the checks
     python -m indexer log                           replay the append-only record
     python -m indexer derive <mint> --program <id>  the vault PDAs for a coin
+    python -m indexer scan <mint> [--evidence] [--pages N]   walk SEAL/OPS inflows into evidence
+    python -m indexer export [--db] [--out]         write the deterministic committed text export
 
 Exit codes are meant to be usable from a cron line or a CI step:
 
@@ -26,10 +28,12 @@ from datetime import datetime, timezone
 from . import invariants
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
-from .legs import GRANDFATHERED_SEAL, Registry
+from .legs import GRANDFATHERED_SEAL, Registry, split_of
 from .observe import observe
+from .pump import read_bonding_curve, read_sharing_config
 from .report import render
 from .rpc import DEFAULT_ENDPOINTS, RpcClient
+from .scan import BACKFILL_PAGES_PER_RUN, scan_inflows
 from .store import DEFAULT_PATH, Store
 
 
@@ -71,6 +75,42 @@ def _observe(args) -> int:
         evidence.close()
     if store and not args.json:
         print(f"\nappended {len(args.mints)} observation(s) to {store.path}")
+    return worst
+
+
+def _scan(args) -> int:
+    rpc = RpcClient(_endpoints(args.rpc))
+    registry = _registry(args.program)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    pages = args.pages or BACKFILL_PAGES_PER_RUN
+
+    worst = 0
+    try:
+        for mint in args.mints:
+            try:
+                curve = read_bonding_curve(rpc, mint)
+                config = read_sharing_config(rpc, curve)
+            except Exception as exc:
+                print(f"{mint}: cannot read split -- {type(exc).__name__}: {exc}")
+                worst = max(worst, 2)
+                continue
+            split = split_of(config, registry)
+            leg_of = {a.address: a.leg for a in split.attributions}
+            destinations = {addr for addr, leg in leg_of.items() if leg in ("seal", "paid")}
+            if not destinations:
+                print(f"{mint}: no SEAL or OPS destination -- nothing to scan")
+                continue
+            for destination in sorted(destinations):
+                newest, oldest, complete = scan_inflows(
+                    rpc, evidence, mint, destinations, leg_of.get, destination, pages=pages,
+                )
+                state = "backfill complete" if complete else "backfill incomplete"
+                print(
+                    f"{mint}  {leg_of[destination]:<4}  {destination}  {state}  "
+                    f"reached {oldest or '-'}  newest {newest or '-'}"
+                )
+    finally:
+        evidence.close()
     return worst
 
 
@@ -176,6 +216,18 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="show the vault PDAs for a coin")
     derive_cmd.add_argument("mints", nargs="+")
     derive_cmd.set_defaults(handler=_derive)
+
+    scan_cmd = sub.add_parser("scan", parents=[common],
+                              help="walk a coin's SEAL/OPS destinations and record inflows")
+    scan_cmd.add_argument("mints", nargs="+")
+    scan_cmd.add_argument(
+        "--evidence",
+        nargs="?",
+        const=str(DEFAULT_DB_PATH),
+        help=f"SQLite evidence store to read/write (default {DEFAULT_DB_PATH})",
+    )
+    scan_cmd.add_argument("--pages", type=int, help=f"backfill pages per run (default {BACKFILL_PAGES_PER_RUN})")
+    scan_cmd.set_defaults(handler=_scan)
 
     export_cmd = sub.add_parser(
         "export", help="write the deterministic committed text export of the evidence store"

@@ -148,21 +148,31 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
 
     # Evidence plugs in here: the no-argument call sites below are exactly
     # what forced SEAL_BALANCE/OPS_ROUTED to UNCHECKED before this evidence
-    # store existed. Task 1 hard-codes the single-destination path; task 2
-    # folds every SEAL destination of a split into one Check.
+    # store existed.
     seal_check = invariants.seal_balance()
+    ops_check = invariants.ops_routed(split)
     if evidence is not None:
         seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+        ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
+
         record.evidence = {
-            address: evidence.recorded_lamports(address) for address in seal_destinations
+            address: evidence.recorded_lamports(address)
+            for address in seal_destinations + ops_destinations
         }
-        if seal_destinations:
-            destination = seal_destinations[0]
-            seal_check = invariants.seal_balance(
-                destination=destination,
-                recorded=record.evidence[destination],
-                vault_balance=record.seal_balances.get(destination),
-            )
+
+        # OPS balances are read the same way SEAL balances already are.
+        balances = dict(record.seal_balances)
+        for address in ops_destinations:
+            try:
+                balances[address] = rpc.balance(address)
+            except Exception as exc:  # a missing balance must not lose the whole tick
+                balances[address] = None
+                record.error = f"ops balance read failed: {type(exc).__name__}: {exc}"
+
+        seal_check = invariants.seal_balance(
+            split=split, evidence=evidence, balances=balances, registry=registry
+        )
+        ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
 
     record.checks = (
         invariants.config_mint(mint, config),
@@ -171,7 +181,7 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
         seal_check,
         invariants.burn_supply(mint_state),
         invariants.burn_irreversible(mint_state),
-        invariants.ops_routed(split),
+        ops_check,
     )
     record.verdict = invariants.apply_silence_rule(record.checks)
     return record

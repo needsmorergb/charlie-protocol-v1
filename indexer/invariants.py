@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .legs import Registry
+
 PASS = "PASS"
 FAIL = "FAIL"
 UNCHECKED = "UNCHECKED"
@@ -139,16 +141,32 @@ def seal_balance(
     vault_balance=None,
     comparator="==",
     reason=None,
+    split=None,
+    evidence=None,
+    balances=None,
+    registry=None,
 ) -> Check:
     """PROTOCOL.md sec.4: sum(recorded_inflows) == getBalance(vault).
 
-    Single-destination path (task 1 of `01-01`): a caller with no evidence
-    handle still gets today's `UNCHECKED` and today's wording -- old callers
-    are not broken by this becoming computable. `comparator` is `==` for a
-    derived protocol vault and `<=` for the grandfathered shared address
-    (EVID-04, PROTOCOL.md sec.3, D-06); task 2 chooses it per destination from
-    the registry and folds every SEAL destination of a split into one Check.
+    Two call shapes:
+
+    * **Single-destination** (`destination`/`recorded`/`vault_balance`/
+      `comparator`) -- task 1 of `01-01`'s tracer path, and still the
+      building block every destination in the aggregate path below is
+      evaluated with. A caller with no evidence handle still gets today's
+      `UNCHECKED` and today's wording; old callers are not broken by this
+      becoming computable.
+    * **Aggregate** (`split`/`evidence`/`balances`/`registry`) -- task 2: every
+      SEAL destination of a split, each evaluated on its own comparator
+      chosen from the registry (EVID-04) -- `==` for a destination equal to
+      `registry.seal_vault(mint)`, `<=` for the grandfathered shared address
+      (PROTOCOL.md sec.3, D-06) -- folded into one Check. A destination whose
+      walk is incomplete contributes `UNCHECKED` and the whole check is
+      `UNCHECKED`, never `FAIL`, for an unfinished scan.
     """
+    if split is not None and evidence is not None:
+        return _seal_balance_aggregate(split, evidence, balances or {}, registry)
+
     if recorded is None or vault_balance is None:
         return _check(
             "SEAL_BALANCE",
@@ -179,6 +197,82 @@ def seal_balance(
         detail_ok if ok else detail_fail,
         expected=str(recorded),
         actual=str(vault_balance),
+    )
+
+
+def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
+    registry = registry or Registry()
+    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+    if not seal_destinations:
+        return _check(
+            "SEAL_BALANCE",
+            UNCHECKED,
+            [SEAL_TOTAL],
+            "sum(recorded_inflows) == getBalance(vault)",
+            "no SEAL destination in this split -- nothing to check",
+        )
+
+    per_destination = []
+    for destination in seal_destinations:
+        comparator = "<=" if destination in registry.grandfathered_seal else "=="
+        if not evidence.is_backfill_complete(destination, "inflow"):
+            cursor = evidence.get_cursor(destination, "inflow") or {}
+            reached = cursor.get("oldest_signature") or "no signature yet"
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": UNCHECKED,
+                    "detail": f"the walk of {destination} is incomplete -- reached {reached}",
+                }
+            )
+            continue
+        recorded = evidence.recorded_lamports(destination)
+        vault_balance = balances.get(destination)
+        check = seal_balance(
+            destination=destination,
+            recorded=recorded,
+            vault_balance=vault_balance,
+            comparator=comparator,
+        )
+        detail = check.detail
+        if check.status == FAIL:
+            outflows = evidence.outflows_for(destination)
+            if outflows:
+                signatures = ", ".join(row["signature"] for row in outflows)
+                detail += f" -- outflow signatures accounting for the gap: {signatures}"
+        per_destination.append(
+            {
+                "destination": destination,
+                "status": check.status,
+                "detail": detail,
+                "expected": check.expected,
+                "actual": check.actual,
+            }
+        )
+
+    statuses = {p["status"] for p in per_destination}
+    if FAIL in statuses:
+        overall = FAIL
+    elif UNCHECKED in statuses:
+        overall = UNCHECKED
+    else:
+        overall = PASS
+
+    return _check(
+        "SEAL_BALANCE",
+        overall,
+        [SEAL_TOTAL],
+        "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, "
+        "<= for the grandfathered address",
+        "; ".join(p["detail"] for p in per_destination),
+        expected="; ".join(
+            f"{p['destination']}: {p['expected']}" for p in per_destination if p.get("expected") is not None
+        )
+        or None,
+        actual="; ".join(
+            f"{p['destination']}: {p['actual']}" for p in per_destination if p.get("actual") is not None
+        )
+        or None,
     )
 
 
@@ -231,9 +325,18 @@ def burn_irreversible(mint_state) -> Check:
     )
 
 
-def ops_routed(split) -> Check:
-    """PROTOCOL.md sec.4: sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))."""
-    if not split.paid:
+def ops_routed(split, evidence=None, balances=None) -> Check:
+    """PROTOCOL.md sec.4: sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet)).
+
+    This proves how much was routed to OPS and nothing about what happened
+    afterwards -- once SOL reaches a spendable wallet the chain stops being
+    evidence (PROJECT.md's "Auditing OPS spending" is explicitly out of
+    scope). PASS/FAIL is therefore about whether the split's claimed OPS
+    destination(s) actually received the lamports the config says they
+    should, not about anything downstream of that.
+    """
+    ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
+    if not ops_destinations:
         return _check(
             "OPS_ROUTED",
             UNCHECKED,
@@ -241,13 +344,65 @@ def ops_routed(split) -> Check:
             "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
             "no OPS destination in this split -- nothing to check",
         )
+    if evidence is None:
+        return _check(
+            "OPS_ROUTED",
+            UNCHECKED,
+            [OPS_TOTAL],
+            "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
+            "inflow recording is not built. Note that once it is, this proves how much was "
+            "routed and nothing about what happened afterwards (PROTOCOL.md sec.4)",
+        )
+
+    balances = balances or {}
+    per_destination = []
+    for destination in ops_destinations:
+        if not evidence.is_backfill_complete(destination, "inflow"):
+            cursor = evidence.get_cursor(destination, "inflow") or {}
+            reached = cursor.get("oldest_signature") or "no signature yet"
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": UNCHECKED,
+                    "detail": f"the walk of {destination} is incomplete -- reached {reached}",
+                }
+            )
+            continue
+        recorded = evidence.recorded_lamports(destination)
+        ok = recorded > 0
+        per_destination.append(
+            {
+                "destination": destination,
+                "status": PASS if ok else FAIL,
+                "detail": f"{destination}: recorded inflows {'observed' if ok else 'NOT observed'} "
+                f"({recorded} lamports)",
+                "expected": "> 0",
+                "actual": str(recorded),
+            }
+        )
+
+    statuses = {p["status"] for p in per_destination}
+    if FAIL in statuses:
+        overall = FAIL
+    elif UNCHECKED in statuses:
+        overall = UNCHECKED
+    else:
+        overall = PASS
+
     return _check(
         "OPS_ROUTED",
-        UNCHECKED,
+        overall,
         [OPS_TOTAL],
         "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
-        "inflow recording is not built. Note that once it is, this proves how much was "
-        "routed and nothing about what happened afterwards (PROTOCOL.md sec.4)",
+        "; ".join(p["detail"] for p in per_destination),
+        expected="; ".join(
+            f"{p['destination']}: {p['expected']}" for p in per_destination if p.get("expected") is not None
+        )
+        or None,
+        actual="; ".join(
+            f"{p['destination']}: {p['actual']}" for p in per_destination if p.get("actual") is not None
+        )
+        or None,
     )
 
 

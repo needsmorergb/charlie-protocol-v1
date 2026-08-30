@@ -35,6 +35,14 @@ DEFAULT_DB_PATH = Path("state") / "evidence.db"
 
 SCHEMA_VERSION = 1
 
+# scan_cursor's PK carries an endpoint dimension from the start (D-13, plan
+# `01-01` task 4): coverage is tracked per endpoint, never per target alone,
+# because which inflows get recorded currently depends on which endpoint
+# answered. A single-endpoint caller (task 2) uses this sentinel and never
+# has to think about the dimension; task 4's per-endpoint walk supplies the
+# real endpoint URL instead.
+DEFAULT_ENDPOINT_KEY = "*"
+
 
 class Evidence:
     """A thin, context-manager-friendly wrapper over one SQLite database."""
@@ -98,6 +106,22 @@ class Evidence:
         )
         self._conn.execute("CREATE INDEX IF NOT EXISTS inflow_destination ON inflow(destination)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS inflow_mint ON inflow(mint)")
+
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scan_cursor (
+                target             TEXT    NOT NULL,
+                purpose            TEXT    NOT NULL,
+                endpoint           TEXT    NOT NULL DEFAULT '*',
+                last_signature     TEXT,
+                oldest_signature   TEXT,
+                backfill_complete  INTEGER NOT NULL DEFAULT 0,
+                last_error         TEXT,
+                updated_at         INTEGER NOT NULL,
+                PRIMARY KEY (endpoint, target, purpose)
+            )
+            """
+        )
         self._conn.commit()
 
     # -- inflow ---------------------------------------------------------
@@ -158,6 +182,86 @@ class Evidence:
             (destination,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    # -- scan_cursor ------------------------------------------------------
+    def get_cursor(self, target: str, purpose: str, endpoint: str = DEFAULT_ENDPOINT_KEY) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM scan_cursor WHERE target = ? AND purpose = ? AND endpoint = ?",
+            (target, purpose, endpoint),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_cursor(
+        self,
+        target: str,
+        purpose: str,
+        endpoint: str = DEFAULT_ENDPOINT_KEY,
+        last_signature: str | None = None,
+        oldest_signature: str | None = None,
+        backfill_complete: int | None = None,
+        last_error: str | None = None,
+    ) -> None:
+        """Update only the fields given -- an omitted field keeps its stored value."""
+        existing = self.get_cursor(target, purpose, endpoint) or {}
+        last_signature = last_signature if last_signature is not None else existing.get("last_signature")
+        oldest_signature = (
+            oldest_signature if oldest_signature is not None else existing.get("oldest_signature")
+        )
+        backfill_complete = (
+            int(bool(backfill_complete))
+            if backfill_complete is not None
+            else int(existing.get("backfill_complete") or 0)
+        )
+        last_error = last_error if last_error is not None else existing.get("last_error")
+        self._conn.execute(
+            """
+            INSERT INTO scan_cursor
+                (target, purpose, endpoint, last_signature, oldest_signature,
+                 backfill_complete, last_error, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (endpoint, target, purpose) DO UPDATE SET
+                last_signature=excluded.last_signature,
+                oldest_signature=excluded.oldest_signature,
+                backfill_complete=excluded.backfill_complete,
+                last_error=excluded.last_error,
+                updated_at=excluded.updated_at
+            """,
+            (
+                target,
+                purpose,
+                endpoint,
+                last_signature,
+                oldest_signature,
+                backfill_complete,
+                last_error,
+                int(time.time()),
+            ),
+        )
+        self._conn.commit()
+
+    def is_backfill_complete(self, target: str, purpose: str) -> bool:
+        """True once AT LEAST ONE endpoint has walked `target` to a short page (D-13).
+
+        Never a global AND across endpoints: one endpoint reaching genesis is
+        the unambiguous signal that the address's full history has been
+        seen, even if a second, still-catching-up endpoint has not gotten
+        there yet.
+        """
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM scan_cursor WHERE target = ? AND purpose = ? AND backfill_complete = 1",
+            (target, purpose),
+        ).fetchone()
+        return row["n"] > 0
+
+    def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
+        """Every endpoint that has a recorded cursor for this target -- the
+        observation's "how many endpoints agreed" field (D-13).
+        """
+        rows = self._conn.execute(
+            "SELECT endpoint FROM scan_cursor WHERE target = ? AND purpose = ? ORDER BY endpoint",
+            (target, purpose),
+        ).fetchall()
+        return [row["endpoint"] for row in rows]
 
 
 def open_evidence(path=DEFAULT_DB_PATH) -> Evidence:

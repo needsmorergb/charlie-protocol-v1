@@ -123,7 +123,7 @@ def fetch_new_signatures(
     return collected, exhausted
 
 
-def scan_inflows(
+def _walk_and_record(
     rpc,
     evidence,
     mint: str,
@@ -136,8 +136,8 @@ def scan_inflows(
     pages: int = 1,
     limit: int = DEFAULT_PAGE_LIMIT,
 ):
-    """Walk `target`'s signature history and record every configured
-    destination it credits.
+    """One bounded walk over `target`'s signature history, recording every
+    configured destination it credits.
 
     One transaction can credit several destinations at once
     (`distribute_creator_fees` pays every shareholder together, D-02), so
@@ -198,3 +198,73 @@ def scan_inflows(
         oldest_seen = oldest_seen if oldest_seen is not None else signature
 
     return newest_seen, oldest_seen, (exhausted and not stopped_early)
+
+
+def scan_inflows(
+    rpc,
+    evidence,
+    mint: str,
+    destinations,
+    leg_of,
+    target: str,
+    *,
+    endpoint: str = "*",
+    pages: int = BACKFILL_PAGES_PER_RUN,
+    limit: int = DEFAULT_PAGE_LIMIT,
+):
+    """The bounded backfill plus the forward catch-up walk, cursor state
+    owned by `evidence` (`scan_cursor`, RESEARCH.md Q7 extended with the
+    backfill-depth decision).
+
+    Two walks, every call:
+
+    * **Forward** -- from the last-seen signature (if any) up to "now",
+      `until=last_signature`. Unbounded by the `pages` budget: new activity
+      must never be missed while a backfill is still in progress.
+    * **Backward** -- from `oldest_signature` (or the newest signature on a
+      first run) for at most `pages` pages. Persists `oldest_signature`
+      after every call so the next run resumes where this one stopped, and
+      sets `backfill_complete` only when the final page came back shorter
+      than `limit` -- the unambiguous signal that history is exhausted.
+      Skipped once `backfill_complete` is already set for this endpoint.
+
+    Neither walk advances its cursor past a signature it could not fetch.
+
+    Returns `(newest_signature_seen, oldest_signature_seen, backfill_complete)`.
+    """
+    cursor = evidence.get_cursor(target, "inflow", endpoint=endpoint) or {}
+    last_signature = cursor.get("last_signature")
+    oldest_signature = cursor.get("oldest_signature")
+    backfill_complete = bool(cursor.get("backfill_complete"))
+
+    newest_seen = last_signature
+    oldest_seen = oldest_signature
+
+    if last_signature:
+        forward_newest, _forward_oldest, _exhausted = _walk_and_record(
+            rpc, evidence, mint, destinations, leg_of, target,
+            until=last_signature, before=None, pages=1_000_000, limit=limit,
+        )
+        if forward_newest:
+            newest_seen = forward_newest
+
+    if not backfill_complete:
+        backward_newest, backward_oldest, exhausted = _walk_and_record(
+            rpc, evidence, mint, destinations, leg_of, target,
+            until=None, before=oldest_signature, pages=pages, limit=limit,
+        )
+        if backward_oldest:
+            oldest_seen = backward_oldest
+        if not last_signature and backward_newest:
+            newest_seen = backward_newest
+        backfill_complete = exhausted
+
+    evidence.set_cursor(
+        target,
+        "inflow",
+        endpoint=endpoint,
+        last_signature=newest_seen,
+        oldest_signature=oldest_seen,
+        backfill_complete=int(backfill_complete),
+    )
+    return newest_seen, oldest_seen, backfill_complete
