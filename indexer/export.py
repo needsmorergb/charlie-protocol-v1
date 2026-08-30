@@ -23,6 +23,8 @@ DEFAULT_EXPORT_DIR = Path("state") / "evidence"
 # are added to indexer/evidence.py.
 EXPORT_TABLES: tuple[tuple[str, str], ...] = (
     ("inflow", "signature, destination"),
+    ("opening_balance", "id"),
+    ("scan_cursor", "endpoint, target, purpose"),
 )
 
 

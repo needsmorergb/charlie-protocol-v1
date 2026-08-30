@@ -102,7 +102,8 @@ def _scan(args) -> int:
                 continue
             for destination in sorted(destinations):
                 newest, oldest, complete = scan_inflows(
-                    rpc, evidence, mint, destinations, leg_of.get, destination, pages=pages,
+                    rpc, evidence, mint, destinations, leg_of.get, destination,
+                    pages=pages, grandfathered=registry.grandfathered_seal,
                 )
                 state = "backfill complete" if complete else "backfill incomplete"
                 print(

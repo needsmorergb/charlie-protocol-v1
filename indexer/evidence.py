@@ -109,6 +109,23 @@ class Evidence:
 
         self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS opening_balance (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                destination        TEXT    NOT NULL,
+                lamports           INTEGER NOT NULL,
+                opening_signature  TEXT    NOT NULL,
+                recorded_at        INTEGER NOT NULL,
+                retired_at         INTEGER,
+                superseded_by      INTEGER REFERENCES opening_balance(id)
+            )
+            """
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS opening_balance_destination ON opening_balance(destination)"
+        )
+
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS scan_cursor (
                 target             TEXT    NOT NULL,
                 purpose            TEXT    NOT NULL,
@@ -252,6 +269,70 @@ class Evidence:
             (target, purpose),
         ).fetchone()
         return row["n"] > 0
+
+    # -- opening_balance (EVID-02, dormant on live SEAL data -- see docstring) --
+    def record_opening_balance(
+        self,
+        *,
+        destination: str,
+        lamports: int,
+        opening_signature: str,
+        recorded_at: int | None = None,
+    ) -> int:
+        """Record that history could not be walked all the way to zero for
+        `destination`, and this is the balance it held at the earliest
+        transaction we could see. Append-only: never call this to "correct"
+        an existing row -- `retire_opening_balance` supersedes instead
+        (D-08).
+        """
+        recorded_at = recorded_at if recorded_at is not None else int(time.time())
+        cursor = self._conn.execute(
+            """
+            INSERT INTO opening_balance
+                (destination, lamports, opening_signature, recorded_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (destination, int(lamports), opening_signature, recorded_at),
+        )
+        self._conn.commit()
+        return int(cursor.lastrowid)
+
+    def active_opening_balance(self, destination: str) -> dict | None:
+        """The row whose `retired_at` is still null -- None if there is none."""
+        row = self._conn.execute(
+            "SELECT * FROM opening_balance WHERE destination = ? AND retired_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (destination,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def retire_opening_balance(
+        self,
+        id: int,
+        *,
+        lamports: int,
+        opening_signature: str,
+        recorded_at: int | None = None,
+    ) -> int:
+        """Write the replacement as a NEW row and mark the old one superseded
+        (D-08) -- the original admission stays readable, it is never edited
+        or deleted.
+        """
+        recorded_at = recorded_at if recorded_at is not None else int(time.time())
+        new_id = self.record_opening_balance(
+            destination=self._conn.execute(
+                "SELECT destination FROM opening_balance WHERE id = ?", (id,)
+            ).fetchone()["destination"],
+            lamports=lamports,
+            opening_signature=opening_signature,
+            recorded_at=recorded_at,
+        )
+        self._conn.execute(
+            "UPDATE opening_balance SET retired_at = ?, superseded_by = ? WHERE id = ?",
+            (recorded_at, new_id, id),
+        )
+        self._conn.commit()
+        return new_id
 
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
         """Every endpoint that has a recorded cursor for this target -- the

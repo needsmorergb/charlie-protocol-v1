@@ -226,6 +226,23 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
                 }
             )
             continue
+        opening = evidence.active_opening_balance(destination)
+        if opening is not None:
+            # D-05: an opening balance is an admission that history was
+            # unreadable. This destination's balance is reported as an
+            # observation only -- it contributes no reconciled total, and
+            # the whole figure cannot be published while any piece of it
+            # is unreconciled.
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": "OBSERVATION",
+                    "detail": f"{destination} carries an active opening balance "
+                    f"({opening['lamports']} lamports as of {opening['opening_signature']}) -- "
+                    "observed, not reconciled; no total is published for it",
+                }
+            )
+            continue
         recorded = evidence.recorded_lamports(destination)
         vault_balance = balances.get(destination)
         check = seal_balance(
@@ -253,7 +270,7 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     statuses = {p["status"] for p in per_destination}
     if FAIL in statuses:
         overall = FAIL
-    elif UNCHECKED in statuses:
+    elif UNCHECKED in statuses or "OBSERVATION" in statuses:
         overall = UNCHECKED
     else:
         overall = PASS

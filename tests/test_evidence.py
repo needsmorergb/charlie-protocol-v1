@@ -21,12 +21,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from indexer import invariants
 from indexer.evidence import Evidence
 from indexer.export import export_all
+from indexer.legs import Attribution, GRANDFATHERED_SEAL, Split
 from indexer.observe import Observation
 from indexer.scan import account_keys, balance_delta, fetch_new_signatures, scan_inflows
 
 MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 SEAL = "burn111111111111111111111111111111111111111"
 OTHER = "So11111111111111111111111111111111111111112"
+DERIVED_VAULT = "3vaU1t11111111111111111111111111111111111"  # not grandfathered -- comparator "=="
+
+
+def seal_split(address) -> Split:
+    attribution = Attribution(address=address, bps=10_000, leg="seal", reason="test fixture", keyless=True)
+    return Split(seal=10_000, burn=0, paid=0, attributions=(attribution,))
 
 
 # -- fixtures ---------------------------------------------------------------
@@ -266,6 +273,146 @@ class TestGitIgnore(unittest.TestCase):
             self.skipTest("git is not available in this environment")
         self.assertEqual(db.returncode, 0, "state/*.db must be gitignored")
         self.assertEqual(export.returncode, 1, "state/evidence/*.jsonl must NOT be gitignored")
+
+
+# -- falsification: the named deliverable (EVID-03) -----------------------
+class TestFalsification(unittest.TestCase):
+    """Corrupting the inflow log must turn a passing SEAL_BALANCE red, with
+    the live balance held fixed -- proof the check reads the store rather
+    than recomputing independently of it.
+    """
+
+    def _passing_state(self, tmp) -> Evidence:
+        evidence = evidence_db(tmp)
+        evidence.record_inflow(
+            signature="sig-1", destination=DERIVED_VAULT, mint=MINT, leg="seal",
+            lamports=500, block_time=1, slot=1,
+        )
+        evidence.record_inflow(
+            signature="sig-2", destination=DERIVED_VAULT, mint=MINT, leg="seal",
+            lamports=300, block_time=2, slot=2,
+        )
+        evidence.set_cursor(
+            DERIVED_VAULT, "inflow", last_signature="sig-2",
+            oldest_signature="sig-1", backfill_complete=1,
+        )
+        return evidence
+
+    def test_deleting_a_row_flips_pass_to_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = self._passing_state(tmp)
+            split = seal_split(DERIVED_VAULT)
+            balances = {DERIVED_VAULT: 800}
+
+            before = invariants.seal_balance(split=split, evidence=evidence, balances=balances)
+            self.assertEqual(before.status, invariants.PASS)
+
+            evidence.connection.execute("DELETE FROM inflow WHERE signature = ?", ("sig-2",))
+            evidence.connection.commit()
+
+            after = invariants.seal_balance(split=split, evidence=evidence, balances=balances)
+            evidence.close()
+            self.assertEqual(after.status, invariants.FAIL)
+
+    def test_mutating_a_lamports_value_flips_pass_to_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = self._passing_state(tmp)
+            split = seal_split(DERIVED_VAULT)
+            balances = {DERIVED_VAULT: 800}
+
+            before = invariants.seal_balance(split=split, evidence=evidence, balances=balances)
+            self.assertEqual(before.status, invariants.PASS)
+
+            evidence.connection.execute(
+                "UPDATE inflow SET lamports = ? WHERE signature = ?", (301, "sig-2")
+            )
+            evidence.connection.commit()
+
+            after = invariants.seal_balance(split=split, evidence=evidence, balances=balances)
+            evidence.close()
+            self.assertEqual(after.status, invariants.FAIL)
+
+
+# -- opening balances (EVID-02, D-05, D-06, D-07, D-08) --------------------
+class TestOpeningBalance(unittest.TestCase):
+    def test_recorded_when_walk_exhausts_with_a_nonzero_pre_balance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({DERIVED_VAULT: (1_000, 1_500)}, signature="sig-1")
+            rpc = FakeScanRpc(
+                signatures=[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_inflows(
+                rpc, evidence, MINT, {DERIVED_VAULT}, leg_of=lambda _d: "seal",
+                target=DERIVED_VAULT, pages=1, grandfathered=GRANDFATHERED_SEAL,
+            )
+            opening = evidence.active_opening_balance(DERIVED_VAULT)
+            evidence.close()
+
+            self.assertIsNotNone(opening)
+            self.assertEqual(opening["lamports"], 1_000)
+            self.assertEqual(opening["opening_signature"], "sig-1")
+
+    def test_never_recorded_for_the_grandfathered_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({SEAL: (1_000, 1_500)}, signature="sig-1")
+            rpc = FakeScanRpc(
+                signatures=[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_inflows(
+                rpc, evidence, MINT, {SEAL}, leg_of=lambda _d: "seal",
+                target=SEAL, pages=1, grandfathered=GRANDFATHERED_SEAL,
+            )
+            opening = evidence.active_opening_balance(SEAL)
+            evidence.close()
+
+            self.assertIsNone(opening)
+
+    def test_retiring_leaves_the_original_row_readable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            original_id = evidence.record_opening_balance(
+                destination=DERIVED_VAULT, lamports=1_000, opening_signature="sig-1"
+            )
+            new_id = evidence.retire_opening_balance(
+                original_id, lamports=1_200, opening_signature="sig-0-earlier"
+            )
+            original = evidence.connection.execute(
+                "SELECT * FROM opening_balance WHERE id = ?", (original_id,)
+            ).fetchone()
+            replacement = evidence.active_opening_balance(DERIVED_VAULT)
+            evidence.close()
+
+            self.assertIsNotNone(original)
+            self.assertEqual(original["retired_at"] and True, True)
+            self.assertEqual(original["superseded_by"], new_id)
+            self.assertEqual(original["lamports"], 1_000)  # unedited
+            self.assertEqual(replacement["id"], new_id)
+            self.assertEqual(replacement["lamports"], 1_200)
+
+    def test_active_opening_balance_publishes_no_reconciled_total(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.set_cursor(DERIVED_VAULT, "inflow", backfill_complete=1)
+            evidence.record_opening_balance(
+                destination=DERIVED_VAULT, lamports=1_000, opening_signature="sig-0"
+            )
+            evidence.record_inflow(
+                signature="sig-1", destination=DERIVED_VAULT, mint=MINT, leg="seal",
+                lamports=500, block_time=1, slot=1,
+            )
+            split = seal_split(DERIVED_VAULT)
+            check = invariants.seal_balance(
+                split=split, evidence=evidence, balances={DERIVED_VAULT: 1_500}
+            )
+            evidence.close()
+
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertNotEqual(check.status, invariants.PASS)
+            self.assertIn("no total is published", check.detail)
 
 
 if __name__ == "__main__":

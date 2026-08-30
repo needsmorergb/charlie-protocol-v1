@@ -59,6 +59,22 @@ def balance_delta(tx: dict, address: str) -> int | None:
     return int(post[index]) - int(pre[index])
 
 
+def _pre_balance(tx: dict, address: str) -> int | None:
+    """The raw pre-transaction lamport balance of `address` -- the figure the
+    opening-balance mechanism (EVID-02) needs, distinct from `balance_delta`
+    which returns the signed net change.
+    """
+    meta = tx.get("meta") or {}
+    pre = meta.get("preBalances") or []
+    keys = account_keys(tx)
+    if address not in keys:
+        return None
+    index = keys.index(address)
+    if index >= len(pre):
+        return None
+    return int(pre[index])
+
+
 def _count_credit_instructions(tx: dict, destination: str) -> int:
     """The revisit trigger for D-02 (D-12): how many parsed instructions in
     this transaction credit `destination`, individually.
@@ -144,16 +160,20 @@ def _walk_and_record(
     every configured destination present in `account_keys(tx)` with a
     non-zero delta gets its own row from the same signature.
 
-    Returns `(newest_signature_seen, oldest_signature_seen, exhausted)`.
-    `exhausted` is only ever True when every fetch in this call succeeded --
-    a signature this run could not fetch stops the walk and is never counted
-    as history having been fully walked.
+    Returns `(newest_signature_seen, oldest_signature_seen, exhausted,
+    earliest_fetched)`. `exhausted` is only ever True when every fetch in
+    this call succeeded -- a signature this run could not fetch stops the
+    walk and is never counted as history having been fully walked.
+    `earliest_fetched` is `(signature, pre_balance_for_target)` for the
+    oldest transaction this call actually fetched, or `None` -- the input
+    the opening-balance mechanism (EVID-02) needs when the walk exhausts.
     """
     signatures, exhausted = fetch_new_signatures(
         rpc, target, until=until, before=before, pages=pages, limit=limit
     )
     newest_seen: str | None = None
     oldest_seen: str | None = None
+    earliest_fetched: tuple[str, int | None] | None = None
     stopped_early = False
 
     for record in signatures:
@@ -174,6 +194,9 @@ def _walk_and_record(
             newest_seen = signature
             oldest_seen = oldest_seen if oldest_seen is not None else signature
             continue
+
+        if earliest_fetched is None:
+            earliest_fetched = (signature, _pre_balance(tx, target))
 
         keys = account_keys(tx)
         block_time = record.get("blockTime") or tx.get("blockTime")
@@ -197,7 +220,7 @@ def _walk_and_record(
         newest_seen = signature
         oldest_seen = oldest_seen if oldest_seen is not None else signature
 
-    return newest_seen, oldest_seen, (exhausted and not stopped_early)
+    return newest_seen, oldest_seen, (exhausted and not stopped_early), earliest_fetched
 
 
 def scan_inflows(
@@ -211,6 +234,7 @@ def scan_inflows(
     endpoint: str = "*",
     pages: int = BACKFILL_PAGES_PER_RUN,
     limit: int = DEFAULT_PAGE_LIMIT,
+    grandfathered=frozenset(),
 ):
     """The bounded backfill plus the forward catch-up walk, cursor state
     owned by `evidence` (`scan_cursor`, RESEARCH.md Q7 extended with the
@@ -230,6 +254,11 @@ def scan_inflows(
 
     Neither walk advances its cursor past a signature it could not fetch.
 
+    When the backward walk exhausts (history genuinely walked to its start)
+    and the earliest transaction it saw shows a non-zero pre-balance for
+    `target`, an opening balance is recorded (EVID-02) -- unless `target` is
+    in `grandfathered`, whose pre-balance belongs to strangers (D-06).
+
     Returns `(newest_signature_seen, oldest_signature_seen, backfill_complete)`.
     """
     cursor = evidence.get_cursor(target, "inflow", endpoint=endpoint) or {}
@@ -241,7 +270,7 @@ def scan_inflows(
     oldest_seen = oldest_signature
 
     if last_signature:
-        forward_newest, _forward_oldest, _exhausted = _walk_and_record(
+        forward_newest, _forward_oldest, _exhausted, _earliest = _walk_and_record(
             rpc, evidence, mint, destinations, leg_of, target,
             until=last_signature, before=None, pages=1_000_000, limit=limit,
         )
@@ -249,7 +278,7 @@ def scan_inflows(
             newest_seen = forward_newest
 
     if not backfill_complete:
-        backward_newest, backward_oldest, exhausted = _walk_and_record(
+        backward_newest, backward_oldest, exhausted, earliest_fetched = _walk_and_record(
             rpc, evidence, mint, destinations, leg_of, target,
             until=None, before=oldest_signature, pages=pages, limit=limit,
         )
@@ -258,6 +287,15 @@ def scan_inflows(
         if not last_signature and backward_newest:
             newest_seen = backward_newest
         backfill_complete = exhausted
+
+        if exhausted and earliest_fetched and target not in grandfathered:
+            opening_signature, opening_pre_balance = earliest_fetched
+            if opening_pre_balance:
+                evidence.record_opening_balance(
+                    destination=target,
+                    lamports=opening_pre_balance,
+                    opening_signature=opening_signature,
+                )
 
     evidence.set_cursor(
         target,
