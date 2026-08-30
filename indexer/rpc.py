@@ -1,0 +1,163 @@
+"""Minimal multi-endpoint Solana JSON-RPC client (stdlib only).
+
+Small, but it carries the failover behaviour a long-running indexer needs:
+
+* every request has a hard timeout -- a hung provider must not wedge a tick;
+* network errors, timeouts and HTTP 5xx rotate to the next endpoint;
+* HTTP 429 backs an endpoint off but keeps it in rotation;
+* JSON-RPC *application* errors are raised to the caller and never counted
+  against the endpoint -- the provider worked, our request was wrong.
+
+The distinction in that last line matters more here than in a bot. An indexer
+that silently treats "the node refused" the same as "the account does not
+exist" will publish a green state it never actually computed.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+
+USER_AGENT = "charlie-protocol-indexer/0.1"
+
+DEFAULT_ENDPOINTS = (
+    "https://solana-rpc.publicnode.com",
+    "https://api.mainnet-beta.solana.com",
+    "https://solana.drpc.org",
+)
+
+
+class RpcError(RuntimeError):
+    """A JSON-RPC application error: the node answered, it just said no."""
+
+    def __init__(self, code: int, message: str, method: str):
+        super().__init__(f"{method}: [{code}] {message}")
+        self.code = code
+        self.message = message
+        self.method = method
+
+
+class RpcUnavailable(RuntimeError):
+    """Every endpoint failed at the infrastructure level."""
+
+
+@dataclass
+class _Infra(Exception):
+    backoff: float = 2.0
+
+
+@dataclass
+class _Endpoint:
+    url: str
+    failures: int = 0
+    cooldown_until: float = 0.0
+
+    def available(self, now: float) -> bool:
+        return now >= self.cooldown_until
+
+    def penalise(self, now: float, seconds: float) -> None:
+        self.failures += 1
+        delay = min(seconds * (2 ** min(self.failures - 1, 4)), 120.0)
+        self.cooldown_until = now + delay * (0.75 + random.random() * 0.5)
+
+    def reward(self) -> None:
+        self.failures = 0
+        self.cooldown_until = 0.0
+
+
+class RpcClient:
+    def __init__(
+        self,
+        endpoints=DEFAULT_ENDPOINTS,
+        timeout: float = 15.0,
+        max_retries: int = 3,
+        sleep=time.sleep,
+    ):
+        if not endpoints:
+            raise ValueError("at least one RPC endpoint is required")
+        self._endpoints = [_Endpoint(url) for url in endpoints]
+        self._timeout = timeout
+        self._max_retries = max(1, max_retries)
+        self._sleep = sleep
+        self._id = 0
+        self.calls = 0
+
+    # -- public -----------------------------------------------------------
+    def call(self, method: str, params: list | None = None):
+        self._id += 1
+        payload = json.dumps(
+            {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params or []}
+        ).encode("utf-8")
+
+        last_error: Exception | None = None
+        for _ in range(self._max_retries * len(self._endpoints)):
+            endpoint = self._pick()
+            if endpoint is None:
+                wait = max(0.0, min(e.cooldown_until for e in self._endpoints) - time.time())
+                self._sleep(min(wait, 5.0) or 0.25)
+                continue
+            try:
+                body = self._post(endpoint.url, payload)
+            except _Infra as exc:
+                last_error = exc.__cause__ or exc
+                endpoint.penalise(time.time(), exc.backoff)
+                continue
+
+            endpoint.reward()
+            self.calls += 1
+            if body.get("error"):
+                err = body["error"]
+                raise RpcError(err.get("code", 0), str(err.get("message", "")), method)
+            return body.get("result")
+
+        raise RpcUnavailable(f"{method}: all RPC endpoints failed ({last_error})")
+
+    def accounts(self, addresses: list[str]) -> list[dict | None]:
+        """Always exactly `len(addresses)` entries, whatever the node returns.
+
+        A provider answering with a short list must not become an IndexError
+        three frames later in a decoder.
+        """
+        result = self.call("getMultipleAccounts", [addresses, {"encoding": "base64"}])
+        values = list((result or {}).get("value") or [])
+        values.extend([None] * (len(addresses) - len(values)))
+        return values[: len(addresses)]
+
+    def balance(self, address: str) -> int:
+        result = self.call("getBalance", [address])
+        return int((result or {}).get("value") or 0)
+
+    # -- internals --------------------------------------------------------
+    def _pick(self) -> _Endpoint | None:
+        now = time.time()
+        healthy = [e for e in self._endpoints if e.available(now)]
+        if not healthy:
+            return None
+        return min(healthy, key=lambda e: e.failures)
+
+    def _post(self, url: str, payload: bytes) -> dict:
+        request = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "content-type": "application/json",
+                "accept": "application/json",
+                "user-agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                raise _Infra(backoff=5.0) from exc
+            if exc.code >= 500:
+                raise _Infra(backoff=2.0) from exc
+            raise _Infra(backoff=30.0) from exc
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            raise _Infra(backoff=2.0) from exc
