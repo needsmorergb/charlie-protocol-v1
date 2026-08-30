@@ -155,6 +155,8 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
     seal_check = invariants.seal_balance()
     ops_check = invariants.ops_routed(split)
     burn_check = invariants.burn_supply(mint_state)
+    atomic_check = invariants.burn_atomic(mint, [], False)
+    spend_check = invariants.burn_spend(split)
     if evidence is not None:
         seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
         ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
@@ -195,6 +197,13 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
         walk_complete = evidence.is_backfill_complete(mint, "burn")
         burn_check = invariants.burn_supply(mint_state, initial_supply_row, burned, walk_complete)
 
+        # EVID-09: BURN_ATOMIC over every burn recorded for this mint so far.
+        burn_rows = evidence.burns_for(mint)
+        burn_walk_complete = evidence.is_backfill_complete(mint, "burn")
+        atomic_check = invariants.burn_atomic(mint, burn_rows, burn_walk_complete)
+
+        spend_check = invariants.burn_spend(split, evidence=evidence)
+
         record.evidence["burn_total"] = burned
         record.evidence["initial_supply"] = initial_supply_row
 
@@ -205,6 +214,8 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
         seal_check,
         burn_check,
         invariants.burn_irreversible(mint_state),
+        atomic_check,
+        spend_check,
         ops_check,
     )
     record.verdict = invariants.apply_silence_rule(record.checks)

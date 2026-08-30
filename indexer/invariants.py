@@ -391,6 +391,107 @@ def burn_irreversible(mint_state) -> Check:
     )
 
 
+def burn_atomic(mint: str, burn_rows, walk_complete: bool = False) -> Check:
+    """PROTOCOL.md sec.4's atomicity requirement, RESEARCH.md Q6:
+    `swap_instruction.transaction == burn_instruction.transaction`.
+
+    `burn_rows` are `burn_event` rows (`indexer/evidence.py`), each carrying
+    an `atomic` column of `'PASS' | 'FAIL' | None` (not yet classified --
+    `scan.classify_atomicity` has not run against it, or ran before this
+    check was ever computed).
+
+    UNCHECKED -- never FAIL -- in three cases, each a "we have not finished
+    checking" state rather than an accusation:
+
+    1. No burn recorded yet for this mint.
+    2. The mint-wide burn walk is incomplete.
+    3. A recorded row has not yet been classified for atomicity.
+
+    Only once every recorded row is classified and the walk is complete does
+    this compute `PASS` (every row reads `PASS`) or `FAIL` (any row reads
+    `FAIL`, named by signature) -- EVID-09: this is the check that RESEARCH.md
+    Q6 confirmed runs today and structurally passes $CHARLIE's existing
+    boost burns.
+    """
+    equation = "swap_instruction.transaction == burn_instruction.transaction"
+    if not burn_rows:
+        return _check(
+            "BURN_ATOMIC",
+            UNCHECKED,
+            [SUPPLY_DESTROYED],
+            equation,
+            "no burn recorded yet for this mint -- nothing to check",
+        )
+    if not walk_complete:
+        return _check(
+            "BURN_ATOMIC",
+            UNCHECKED,
+            [SUPPLY_DESTROYED],
+            equation,
+            "the burn walk for this mint is incomplete -- not every burn against it has "
+            "been recorded yet, so an atomicity verdict now would be premature, not wrong",
+        )
+    unclassified = [row["signature"] for row in burn_rows if row.get("atomic") is None]
+    if unclassified:
+        return _check(
+            "BURN_ATOMIC",
+            UNCHECKED,
+            [SUPPLY_DESTROYED],
+            equation,
+            "burns recorded but not yet classified for atomicity: " + ", ".join(unclassified),
+        )
+    failing = [row["signature"] for row in burn_rows if row.get("atomic") == FAIL]
+    if failing:
+        return _check(
+            "BURN_ATOMIC",
+            FAIL,
+            [SUPPLY_DESTROYED],
+            equation,
+            "a burn's swap and burn were not found together in the same transaction -- "
+            "signatures: " + ", ".join(failing),
+            expected="PASS",
+            actual="FAIL: " + ", ".join(failing),
+        )
+    return _check(
+        "BURN_ATOMIC",
+        PASS,
+        [SUPPLY_DESTROYED],
+        equation,
+        "every recorded burn's swap and burn share a transaction",
+    )
+
+
+def burn_spend(split, evidence=None) -> Check:
+    """PROTOCOL.md sec.4: sum(SOL_spent_on_BURN) <= sum(fees_claimed) * bps_BURN / 10000.
+
+    Backs `BURN_TOTAL`. Returns `UNCHECKED` today, always -- it needs
+    recorded fee claims at a BURN destination, and no coin has a BURN
+    destination while `Registry.program_id` is `None` (the protocol program
+    is not deployed). This exists so `BURN_TOTAL` is never left resting on
+    the `NO_CHECK` placeholder: a figure nothing checks at all is already
+    unpublishable, but the indexer should say which check is missing rather
+    than that none exists.
+    """
+    equation = "sum(SOL_spent_on_BURN) <= sum(fees_claimed) * bps_BURN / 10000"
+    burn_destinations = [a.address for a in split.attributions if a.leg == "burn"]
+    if not burn_destinations:
+        return _check(
+            "BURN_SPEND",
+            UNCHECKED,
+            [BURN_TOTAL],
+            equation,
+            "no BURN destination in this split -- the protocol program is not deployed, "
+            "so a burn pool PDA cannot be derived yet, and this equation has nothing to check",
+        )
+    return _check(
+        "BURN_SPEND",
+        UNCHECKED,
+        [BURN_TOTAL],
+        equation,
+        "a BURN destination exists but recording fee claims against it is not built yet",
+    )
+
+
 def ops_routed(split, evidence=None, balances=None) -> Check:
     """PROTOCOL.md sec.4: sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet)).
 

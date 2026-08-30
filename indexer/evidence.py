@@ -160,6 +160,28 @@ class Evidence:
 
         self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS discrepancy (
+                id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                mint                   TEXT    NOT NULL,
+                observed_at            INTEGER NOT NULL,
+                initial_supply         INTEGER,
+                live_supply            INTEGER NOT NULL,
+                implied_total_burned   INTEGER,
+                attributed_burned      INTEGER NOT NULL,
+                attributed_boost       INTEGER NOT NULL DEFAULT 0,
+                attributed_non_boost   INTEGER NOT NULL DEFAULT 0,
+                residual               INTEGER,
+                decimals               INTEGER NOT NULL,
+                burn_cursor_signature  TEXT,
+                walk_complete          INTEGER NOT NULL DEFAULT 0,
+                note                   TEXT
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS discrepancy_mint ON discrepancy(mint)")
+
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS scan_cursor (
                 target             TEXT    NOT NULL,
                 purpose            TEXT    NOT NULL,
@@ -495,6 +517,93 @@ class Evidence:
             "SELECT * FROM initial_supply WHERE mint = ?", (mint,)
         ).fetchone()
         return dict(row) if row else None
+
+    # -- burn atomicity (EVID-09) -------------------------------------------
+    def set_atomic(self, signature: str, mint: str, instruction_index: int, verdict: str) -> None:
+        """The one permitted update to an existing `burn_event` row (T-01-18):
+        writes the atomicity classification only. Changes no recorded fact --
+        `tokens_burned`, `sol_spent`, `slot`, everything else -- only the
+        verdict computed from them. Lets a later pass classify rows written
+        before `BURN_ATOMIC` existed, via `unclassified_burns`.
+        """
+        self._conn.execute(
+            "UPDATE burn_event SET atomic = ? WHERE signature = ? AND mint = ? AND instruction_index = ?",
+            (verdict, signature, mint, int(instruction_index)),
+        )
+        self._conn.commit()
+
+    def unclassified_burns(self, mint: str) -> list[dict]:
+        """Rows whose atomicity has not yet been classified (`atomic IS
+        NULL`) -- either written before this task existed, or recorded by a
+        run that has not yet re-fetched the transaction to classify it.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM burn_event WHERE mint = ? AND atomic IS NULL ORDER BY signature, instruction_index",
+            (mint,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    # -- discrepancy (EVID-10) -- append-only: a new observation is a new row --
+    def record_discrepancy(
+        self,
+        *,
+        mint: str,
+        observed_at: int,
+        live_supply: int,
+        attributed_burned: int,
+        decimals: int,
+        initial_supply: int | None = None,
+        implied_total_burned: int | None = None,
+        attributed_boost: int = 0,
+        attributed_non_boost: int = 0,
+        residual: int | None = None,
+        burn_cursor_signature: str | None = None,
+        walk_complete: bool = False,
+        note: str | None = None,
+    ) -> int:
+        """Record one reconciliation observation. Never `INSERT OR IGNORE`
+        or `ON CONFLICT` -- there is no natural key to dedup on, because a
+        second reading of a moving residual is a NEW fact, not a repeat of
+        the first (EVID-10: the residual is correct as of an observation,
+        not a one-time reconciliation). `autoincrement` id makes every call
+        its own row.
+
+        `attributed_boost`/`attributed_non_boost` split `attributed_burned`
+        by `burn_event.source` -- what makes the residual explicable rather
+        than mysterious (they always sum to `attributed_burned`).
+        """
+        cursor = self._conn.execute(
+            """
+            INSERT INTO discrepancy
+                (mint, observed_at, initial_supply, live_supply, implied_total_burned,
+                 attributed_burned, attributed_boost, attributed_non_boost, residual,
+                 decimals, burn_cursor_signature, walk_complete, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                mint,
+                int(observed_at),
+                int(initial_supply) if initial_supply is not None else None,
+                int(live_supply),
+                int(implied_total_burned) if implied_total_burned is not None else None,
+                int(attributed_burned),
+                int(attributed_boost),
+                int(attributed_non_boost),
+                int(residual) if residual is not None else None,
+                int(decimals),
+                burn_cursor_signature,
+                int(bool(walk_complete)),
+                note,
+            ),
+        )
+        self._conn.commit()
+        return int(cursor.lastrowid)
+
+    def discrepancies_for(self, mint: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM discrepancy WHERE mint = ? ORDER BY id", (mint,)
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
         """Every endpoint that successfully walked at least one signature for

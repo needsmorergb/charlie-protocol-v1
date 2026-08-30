@@ -485,6 +485,27 @@ def derive_initial_supply(rpc, evidence, mint: str, *, limit: int = DEFAULT_PAGE
         before = page[0]["signature"]  # oldest signature seen this page -- walk further back
 
 
+def classify_atomicity(tx: dict, mint: str) -> str:
+    """RESEARCH.md Q6, EVID-09: `PASS` when a burn for `mint` anywhere in
+    this transaction is accompanied, anywhere in the same transaction (not
+    necessarily the same parent instruction), by a swap-shaped instruction.
+    `FAIL` when a burn is found with no such instruction anywhere in the
+    transaction, or when the transaction itself failed
+    (`meta.err` is non-null) -- a failed transaction produced no real burn
+    and should not have been recorded as one.
+
+    One verdict per transaction: every burn instruction this transaction
+    contains for `mint` shares the same answer to "is a swap present
+    anywhere in this transaction", so the caller applies this once per
+    transaction to every burn row it writes from it.
+    """
+    if (tx.get("meta") or {}).get("err") is not None:
+        return "FAIL"
+    if not decode.find_burns(tx, mint):
+        return "FAIL"
+    return "PASS" if decode.find_swap_shaped(tx) else "FAIL"
+
+
 def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, limit=DEFAULT_PAGE_LIMIT):
     """One bounded walk over the **mint account's** own signature history,
     recording every burn instruction found against it (D-09: every burn
@@ -531,6 +552,10 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
                 if event is not None:
                     boost_event = event
                     break
+            # EVID-09: one atomicity verdict per transaction -- every burn
+            # this transaction contains for the mint shares the same answer
+            # to "is a swap present anywhere in this transaction".
+            atomic = classify_atomicity(tx, mint)
             for burn in burns:
                 evidence.record_burn_event(
                     signature=signature,
@@ -543,6 +568,7 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
                     # every coin until a protocol program id is registered
                     # (phase 5). The correct answer today, not an awkward one.
                     protocol_attributed=0,
+                    atomic=atomic,
                     block_time=block_time,
                     slot=slot,
                 )

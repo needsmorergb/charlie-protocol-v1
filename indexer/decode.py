@@ -27,7 +27,7 @@ import base64
 import hashlib
 
 from .base58 import encode
-from .pump import DecodeError, TOKEN_2022_PROGRAM, TOKEN_PROGRAM
+from .pump import DecodeError, PUMP_AMM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM
 
 # Anchor's event discriminator formula: sha256("event:" + EventName)[:8].
 # Pinned as literals (not computed at import time) so a typo in either the
@@ -106,6 +106,38 @@ def find_burns(tx: dict, mint: str) -> list[dict]:
             }
         )
     return found
+
+
+def find_swap_shaped(tx: dict) -> bool:
+    """True iff the transaction contains a swap-shaped instruction anywhere in
+    its tree -- top-level or nested inside a CPI.
+
+    RESEARCH.md Q6's algorithm, step 4: "a swap-shaped instruction -- a token
+    transfer/transferChecked moving the quote side, or a recognised AMM
+    program invocation." Two independent signals, either sufficient:
+
+    * an invocation of `pump.PUMP_AMM_PROGRAM` (the recognised AMM program;
+      extendable to a future DEX without changing the calling convention);
+    * a `transfer`/`transferChecked` instruction against the classic Token
+      program or Token-2022 -- the swap leg of a real boost crank is exactly
+      this, one CPI hop inside `boost_buy_and_burn`.
+
+    This is `BURN_ATOMIC`'s (EVID-09) one positive signal: finding this
+    alongside a burn for the mint anywhere in the same transaction is the
+    proof of atomicity PROTOCOL.md sec.4 requires (Solana transactions are
+    all-or-nothing, so both instructions committing together is the whole
+    proof).
+    """
+    for _flat_index, _top_index, instr in _flatten(tx):
+        if not isinstance(instr, dict):
+            continue
+        if instr.get("programId") == PUMP_AMM_PROGRAM:
+            return True
+        parsed = instr.get("parsed")
+        if isinstance(parsed, dict) and parsed.get("type") in ("transfer", "transferChecked"):
+            if instr.get("programId") in (TOKEN_PROGRAM, TOKEN_2022_PROGRAM):
+                return True
+    return False
 
 
 # -- Program data: log lines -------------------------------------------------
