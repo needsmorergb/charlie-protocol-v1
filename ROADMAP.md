@@ -97,6 +97,11 @@ once:
   `SwapEvent` and get garbage. On $CHARLIE this is 29 cranks over 341 seconds at
   migration and **all but ~34.7k of every token ever burned**.
 
+  Boost is read here, never invoked. It fires once at migration under pump's own
+  authority, and a burn we cannot cause is still a burn we have to account for —
+  a watcher that misses the largest event in a coin's history is the failure this
+  phase exists to fix.
+
 **Done when:** `BURN_SUPPLY` returns `PASS` or `FAIL`, and the $CHARLIE
 arithmetic either closes or is published as an open discrepancy with its exact
 size named.
@@ -135,12 +140,24 @@ scraped marketing copy rather than arithmetic. `ARCHITECTURE.md` §6 already
 names the requirements: exact quote stored, source URL, timestamp, visible
 correction path, and a bias to `NO_CLAIM` whenever the reading is ambiguous.
 
-**This ships last or not at all** — see open question 5. Everything else in the
+**This ships last or not at all** — see open question 4. Everything else in the
 index works without it.
 
 ---
 
 ## 3. Phase 2 — the program
+
+**Nothing in this phase waits on pump.** Pump is a fee source and a set of
+public accounts to decode; it is not a counterparty. We do not ask it for
+anything, do not need it to agree to anything, and no step below is blocked on a
+conversation with anyone who works there.
+
+That settles what was the largest open question in the build. Pump's boost vault
+could in principle do the buying and burning for us — but `boost_buy_and_burn`
+is signed by pump's boost authority, so routing the BURN leg through it means
+depending on pump to crank on a cadence, which means asking. **The crank is
+ours.** A protocol whose whole claim is permissionlessness cannot have a
+permission request on its critical path.
 
 ### 2.0 Toolchain
 
@@ -269,24 +286,21 @@ the growth surface — one mint in, one verdict out, no account.
 
 ## 6. Open questions
 
-1. **Will pump crank a funded boost vault on a cadence?** Unanswered. If yes,
-   phase 2's crank is optional and the program shrinks to `init_vault`. If no,
-   the BURN leg has to run through our own program. This is the single question
-   that most changes the shape of the build.
-2. **Which venue does `crank_burn` swap on** (2.3), and does it refuse coins
+1. **Which venue does `crank_burn` swap on** (2.3), and does it refuse coins
    outside that scope? Must close before the freeze.
-3. **May a grandfathered on-curve address ever carry a seal total?** The code
-   currently says no, so $CHARLIE's 178.7 SOL is unpublishable. That is the
-   harder answer and probably the right one; changing it is a spec edit, not a
-   code change.
-4. **Repo relationship.** `charlie_mode` (public — spec, buildlog) still holds a
+2. **May a grandfathered on-curve address ever carry a seal total?** The code
+   says no, so $CHARLIE's 178.7 SOL is unpublishable. Note that this is now
+   **permanent**, not pending: the config is `admin_revoked`, only pump could
+   reset it, and we are not asking. $CHARLIE stays mode 1 by force and publishes
+   no seal total, for good. Changing that is a spec edit, not a code change.
+3. **Repo relationship.** `charlie_mode` (public — spec, buildlog) still holds a
    copy of the indexer under `protocol/`. This repo now holds the working copy.
    Two copies is a divergence waiting to happen: either `charlie_mode/protocol`
    becomes a pointer here, or this repo absorbs the spec. Left open deliberately,
    because one of those repos is public and already has readers.
-5. **Does `UNVERIFIED` ship at all?** (1.6) It is the only output that is an
+4. **Does `UNVERIFIED` ship at all?** (1.6) It is the only output that is an
    accusation and the only one built on text rather than arithmetic.
-6. **Is the observation log committed?** This repo's `.gitignore` does not
+5. **Is the observation log committed?** This repo's `.gitignore` does not
    exclude `state/`, on the reasoning that an append-only record is worth more
    committed than local. It grows without bound; revisit before that matters.
 

@@ -61,7 +61,7 @@ wrong number in a published post.
 
 - **[`charlie-mode`](https://github.com/needsmorergb/charlie-mode)** — public.
   The spec, the architecture, and the build log. It also still carries a copy of
-  the indexer under `protocol/`; consolidating that is open question 4 in the
+  the indexer under `protocol/`; consolidating that is open question 3 in the
   roadmap.
 - **`charlie_xbot`** — private. The $CHARLIE burn watcher, live since
   2026-08-23. Predates the protocol and implements one leg of it. Where the
