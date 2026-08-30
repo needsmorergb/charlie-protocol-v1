@@ -249,11 +249,32 @@ class TestSchemaDiscipline(unittest.TestCase):
         self.assertNotIn("evidence", record.as_dict())
 
     def test_evidence_key_present_and_correct_when_a_handle_was_used(self):
-        record = Observation(mint=MINT, observed_at=1.0, evidence={SEAL: 500})
-        self.assertEqual(record.as_dict()["evidence"], {SEAL: 500})
+        """01-04, PUB-01: restated against the gated shape -- a missing
+        `evidence` total means the backing figure was withheld, never that
+        the quantity is zero. `SUPPLY_DESTROYED`'s `burn_total` is present
+        only while a check backs it, and the record names the withholding
+        the moment that check fails.
+        """
+        passing = (invariants.Check("SUPPLY_CHECK", invariants.PASS, (invariants.SUPPLY_DESTROYED,), "x==y", "ok"),)
+        record = Observation(mint=MINT, observed_at=1.0, evidence={"burn_total": 500})
+        record.checks = passing
+        record.verdict = invariants.apply_silence_rule(passing)
+        as_dict = record.as_dict()
+        self.assertEqual(as_dict["evidence"]["burn_total"], 500)
+        self.assertIn(invariants.SUPPLY_DESTROYED, as_dict["backed_by"])
+        self.assertIn("SUPPLY_CHECK", as_dict["backed_by"][invariants.SUPPLY_DESTROYED])
 
-    def test_schema_bumped_to_two(self):
-        self.assertEqual(Observation(mint=MINT, observed_at=1.0).schema, 2)
+        failing = (invariants.Check("SUPPLY_CHECK", invariants.FAIL, (invariants.SUPPLY_DESTROYED,), "x==y", "bad"),)
+        blocked_record = Observation(mint=MINT, observed_at=1.0, evidence={"burn_total": 500})
+        blocked_record.checks = failing
+        blocked_record.verdict = invariants.apply_silence_rule(failing)
+        blocked_dict = blocked_record.as_dict()
+        self.assertNotIn("evidence", blocked_dict)
+        self.assertIn(invariants.SUPPLY_DESTROYED, blocked_dict["blocked"])
+        self.assertEqual(blocked_dict["blocked"][invariants.SUPPLY_DESTROYED][0]["check"], "SUPPLY_CHECK")
+
+    def test_schema_bumped_to_three(self):
+        self.assertEqual(Observation(mint=MINT, observed_at=1.0).schema, 3)
 
 
 # -- git ignores the working store, not the committed export --------------

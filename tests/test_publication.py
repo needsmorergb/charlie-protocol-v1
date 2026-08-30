@@ -11,6 +11,7 @@ failing decode/classification test, never as a wrong published number.
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 import sys
 import tempfile
@@ -301,6 +302,7 @@ def build_observation(*, evidence=None, seal_balance=0, mint_supply=900, config_
         "status": 1,
         "admin": "admin-address",
         "admin_revoked": True,
+        "shareholders": tuple((a.address, a.bps) for a in split.attributions),
     })()
     record.graduated = True
     record.split = split
@@ -371,6 +373,185 @@ class TestPublisher(unittest.TestCase):
             publisher.figure(invariants.BURN_TOTAL)
 
 
+SENTINEL_PROGRAM = "Charr1eProtoco11111111111111111111111111111"
+SENTINEL_OPS_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+SEAL_RECORDED_SENTINEL = 24_680_135
+OPS_RECORDED_SENTINEL = 13_579_246
+BURN_SENTINEL_TOKENS = 98_765_432_100
+SPLIT_SEAL_BPS = 4_242
+SPLIT_PAID_BPS = 5_758
+INITIAL_SUPPLY_SENTINEL = 1_000_000_000_000
+# Deliberately different from SEAL_RECORDED_SENTINEL -- 01-04's plan calls
+# this out by name: a naive sweep that never distinguishes the live vault
+# balance (a non-figure fact report.py always prints) from the recorded
+# inflow total (SEAL_TOTAL's actual figure source) could pass even when the
+# two happen to collide. Two DIFFERENT sentinels is what forces a real test.
+LIVE_SEAL_BALANCE_SENTINEL_BLOCKED = 777_000_111
+
+FULL_DETAIL_SURFACES = ("report_text", "observe_json", "durable_record")
+
+
+def _sentinel_registry() -> Registry:
+    return Registry(program_id=SENTINEL_PROGRAM, grandfathered_seal=frozenset({GRANDFATHERED}))
+
+
+def _build_sentinel_split():
+    """Always classified against `CHARLIE` -- a CONFIG_MINT mismatch is
+    simulated separately, on `record.config.mint` only, exactly like
+    `build_observation(config_mismatch=True)` does above: `split_of()` must
+    keep classifying the real split, or a mismatched mint would derive a
+    different PDA and silently reclassify the seal address as OPS instead of
+    exercising the CONFIG_MINT gate this fixture exists to test.
+    """
+    registry = _sentinel_registry()
+    seal_address = registry.seal_vault(CHARLIE)
+    config = type("Cfg", (), {
+        "mint": CHARLIE,
+        "shareholders": ((seal_address, SPLIT_SEAL_BPS), (SENTINEL_OPS_ADDRESS, SPLIT_PAID_BPS)),
+    })()
+    return split_of(config, registry), seal_address, registry, config.shareholders
+
+
+def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observation:
+    """Every figure PASSES, each backed by a sentinel value distinctive
+    enough that only a real gate -- not a `str(value) in text` coincidence --
+    could make this sweep pass.
+    """
+    split, seal_address, registry, shareholders = _build_sentinel_split()
+
+    evidence.record_inflow(signature="sig-seal", destination=seal_address, mint=CHARLIE, leg="seal",
+                            lamports=SEAL_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.set_cursor(seal_address, "inflow", backfill_complete=1)
+    evidence.record_inflow(signature="sig-ops", destination=SENTINEL_OPS_ADDRESS, mint=CHARLIE, leg="paid",
+                            lamports=OPS_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.set_cursor(SENTINEL_OPS_ADDRESS, "inflow", backfill_complete=1)
+    evidence.record_burn_event(signature="sig-burn", mint=CHARLIE, instruction_index=0,
+                                tokens_burned=BURN_SENTINEL_TOKENS, source="spl_burn", slot=1,
+                                protocol_attributed=1, atomic="PASS")
+    evidence.set_cursor(CHARLIE, "burn", backfill_complete=1)
+    evidence.record_initial_supply(mint=CHARLIE, raw_supply=INITIAL_SUPPLY_SENTINEL, decimals=6)
+
+    record = Observation(mint=CHARLIE, observed_at=1.0)
+    record.config = type("Cfg", (), {
+        "mint": CHARLIE, "address": "config-address", "version": 2, "status": 1,
+        "admin": "admin-address", "admin_revoked": True, "shareholders": shareholders,
+    })()
+    record.graduated = True
+    record.split = split
+    record.mint_state = mint_state(INITIAL_SUPPLY_SENTINEL - BURN_SENTINEL_TOKENS)
+    record.seal_balances[seal_address] = SEAL_RECORDED_SENTINEL  # "==" comparator: must match exactly
+
+    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+    ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
+    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in seal_destinations + ops_destinations}
+    record.evidence_coverage = {
+        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in seal_destinations + ops_destinations
+    }
+
+    balances = dict(record.seal_balances)
+    for addr in ops_destinations:
+        balances[addr] = 0  # OPS_ROUTED only requires recorded > 0, not a balance match
+
+    seal_check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+    ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
+    burn_rows = evidence.burns_for(CHARLIE)
+    walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
+    initial_supply_row = evidence.initial_supply_for(CHARLIE)
+    burned = evidence.total_burned(CHARLIE)
+    burn_check = invariants.burn_supply(record.mint_state, initial_supply_row, burned, walk_complete)
+    atomic_check = invariants.burn_atomic(CHARLIE, burn_rows, walk_complete)
+    spend_check = invariants.burn_spend(split)
+    record.evidence["burn_total"] = burned
+    record.evidence["initial_supply"] = initial_supply_row
+
+    record.checks = (
+        invariants.config_mint(CHARLIE, record.config),
+        invariants.split_sum(split),
+        invariants.seal_unspendable(split),
+        seal_check,
+        burn_check,
+        invariants.burn_irreversible(record.mint_state),
+        atomic_check,
+        spend_check,
+        ops_check,
+    )
+    record.verdict = invariants.apply_silence_rule(record.checks)
+    return record
+
+
+def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
+    """Every figure BLOCKED, by a single `CONFIG_MINT` mismatch -- yet the
+    same sentinel values are genuinely present in `observation.evidence`
+    (recorded independently of any check's status), so a leak here is a real
+    bypass, not an artifact of the fixture never having the data at all.
+
+    The inflow/burn walks are deliberately left incomplete: `SEAL_BALANCE`/
+    `OPS_ROUTED`/`BURN_SUPPLY`/`BURN_ATOMIC` all resolve to their natural
+    UNCHECKED "walk incomplete" branch, which -- unlike their PASS/FAIL
+    branches -- never populates `expected`/`actual` with the recorded
+    numbers. That keeps the sentinel check honest: the only way a sentinel
+    could appear on a surface is through the actual bypass this plan closes,
+    not through the check's own legitimate, always-shown diagnostic fields.
+    """
+    split, seal_address, registry, shareholders = _build_sentinel_split()
+
+    evidence.record_inflow(signature="sig-seal", destination=seal_address, mint=CHARLIE, leg="seal",
+                            lamports=SEAL_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.record_inflow(signature="sig-ops", destination=SENTINEL_OPS_ADDRESS, mint=CHARLIE, leg="paid",
+                            lamports=OPS_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.record_burn_event(signature="sig-burn", mint=CHARLIE, instruction_index=0,
+                                tokens_burned=BURN_SENTINEL_TOKENS, source="spl_burn", slot=1,
+                                protocol_attributed=1, atomic="PASS")
+    evidence.record_initial_supply(mint=CHARLIE, raw_supply=INITIAL_SUPPLY_SENTINEL, decimals=6)
+
+    record = Observation(mint=CHARLIE, observed_at=1.0)
+    record.config = type("Cfg", (), {
+        "mint": "some-other-mint", "address": "config-address", "version": 2, "status": 1,
+        "admin": "admin-address", "admin_revoked": True, "shareholders": shareholders,
+    })()
+    record.graduated = True
+    record.split = split
+    record.mint_state = mint_state(INITIAL_SUPPLY_SENTINEL - BURN_SENTINEL_TOKENS)
+    record.seal_balances[seal_address] = LIVE_SEAL_BALANCE_SENTINEL_BLOCKED
+
+    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+    ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
+    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in seal_destinations + ops_destinations}
+    record.evidence_coverage = {
+        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in seal_destinations + ops_destinations
+    }
+
+    balances = dict(record.seal_balances)
+    for addr in ops_destinations:
+        balances[addr] = 0
+
+    seal_check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+    ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
+    burn_rows = evidence.burns_for(CHARLIE)
+    walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")  # False -- never marked complete
+    initial_supply_row = evidence.initial_supply_for(CHARLIE)
+    burned = evidence.total_burned(CHARLIE)
+    burn_check = invariants.burn_supply(record.mint_state, initial_supply_row, burned, walk_complete)
+    atomic_check = invariants.burn_atomic(CHARLIE, burn_rows, walk_complete)
+    spend_check = invariants.burn_spend(split)
+    record.evidence["burn_total"] = burned
+    record.evidence["initial_supply"] = initial_supply_row
+
+    record.checks = (
+        invariants.config_mint(CHARLIE, record.config),  # FAILS -- backs every FIGURE
+        invariants.split_sum(split),
+        invariants.seal_unspendable(split),
+        seal_check,
+        burn_check,
+        invariants.burn_irreversible(record.mint_state),
+        atomic_check,
+        spend_check,
+        ops_check,
+    )
+    record.verdict = invariants.apply_silence_rule(record.checks)
+    return record
+
+
 class TestSilenceRuleSweep(unittest.TestCase):
     """PUB-01/PUB-02: drive the sweep from `invariants.FIGURES` itself, not
     a hand-written list -- a figure added later without a backing check
@@ -417,6 +598,263 @@ class TestSilenceRuleSweep(unittest.TestCase):
                 continue  # publishable -- nothing withheld to inspect
             names = [name for name, _status, _detail in reasons]
             self.assertNotIn("NO_CHECK", names, f"{figure} rests on NO_CHECK")
+
+    # -- driven from invariants.FIGURES x publish.SURFACES, sentinel-valued --
+    def test_no_blocked_figures_sentinel_leaks_into_any_registered_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_blocked_sentinel_observation(evidence)
+            stored_records = [observation.as_dict()]
+            evidence.close()
+
+        self.assertEqual(observation.verdict.publishable, frozenset())
+        # SPLIT's sentinel is the composed {"seal":..,"burn":..,"paid":..}
+        # shape, not a bare bps number: `config.shareholders` legitimately
+        # carries the same raw bps unconditionally (it is chain-read input,
+        # not the classified/checked SPLIT figure -- report.py never prints
+        # it either), so a bare-number containment check would false-fail on
+        # that always-visible, correctly-unguarded field.
+        sentinels = {
+            invariants.SPLIT: json.dumps({"seal": SPLIT_SEAL_BPS, "burn": 0, "paid": SPLIT_PAID_BPS}, sort_keys=True),
+            invariants.SEAL_TOTAL: str(SEAL_RECORDED_SENTINEL),
+            invariants.OPS_TOTAL: str(OPS_RECORDED_SENTINEL),
+            invariants.SUPPLY_DESTROYED: str(BURN_SENTINEL_TOKENS),
+        }
+
+        for surface_name, entry in publish.SURFACES.items():
+            subject = observation if entry["input"] == "observation" else stored_records
+            rendered = publish.render_surface(surface_name, subject)
+            for figure, sentinel in sentinels.items():
+                self.assertNotIn(sentinel, rendered, f"{figure}'s sentinel leaked into {surface_name}")
+
+    def test_every_publishable_figure_shows_its_sentinel_and_backing_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_publishable_sentinel_observation(evidence)
+            stored_records = [observation.as_dict()]
+            evidence.close()
+
+        publisher = publish.Publisher(observation)
+        needles = {
+            invariants.SPLIT: (str(SPLIT_SEAL_BPS), str(SPLIT_PAID_BPS)),
+            invariants.SEAL_TOTAL: (str(SEAL_RECORDED_SENTINEL),),
+            invariants.OPS_TOTAL: (str(OPS_RECORDED_SENTINEL),),
+            invariants.SUPPLY_DESTROYED: (str(BURN_SENTINEL_TOKENS),),
+        }
+        for surface_name in FULL_DETAIL_SURFACES:
+            rendered = publish.render_surface(surface_name, observation)
+            for figure, needle_values in needles.items():
+                if not publisher.verdict.may_publish(figure):
+                    continue
+                _value, backs = publisher.figure(figure)
+                self.assertTrue(backs, f"{figure} publishable with no backing check names")
+                for needle in needle_values:
+                    self.assertIn(needle, rendered, f"{figure}'s value {needle!r} missing from {surface_name}")
+                for name in backs:
+                    self.assertIn(name, rendered, f"{figure}'s backing check {name!r} missing from {surface_name}")
+
+        # log_text keeps its pre-existing, deliberately compact design: only
+        # SPLIT appears in the one-line summary.
+        log_text = publish.render_surface("log_text", stored_records)
+        self.assertIn(str(SPLIT_SEAL_BPS), log_text)
+
+        # log_json passes the already-gated stored record through verbatim --
+        # every publishable figure's value survives replay.
+        log_json = publish.render_surface("log_json", stored_records)
+        self.assertIn(str(SEAL_RECORDED_SENTINEL), log_json)
+        self.assertIn(str(OPS_RECORDED_SENTINEL), log_json)
+        self.assertIn(str(BURN_SENTINEL_TOKENS), log_json)
+
+
+# -- the durable record: the blocking gap 01-VERIFICATION.md reproduced -----
+class TestDurableRecordSilence(unittest.TestCase):
+    """The inverse of the verifier's reproduction: what
+    `Observation.as_dict()` used to serialise with no reference to
+    `self.verdict` at all must now obey exactly the rule `report.render()`/
+    `publish.public_record()` already enforced.
+    """
+
+    def test_config_mint_failed_serialises_no_split_value_anywhere(self):
+        observation = build_observation(config_mismatch=True)
+        record = observation.as_dict()
+
+        self.assertNotIn("split", record)
+        self.assertNotIn("attribution", record)
+        self.assertIn(invariants.SPLIT, record["blocked"])
+        self.assertEqual(record["blocked"][invariants.SPLIT][0]["check"], "CONFIG_MINT")
+
+    def test_burn_atomic_unchecked_serialises_no_supply_destroyed_value_anywhere(self):
+        observation = build_observation()  # no evidence handle -- BURN_ATOMIC/BURN_SUPPLY UNCHECKED
+        record = observation.as_dict()
+
+        self.assertNotIn("evidence", record)
+        self.assertIn(invariants.SUPPLY_DESTROYED, record["blocked"])
+
+    def test_burn_atomic_unchecked_with_real_evidence_withholds_the_real_burn_total(self):
+        """The verifier's exact reproduction: a real, non-trivial burn total
+        exists in `observation.evidence`, and must still not reach the
+        record while BURN_ATOMIC/BURN_SUPPLY are UNCHECKED (walk incomplete).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.record_burn_event(
+                signature="sig-1", mint=CHARLIE, instruction_index=0,
+                tokens_burned=43_575_480_427_900, source="boost_buy_and_burn", slot=1,
+            )
+            observation = build_observation(evidence=evidence)
+            record = observation.as_dict()
+            evidence.close()
+
+        self.assertIn(invariants.SUPPLY_DESTROYED, record["blocked"])
+        text = json.dumps(record, sort_keys=True)
+        self.assertNotIn("43575480427900", text)
+
+    def test_publishable_split_carries_value_and_backing_check_names(self):
+        observation = build_observation()
+        record = observation.as_dict()
+
+        self.assertEqual(record["split"], {"seal": 10_000, "burn": 0, "paid": 0})
+        self.assertIn("CONFIG_MINT", record["backed_by"][invariants.SPLIT])
+        self.assertIn("SPLIT_SUM", record["backed_by"][invariants.SPLIT])
+
+    def test_schema_is_bumped_to_three_and_committed_records_are_never_rewritten(self):
+        self.assertEqual(Observation(mint=CHARLIE, observed_at=1.0).schema, 3)
+
+
+class TestLogSurfaceRedaction(unittest.TestCase):
+    """A stored schema-2 record whose split was not publishable must be
+    redacted on replay -- the append-only file itself is never touched.
+    """
+
+    def _legacy_unpublishable_record(self) -> dict:
+        return {
+            "schema": 2,
+            "mint": CHARLIE,
+            "observed_at": 1.0,
+            "error": None,
+            "split": {"seal": 10_000, "burn": 0, "paid": 0},
+            "attribution": [
+                {"address": GRANDFATHERED, "bps": 10_000, "leg": "seal", "keyless": False, "reason": "x"}
+            ],
+            "checks": [],
+            "publishable": [],
+            "blocked": {
+                invariants.SPLIT: [{"check": "CONFIG_MINT", "status": "FAIL", "detail": "mismatch"}]
+            },
+        }
+
+    def test_gate_stored_record_strips_split_and_attribution(self):
+        gated = publish.gate_stored_record(self._legacy_unpublishable_record())
+        self.assertNotIn("split", gated)
+        self.assertNotIn("attribution", gated)
+        self.assertEqual(gated["_redacted"], [invariants.SPLIT])
+
+    def test_log_text_names_the_withholding_instead_of_a_bare_dash(self):
+        from indexer.cli import _log_lines
+
+        lines = _log_lines([self._legacy_unpublishable_record()])
+        joined = "\n".join(lines)
+        self.assertNotIn("10000", joined)
+        self.assertIn("CONFIG_MINT", joined)
+        self.assertIn("redacted", joined.lower())
+
+    def test_log_json_strips_the_figure_and_marks_the_redaction(self):
+        from indexer.cli import _log_json_lines
+
+        lines = _log_json_lines([self._legacy_unpublishable_record()])
+        parsed = json.loads(lines[0])
+        self.assertNotIn("split", parsed)
+        self.assertNotIn("attribution", parsed)
+        self.assertEqual(parsed["_redacted"], [invariants.SPLIT])
+
+    def test_a_record_with_nothing_blocked_passes_through_unredacted(self):
+        record = {
+            "schema": 3, "mint": CHARLIE, "observed_at": 1.0, "error": None,
+            "split": {"seal": 10_000, "burn": 0, "paid": 0}, "checks": [],
+            "publishable": [invariants.SPLIT], "blocked": {},
+        }
+        gated = publish.gate_stored_record(record)
+        self.assertEqual(gated["split"], {"seal": 10_000, "burn": 0, "paid": 0})
+        self.assertNotIn("_redacted", gated)
+
+
+# -- the surface registry: every emitter classified or the test fails -------
+def _iter_module_functions(tree: ast.AST):
+    """`(qualified_name, node)` for every function under a module: plain
+    name for a module-level function, `Class.method` for a class method.
+    One level deep is sufficient -- this codebase nests neither.
+    """
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node.name, node
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    yield f"{node.name}.{child.name}", child
+
+
+def _function_emits(node: ast.AST) -> bool:
+    """True iff `node`'s body calls `print(...)` or `json.dumps(...)`
+    anywhere -- the two ways a value in this codebase reaches a human or the
+    committed record.
+    """
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        func = call.func
+        if isinstance(func, ast.Name) and func.id == "print":
+            return True
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "dumps"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "json"
+        ):
+            return True
+    return False
+
+
+def _every_emitting_function() -> list[str]:
+    indexer_dir = Path(__file__).resolve().parents[1] / "indexer"
+    found = []
+    for path in sorted(indexer_dir.glob("*.py")):
+        module = f"indexer.{path.stem}"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for qualname, node in _iter_module_functions(tree):
+            if _function_emits(node):
+                found.append(f"{module}:{qualname}")
+    return found
+
+
+class TestSurfaceRegistryCoversEveryEmitter(unittest.TestCase):
+    """01-VERIFICATION.md's second `missing:` item: the old sweep enumerated
+    surfaces by hand, which is why a third one went unswept. This walks
+    `indexer/` with `ast` and fails when a function that emits (`print` or
+    `json.dumps`) is neither a `publish.SURFACES` target nor an explicitly
+    reasoned `publish.NON_FIGURE_EMITTERS` entry -- a fourth unswept surface
+    fails a test instead of shipping silently.
+    """
+
+    def test_every_emitting_function_is_classified(self):
+        classified = {entry["target"] for entry in publish.SURFACES.values()}
+        classified |= set(publish.NON_FIGURE_EMITTERS.keys())
+        offenders = [name for name in _every_emitting_function() if name not in classified]
+        self.assertEqual(offenders, [], f"unclassified emitting function(s): {offenders}")
+
+    def test_every_non_figure_emitter_carries_a_reason(self):
+        for target, reason in publish.NON_FIGURE_EMITTERS.items():
+            self.assertIsInstance(reason, str)
+            self.assertTrue(reason.strip(), f"{target} has an empty reason")
+
+    def test_every_surface_target_resolves_to_a_real_callable(self):
+        for name in publish.SURFACES:
+            entry = publish.SURFACES[name]
+            module_name, _, attr = entry["target"].partition(":")
+            module = importlib.import_module(module_name)
+            target = module
+            for part in attr.split("."):
+                target = getattr(target, part)
+            self.assertTrue(callable(target), f"{name}'s target {entry['target']} is not callable")
 
 
 # -- export: discrepancy table registered, determinism across all tables ----

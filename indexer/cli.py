@@ -187,28 +187,56 @@ def _stamp(value) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
 
 
+def _log_lines(records) -> list[str]:
+    """The pure line-producing half of the text `log` surface -- every
+    record routed through `publish.gate_stored_record()` first, so a legacy
+    schema-2 record whose split was not publishable is redacted on replay
+    rather than reprinted verbatim (PUB-01, `01-VERIFICATION.md`).
+    """
+    lines: list[str] = []
+    for record in records:
+        gated = publish.gate_stored_record(record)
+        stamp = _stamp(gated.get("observed_at"))
+        split = gated.get("split") or {}
+        failed = [c["name"] for c in gated.get("checks", []) if c["status"] == invariants.FAIL]
+        blocked = gated.get("blocked") or {}
+        state = "ERROR" if gated.get("error") and not split else ("FAIL" if failed else "ok")
+        if split:
+            summary = f"seal {split.get('seal')} burn {split.get('burn')} paid {split.get('paid')}"
+        elif invariants.SPLIT in blocked and blocked[invariants.SPLIT]:
+            reason = blocked[invariants.SPLIT][0]
+            summary = f"withheld -- {reason['check']} ({reason['status']})"
+        else:
+            summary = gated.get("error") or "-"
+        lines.append(f"{stamp}  {state:<5}  {gated.get('mint')}  {summary}")
+        if failed:
+            lines.append(f"{'':<21}  failed: {', '.join(failed)}")
+        if gated.get("_redacted"):
+            lines.append(
+                f"{'':<21}  redacted on replay (schema {gated.get('schema')}): "
+                + ", ".join(gated["_redacted"])
+            )
+    return lines
+
+
+def _log_json_lines(records) -> list[str]:
+    """The pure line-producing half of the `log --json` surface -- same
+    `gate_stored_record()` pass as `_log_lines`, one JSON line per record.
+    """
+    return [json.dumps(publish.gate_stored_record(record), sort_keys=True) for record in records]
+
+
 def _log(args) -> int:
     records = Store(args.path).read(mint=args.mint, limit=args.limit)
     if args.json:
-        for record in records:
-            print(json.dumps(record, sort_keys=True))
+        for line in _log_json_lines(records):
+            print(line)
         return 0
     if not records:
         print(f"no observations in {args.path}")
         return 0
-    for record in records:
-        stamp = _stamp(record.get("observed_at"))
-        split = record.get("split") or {}
-        failed = [c["name"] for c in record.get("checks", []) if c["status"] == invariants.FAIL]
-        state = "ERROR" if record.get("error") and not split else ("FAIL" if failed else "ok")
-        summary = (
-            f"seal {split.get('seal')} burn {split.get('burn')} paid {split.get('paid')}"
-            if split
-            else (record.get("error") or "-")
-        )
-        print(f"{stamp}  {state:<5}  {record.get('mint')}  {summary}")
-        if failed:
-            print(f"{'':<21}  failed: {', '.join(failed)}")
+    for line in _log_lines(records):
+        print(line)
     return 0
 
 

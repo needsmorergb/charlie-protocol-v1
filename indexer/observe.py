@@ -19,11 +19,21 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from . import invariants
+from . import invariants, publish
 from .legs import Registry, Split, split_of
 from .pump import DecodeError, MintState, SharingConfig, read_bonding_curve, read_mint, read_sharing_config
 
-SCHEMA = 2
+# Bumped 2 -> 3 (01-04, PUB-01): schema 2's as_dict() emitted `split` and
+# `evidence["burn_total"]` unconditionally, with no reference to
+# `self.verdict` -- the exact gap 01-VERIFICATION.md reproduced against the
+# shipped code. Schema 3's as_dict() delegates to publish.durable_record(),
+# which obtains every figure through publish.Publisher the same way
+# report.render()/publish.public_record() always have. A reader must be able
+# to tell a gated record from an ungated one by schema number alone; the two
+# committed schema-2 records in state/observations.jsonl are never rewritten
+# to match -- they are read through publish.gate_stored_record() instead
+# (indexer/cli.py's log/log --json).
+SCHEMA = 3
 
 
 @dataclass
@@ -56,63 +66,13 @@ class Observation:
         return [c for c in self.checks if c.status == invariants.UNCHECKED]
 
     def as_dict(self) -> dict:
-        record = {
-            "schema": self.schema,
-            "mint": self.mint,
-            "observed_at": self.observed_at,
-            "error": self.error,
-        }
-        if self.config is not None:
-            record["config"] = {
-                "address": self.config.address,
-                "mint": self.config.mint,
-                "version": self.config.version,
-                "status": self.config.status,
-                "admin": self.config.admin,
-                "admin_revoked": self.config.admin_revoked,
-                "shareholders": [
-                    {"address": who, "bps": bps} for who, bps in self.config.shareholders
-                ],
-            }
-        if self.graduated is not None:
-            record["graduated"] = self.graduated
-        if self.split is not None:
-            record["split"] = self.split.as_dict()
-            record["attribution"] = [
-                {
-                    "address": a.address,
-                    "bps": a.bps,
-                    "leg": a.leg,
-                    "keyless": a.keyless,
-                    "reason": a.reason,
-                }
-                for a in self.split.attributions
-            ]
-        if self.mint_state is not None:
-            record["mint_state"] = {
-                "supply": self.mint_state.supply,
-                "decimals": self.mint_state.decimals,
-                "mint_authority": self.mint_state.mint_authority,
-                "freeze_authority": self.mint_state.freeze_authority,
-                "token_program": self.mint_state.program,
-            }
-        if self.seal_balances:
-            record["seal_balances"] = self.seal_balances
-        if self.evidence is not None:
-            record["evidence"] = self.evidence
-        if self.evidence_coverage is not None:
-            record["evidence_coverage"] = self.evidence_coverage
-        record["checks"] = [c.as_dict() for c in self.checks]
-        if self.verdict is not None:
-            record["publishable"] = sorted(self.verdict.publishable)
-            record["blocked"] = {
-                figure: [
-                    {"check": name, "status": status, "detail": detail}
-                    for name, status, detail in reasons
-                ]
-                for figure, reasons in sorted(self.verdict.blocked.items())
-            }
-        return record
+        """PUB-01: delegates to `publish.durable_record()`, the single gate
+        every figure-shaped field passes through before reaching this
+        append-only surface. See `publish.durable_record()`'s docstring for
+        exactly what is gated and why; nothing here reads `self.split` or
+        `self.evidence` directly any more.
+        """
+        return publish.durable_record(self)
 
 
 def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence=None) -> Observation:
