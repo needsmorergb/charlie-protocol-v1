@@ -14,18 +14,34 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 147 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 165 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
 | `web/` — the index, `/coin`, `/enroll`, `/verify` | **not built** |
 
 Of the nine checks the indexer knows about, `CONFIG_MINT`, `SPLIT_SUM`,
-`SEAL_UNSPENDABLE`, `SEAL_BALANCE`, `BURN_SUPPLY`, `BURN_IRREVERSIBLE`,
-`BURN_ATOMIC` and `OPS_ROUTED` compute real `PASS`/`FAIL` against stored
-evidence, not a placeholder. Only `BURN_SPEND` stays `UNCHECKED` — by
-construction, not by omission: it needs recorded fee claims at a BURN
-destination, and no coin has a BURN destination while the protocol program
-is not deployed. `UNCHECKED` is not a soft pass: it withholds its figure
-exactly as hard as `FAIL` does, and every check states why in one sentence.
+`SEAL_UNSPENDABLE`, `SEAL_BALANCE`, `BURN_SUPPLY`, `BURN_IRREVERSIBLE` and
+`OPS_ROUTED` compute real `PASS`/`FAIL` against stored evidence, not a
+placeholder. `BURN_SPEND` stays `UNCHECKED` — by construction, not by
+omission: it needs recorded fee claims at a BURN destination, and no coin has
+a BURN destination while the protocol program is not deployed. `UNCHECKED`
+is not a soft pass: it withholds its figure exactly as hard as `FAIL` does,
+and every check states why in one sentence.
+
+`BURN_ATOMIC` needs its own paragraph because it means two different things
+at two different levels, and conflating them was a mistake this project made
+once already (see the dated correction in
+[`01-03-SUMMARY.md`](.planning/phases/01-evidence/01-03-SUMMARY.md)). At the
+per-transaction level, `scan.classify_atomicity` classifies each of
+$CHARLIE's 29 recorded boost-crank burns individually, and all 29 classify
+`PASS`. That is not the same claim as the aggregate `BURN_ATOMIC` check
+`observe()` reports: the mint-wide burn walk is incomplete
+(`state/evidence/discrepancy.jsonl`'s `walk_complete: 0`), so no aggregate
+atomicity verdict is claimed for $CHARLIE today. Separately, as of D-14,
+`BURN_ATOMIC` is narrowed to gate only protocol-attributed burns (D-10) —
+PROTOCOL.md sec.4's atomicity requirement is about the protocol's own BURN
+leg, not third-party burns. $CHARLIE has zero protocol-attributed burns (no
+protocol program exists yet), so `BURN_ATOMIC` reads not-applicable for
+$CHARLIE, and for every coin, until phase 5.
 
 $CHARLIE specifically: `SEAL_UNSPENDABLE` fails permanently — its seal
 address is on the ed25519 curve, so a private key can exist for it, and its
@@ -34,9 +50,8 @@ publishable for $CHARLIE, now or later. The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
 vaults exist (phase 5) — every SEAL destination today is the grandfathered
 shared address, which the mechanism deliberately excludes (D-06/D-07).
-`BURN_ATOMIC` runs against $CHARLIE's real boost-crank burns today and
-passes — [`state/RECONCILIATION.md`](state/RECONCILIATION.md) is the
-committed, reproducible record of its exact residual, correct as of a named
+[`state/RECONCILIATION.md`](state/RECONCILIATION.md) is the committed,
+reproducible record of $CHARLIE's exact residual, correct as of a named
 observation.
 
 [`.planning/ROADMAP.md`](.planning/ROADMAP.md) is the plan for closing that, in

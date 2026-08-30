@@ -605,6 +605,27 @@ class Evidence:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def cursor_progress(self, target: str, purpose: str) -> list[dict]:
+        """Every `scan_cursor` row recorded for `target`/`purpose`, one per
+        contributing endpoint, ordered by endpoint for stable output (WR-01).
+
+        `get_cursor(target, purpose)` alone reads a single endpoint --
+        defaulting to the single-endpoint sentinel `DEFAULT_ENDPOINT_KEY`,
+        which `scan_inflows_all_endpoints()` (the only production scan path,
+        D-13) never writes to. This is the read that matches how production
+        actually writes cursors: one row per endpoint, under that endpoint's
+        own identifier. Each row carries its `endpoint`, `oldest_signature`,
+        `last_signature`, `backfill_complete` and `last_error` -- everything
+        `_incomplete_walk_detail()` needs to report what each endpoint
+        actually reached, rather than reading a key production never
+        populates.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM scan_cursor WHERE target = ? AND purpose = ? ORDER BY endpoint",
+            (target, purpose),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
         """Every endpoint that successfully walked at least one signature for
         this target -- D-13's "how many endpoints contributed" field. An

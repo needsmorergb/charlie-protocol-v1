@@ -204,6 +204,50 @@ class TestBackfillGate(unittest.TestCase):
             self.assertIn(GRANDFATHERED, check.detail)
             self.assertIn(oldest, check.detail)
 
+    def test_incomplete_walk_names_signature_and_endpoint_for_the_production_path(self):
+        """WR-01: `scan_inflows_all_endpoints()` -- the production path
+        (D-13) -- writes cursors under real endpoint identifiers, never under
+        `get_cursor(destination, "inflow")`'s single-endpoint sentinel. The
+        incomplete-walk detail must read the way production actually writes,
+        naming each contributing endpoint beside the signature it reached.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            page_a = [
+                {"signature": f"sig-a-{i}", "err": None, "slot": i, "blockTime": i}
+                for i in range(1000)
+            ]
+            transactions_a = {row["signature"]: make_tx({GRANDFATHERED: (0, 1)}) for row in page_a}
+            endpoint_a = FakeScanRpc(pages=[page_a], transactions=transactions_a)
+
+            page_b = [
+                {"signature": f"sig-b-{i}", "err": None, "slot": i, "blockTime": i}
+                for i in range(1000)
+            ]
+            transactions_b = {row["signature"]: make_tx({GRANDFATHERED: (0, 1)}) for row in page_b}
+            endpoint_b = FakeScanRpc(pages=[page_b], transactions=transactions_b)
+
+            evidence = evidence_db(tmp)
+            scan_inflows_all_endpoints(
+                {"endpoint-a": endpoint_a, "endpoint-b": endpoint_b},
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            cursor_a = evidence.get_cursor(GRANDFATHERED, "inflow", endpoint="endpoint-a")
+            cursor_b = evidence.get_cursor(GRANDFATHERED, "inflow", endpoint="endpoint-b")
+
+            split = split_with([seal_attr(GRANDFATHERED)])
+            check = invariants.seal_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 1000})
+            evidence.close()
+
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertIn("endpoint-a", check.detail)
+            self.assertIn(cursor_a["oldest_signature"], check.detail)
+            self.assertIn("endpoint-b", check.detail)
+            self.assertIn(cursor_b["oldest_signature"], check.detail)
+            # The single-endpoint helper's "*" cursor row is simply one more
+            # endpoint row to this same aggregate read -- keep it recognisable.
+            self.assertNotIn('"*"', check.detail)
+
     def test_ops_routed_unchecked_while_backfill_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             page = [

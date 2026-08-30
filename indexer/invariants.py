@@ -204,6 +204,36 @@ def seal_balance(
     )
 
 
+def _incomplete_walk_detail(evidence, destination: str) -> str:
+    """WR-01: the incomplete-walk diagnostic, read the way
+    `scan_inflows_all_endpoints()` (D-13, the only production scan path)
+    actually writes cursors -- one row per contributing endpoint, under that
+    endpoint's own identifier -- rather than `get_cursor(destination,
+    "inflow")`'s single-endpoint-sentinel default (`DEFAULT_ENDPOINT_KEY`),
+    which the production path never populates and which therefore always
+    read "no signature yet" no matter how far a real scan had progressed.
+
+    Names each contributing endpoint beside the signature it reached, and
+    surfaces any endpoint's stored `last_error` (D-13: a coverage gap is
+    stored, never inferred from silence). Never ranks or picks a single
+    "furthest" endpoint: signatures are base58 and carry no ordering, the
+    cursor stores no slot, and inventing a winner would be a claim the data
+    does not support -- reporting each endpoint's own reach is both honest
+    and strictly more informative than the single hardcoded key it replaces.
+    """
+    rows = evidence.cursor_progress(destination, "inflow")
+    if not rows:
+        return f"the walk of {destination} is incomplete -- reached no signature yet"
+    parts = []
+    for row in rows:
+        endpoint = row["endpoint"]
+        signature = row.get("oldest_signature") or "no signature yet"
+        parts.append(f"{endpoint}: reached {signature}")
+        if row.get("last_error"):
+            parts.append(f"{endpoint} error: {row['last_error']}")
+    return f"the walk of {destination} is incomplete -- " + "; ".join(parts)
+
+
 def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     registry = registry or Registry()
     seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
@@ -220,13 +250,11 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     for destination in seal_destinations:
         comparator = "<=" if destination in registry.grandfathered_seal else "=="
         if not evidence.is_backfill_complete(destination, "inflow"):
-            cursor = evidence.get_cursor(destination, "inflow") or {}
-            reached = cursor.get("oldest_signature") or "no signature yet"
             per_destination.append(
                 {
                     "destination": destination,
                     "status": UNCHECKED,
-                    "detail": f"the walk of {destination} is incomplete -- reached {reached}",
+                    "detail": _incomplete_walk_detail(evidence, destination),
                 }
             )
             continue
@@ -400,18 +428,41 @@ def burn_atomic(mint: str, burn_rows, walk_complete: bool = False) -> Check:
     `scan.classify_atomicity` has not run against it, or ran before this
     check was ever computed).
 
-    UNCHECKED -- never FAIL -- in three cases, each a "we have not finished
-    checking" state rather than an accusation:
+    D-14 (2026-08-30, post-verification code review): PROTOCOL.md sec.4's
+    atomicity requirement is about the protocol's OWN `BURN` leg -- a
+    stranger burning their own tokens has no swap to be atomic with, and
+    gating `SUPPLY_DESTROYED` on every burn against the mint would make the
+    figure permanently unpublishable the moment a coin's non-crank burns are
+    fully recorded. So this check now consults only rows flagged
+    `protocol_attributed` (D-10) -- unforgeable and trivially checkable,
+    zero for every coin until phase 5 registers a protocol program.
 
-    1. No burn recorded yet for this mint.
-    2. The mint-wide burn walk is incomplete.
-    3. A recorded row has not yet been classified for atomicity.
+    UNCHECKED -- never FAIL -- in four cases, three "we have not finished
+    checking" and one "this does not apply here":
 
-    Only once every recorded row is classified and the walk is complete does
-    this compute `PASS` (every row reads `PASS`) or `FAIL` (any row reads
-    `FAIL`, named by signature) -- EVID-09: this is the check that RESEARCH.md
-    Q6 confirmed runs today and structurally passes $CHARLIE's existing
-    boost burns.
+    1. No burn recorded yet for this mint at all (ahead of the narrowing --
+       even a third-party-only mint has "nothing recorded" to report before
+       any row exists).
+    2. The mint-wide burn walk is incomplete (also ahead of the narrowing --
+       a burn the walk has not reached yet might turn out to be
+       protocol-attributed, so "no protocol burns exist" cannot be claimed
+       until the walk has actually seen everything).
+    3. No protocol-attributed burn exists among the rows recorded so far --
+       the not-applicable reading. Carries an EMPTY `backs` tuple: this
+       check makes no claim about `SUPPLY_DESTROYED` at all when it does not
+       apply, so it can never render as a vacuous `PASS` that would put
+       `BURN_ATOMIC` on phase 2's page as a check backing a figure it never
+       evaluated. The correct answer, not an awkward one -- the same shape
+       as D-10, and true for every coin until phase 5.
+    4. A protocol-attributed row has not yet been classified for atomicity.
+
+    Only once the walk is complete and at least one protocol-attributed row
+    exists, all classified, does this compute `PASS` (every protocol-
+    attributed row reads `PASS`) or `FAIL` (any protocol-attributed row
+    reads `FAIL`, named by signature). A third-party burn's own `atomic`
+    classification is untouched by this narrowing -- `scan.classify_atomicity`
+    keeps classifying and recording every burn it sees (D-09); only which
+    rows THIS check consults changes.
     """
     equation = "swap_instruction.transaction == burn_instruction.transaction"
     if not burn_rows:
@@ -431,24 +482,38 @@ def burn_atomic(mint: str, burn_rows, walk_complete: bool = False) -> Check:
             "the burn walk for this mint is incomplete -- not every burn against it has "
             "been recorded yet, so an atomicity verdict now would be premature, not wrong",
         )
-    unclassified = [row["signature"] for row in burn_rows if row.get("atomic") is None]
+    protocol_rows = [row for row in burn_rows if row.get("protocol_attributed")]
+    if not protocol_rows:
+        return _check(
+            "BURN_ATOMIC",
+            UNCHECKED,
+            [],
+            equation,
+            "no protocol-attributed burn exists for this mint (D-10) -- PROTOCOL.md sec.4's "
+            "atomicity requirement is about the protocol's own BURN leg, not third-party "
+            "burns, so this check does not apply here. It reads not-applicable for every "
+            "coin until phase 5, because no protocol burns exist yet (D-14) -- the correct "
+            "answer, not an awkward one",
+        )
+    unclassified = [row["signature"] for row in protocol_rows if row.get("atomic") is None]
     if unclassified:
         return _check(
             "BURN_ATOMIC",
             UNCHECKED,
             [SUPPLY_DESTROYED],
             equation,
-            "burns recorded but not yet classified for atomicity: " + ", ".join(unclassified),
+            "protocol-attributed burns recorded but not yet classified for atomicity: "
+            + ", ".join(unclassified),
         )
-    failing = [row["signature"] for row in burn_rows if row.get("atomic") == FAIL]
+    failing = [row["signature"] for row in protocol_rows if row.get("atomic") == FAIL]
     if failing:
         return _check(
             "BURN_ATOMIC",
             FAIL,
             [SUPPLY_DESTROYED],
             equation,
-            "a burn's swap and burn were not found together in the same transaction -- "
-            "signatures: " + ", ".join(failing),
+            "a protocol-attributed burn's swap and burn were not found together in the "
+            "same transaction -- signatures: " + ", ".join(failing),
             expected="PASS",
             actual="FAIL: " + ", ".join(failing),
         )
@@ -457,7 +522,7 @@ def burn_atomic(mint: str, burn_rows, walk_complete: bool = False) -> Check:
         PASS,
         [SUPPLY_DESTROYED],
         equation,
-        "every recorded burn's swap and burn share a transaction",
+        "every recorded protocol-attributed burn's swap and burn share a transaction",
     )
 
 
@@ -525,13 +590,11 @@ def ops_routed(split, evidence=None, balances=None) -> Check:
     per_destination = []
     for destination in ops_destinations:
         if not evidence.is_backfill_complete(destination, "inflow"):
-            cursor = evidence.get_cursor(destination, "inflow") or {}
-            reached = cursor.get("oldest_signature") or "no signature yet"
             per_destination.append(
                 {
                     "destination": destination,
                     "status": UNCHECKED,
-                    "detail": f"the walk of {destination} is incomplete -- reached {reached}",
+                    "detail": _incomplete_walk_detail(evidence, destination),
                 }
             )
             continue

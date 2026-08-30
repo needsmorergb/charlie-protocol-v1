@@ -216,18 +216,26 @@ class TestBurnAtomicCheck(unittest.TestCase):
         self.assertNotEqual(check.status, invariants.FAIL)
 
     def test_unchecked_when_a_row_is_unclassified(self):
-        rows = [{"signature": "sig-1", "atomic": None}]
+        # D-14: protocol_attributed=1 so this exercises the classification
+        # ladder itself, not the not-applicable reading in front of it.
+        rows = [{"signature": "sig-1", "atomic": None, "protocol_attributed": 1}]
         check = invariants.burn_atomic(CHARLIE, rows, walk_complete=True)
         self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertIn("sig-1", check.detail)
 
     def test_pass_when_every_row_passes(self):
-        rows = [{"signature": "sig-1", "atomic": "PASS"}, {"signature": "sig-2", "atomic": "PASS"}]
+        rows = [
+            {"signature": "sig-1", "atomic": "PASS", "protocol_attributed": 1},
+            {"signature": "sig-2", "atomic": "PASS", "protocol_attributed": 1},
+        ]
         check = invariants.burn_atomic(CHARLIE, rows, walk_complete=True)
         self.assertEqual(check.status, invariants.PASS)
 
     def test_fail_names_the_offending_signature(self):
-        rows = [{"signature": "sig-1", "atomic": "PASS"}, {"signature": "sig-2", "atomic": "FAIL"}]
+        rows = [
+            {"signature": "sig-1", "atomic": "PASS", "protocol_attributed": 1},
+            {"signature": "sig-2", "atomic": "FAIL", "protocol_attributed": 1},
+        ]
         check = invariants.burn_atomic(CHARLIE, rows, walk_complete=True)
         self.assertEqual(check.status, invariants.FAIL)
         self.assertIn("sig-2", check.detail)
@@ -252,6 +260,90 @@ class TestBurnAtomicCheck(unittest.TestCase):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         ]
         self.assertIn("burn_atomic", names)
+
+
+# -- D-14: BURN_ATOMIC narrowed to the protocol's own BURN leg -------------
+class TestBurnAtomicProtocolScope(unittest.TestCase):
+    """The two proofs D-14 requires, asserted end-to-end through
+    `apply_silence_rule`/`Publisher` rather than on the check object alone --
+    `TestBurnAtomicCheck` above already pins the object-level ladder; this
+    proves the narrowing actually changes what `SUPPLY_DESTROYED` does.
+    """
+
+    def _build(self, evidence, *, protocol_attributed: int, atomic: str):
+        burned_amount = 100
+        initial_supply = 1_000
+        split = make_split()
+        record = Observation(mint=CHARLIE, observed_at=1.0)
+        record.config = type("Cfg", (), {
+            "mint": CHARLIE, "address": "config-address", "version": 2, "status": 1,
+            "admin": "admin-address", "admin_revoked": True,
+            "shareholders": tuple((a.address, a.bps) for a in split.attributions),
+        })()
+        record.graduated = True
+        record.split = split
+        record.mint_state = mint_state(initial_supply - burned_amount)
+
+        evidence.record_burn_event(
+            signature="sig-scope", mint=CHARLIE, instruction_index=0,
+            tokens_burned=burned_amount, source="spl_burn", slot=1,
+            protocol_attributed=protocol_attributed, atomic=atomic,
+        )
+        evidence.set_cursor(CHARLIE, "burn", backfill_complete=1)
+        evidence.record_initial_supply(mint=CHARLIE, raw_supply=initial_supply, decimals=6)
+
+        burn_rows = evidence.burns_for(CHARLIE)
+        walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
+        initial_supply_row = evidence.initial_supply_for(CHARLIE)
+        burned = evidence.total_burned(CHARLIE)
+        burn_check = invariants.burn_supply(record.mint_state, initial_supply_row, burned, walk_complete)
+        atomic_check = invariants.burn_atomic(CHARLIE, burn_rows, walk_complete)
+
+        record.evidence = {"burn_total": burned}
+        record.checks = (
+            invariants.config_mint(CHARLIE, record.config),
+            invariants.split_sum(split),
+            invariants.seal_unspendable(split),
+            invariants.seal_balance(),
+            burn_check,
+            invariants.burn_irreversible(record.mint_state),
+            atomic_check,
+            invariants.burn_spend(split),
+            invariants.ops_routed(split),
+        )
+        record.verdict = invariants.apply_silence_rule(record.checks)
+        return record, atomic_check
+
+    def test_third_party_fail_no_longer_withholds_supply_destroyed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation, atomic_check = self._build(evidence, protocol_attributed=0, atomic="FAIL")
+            evidence.close()
+
+        # The not-applicable reading: UNCHECKED, empty backs, never PASS --
+        # a vacuous PASS would put BURN_ATOMIC on phase 2's page as a check
+        # backing a figure it never evaluated.
+        self.assertEqual(atomic_check.status, invariants.UNCHECKED)
+        self.assertEqual(atomic_check.backs, ())
+        self.assertIn("not-applicable", atomic_check.detail)
+
+        publisher = publish.Publisher(observation)
+        value, backs = publisher.figure(invariants.SUPPLY_DESTROYED)  # must not raise Withheld
+        self.assertEqual(value, 100)
+        self.assertNotIn("BURN_ATOMIC", backs)
+
+    def test_protocol_attributed_non_atomic_still_withholds_supply_destroyed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation, atomic_check = self._build(evidence, protocol_attributed=1, atomic="FAIL")
+            evidence.close()
+
+        self.assertEqual(atomic_check.status, invariants.FAIL)
+        publisher = publish.Publisher(observation)
+        with self.assertRaises(publish.Withheld) as ctx:
+            publisher.figure(invariants.SUPPLY_DESTROYED)
+        names = [name for name, _status, _detail in ctx.exception.reasons]
+        self.assertIn("BURN_ATOMIC", names)
 
 
 # -- invariants.burn_spend ------------------------------------------------------
