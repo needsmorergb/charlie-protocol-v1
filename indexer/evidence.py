@@ -154,9 +154,15 @@ class Evidence:
         slot: int,
         credit_ix_count: int = 0,
         recorded_at: int | None = None,
-    ) -> None:
+    ) -> bool:
+        """Returns True iff this call inserted a NEW row -- False when the
+        signature/destination pair was already recorded (idempotent union,
+        D-13: two endpoints independently seeing the same transaction must
+        not rewrite an earlier recorded amount, and the caller needs to know
+        whether THIS endpoint's walk actually contributed anything new).
+        """
         recorded_at = recorded_at if recorded_at is not None else int(time.time())
-        self._conn.execute(
+        cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO inflow
                 (signature, destination, mint, leg, lamports, block_time, slot,
@@ -176,6 +182,7 @@ class Evidence:
             ),
         )
         self._conn.commit()
+        return cursor.rowcount > 0
 
     def inflows_for(self, destination: str) -> list[dict]:
         rows = self._conn.execute(
@@ -335,11 +342,15 @@ class Evidence:
         return new_id
 
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
-        """Every endpoint that has a recorded cursor for this target -- the
-        observation's "how many endpoints agreed" field (D-13).
+        """Every endpoint that successfully walked at least one signature for
+        this target -- D-13's "how many endpoints contributed" field. An
+        endpoint that only ever recorded a `last_error` (it errored before
+        seeing anything) does not count; a gap in coverage is stored, never
+        inferred from silence, but it is also not counted as a contribution.
         """
         rows = self._conn.execute(
-            "SELECT endpoint FROM scan_cursor WHERE target = ? AND purpose = ? ORDER BY endpoint",
+            "SELECT endpoint FROM scan_cursor WHERE target = ? AND purpose = ? "
+            "AND last_signature IS NOT NULL ORDER BY endpoint",
             (target, purpose),
         ).fetchall()
         return [row["endpoint"] for row in rows]

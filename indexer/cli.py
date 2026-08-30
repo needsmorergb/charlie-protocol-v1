@@ -33,7 +33,7 @@ from .observe import observe
 from .pump import read_bonding_curve, read_sharing_config
 from .report import render
 from .rpc import DEFAULT_ENDPOINTS, RpcClient
-from .scan import BACKFILL_PAGES_PER_RUN, scan_inflows
+from .scan import BACKFILL_PAGES_PER_RUN, scan_inflows_all_endpoints
 from .store import DEFAULT_PATH, Store
 
 
@@ -101,14 +101,18 @@ def _scan(args) -> int:
                 print(f"{mint}: no SEAL or OPS destination -- nothing to scan")
                 continue
             for destination in sorted(destinations):
-                newest, oldest, complete = scan_inflows(
+                # D-13: every configured endpoint is walked deliberately and
+                # unioned -- which inflows get recorded must not depend on
+                # which endpoint happened to answer.
+                newest, oldest, complete, endpoints_contributed = scan_inflows_all_endpoints(
                     rpc, evidence, mint, destinations, leg_of.get, destination,
                     pages=pages, grandfathered=registry.grandfathered_seal,
                 )
                 state = "backfill complete" if complete else "backfill incomplete"
                 print(
                     f"{mint}  {leg_of[destination]:<4}  {destination}  {state}  "
-                    f"reached {oldest or '-'}  newest {newest or '-'}"
+                    f"reached {oldest or '-'}  newest {newest or '-'}  "
+                    f"({endpoints_contributed} endpoint(s) contributed)"
                 )
     finally:
         evidence.close()

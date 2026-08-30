@@ -14,6 +14,8 @@ gap in the record indistinguishable from "nothing happened here".
 
 from __future__ import annotations
 
+from .rpc import RpcClient
+
 DEFAULT_PAGE_LIMIT = 1000
 BACKFILL_PAGES_PER_RUN = 5
 
@@ -306,3 +308,95 @@ def scan_inflows(
         backfill_complete=int(backfill_complete),
     )
     return newest_seen, oldest_seen, backfill_complete
+
+
+def scan_inflows_all_endpoints(
+    rpc_or_endpoints,
+    evidence,
+    mint: str,
+    destinations,
+    leg_of,
+    target: str,
+    *,
+    pages: int = BACKFILL_PAGES_PER_RUN,
+    limit: int = DEFAULT_PAGE_LIMIT,
+    grandfathered=frozenset(),
+    timeout: float = 15.0,
+):
+    """D-13: the recorded set must not depend on which endpoint answered.
+
+    Measured against mainnet: one default endpoint exposed 2 signatures for
+    the seal address, another 77. `RpcClient._pick` always routes a call to
+    whichever endpoint is currently healthiest, so a single-endpoint scan's
+    recorded set -- and therefore whether `SEAL_BALANCE` passes -- depends on
+    which endpoint happened to answer.
+
+    This walks every configured endpoint **independently and deliberately**
+    (a fresh single-endpoint `RpcClient` per URL, bypassing `_pick`
+    entirely) and unions the results. The union is safe because
+    `(signature, destination)` makes re-seeing a transaction idempotent
+    (`INSERT OR IGNORE`, never `INSERT OR REPLACE`) -- two endpoints
+    independently reporting the same signature write the same row once.
+
+    An endpoint that errors or rate-limits records that fact against ONLY
+    that endpoint (`scan_cursor.last_error`) and does not abort the walk of
+    the others -- a gap in coverage is stored, never inferred from silence.
+    `backfill_complete` for `target` is true once AT LEAST ONE endpoint has
+    walked it to a short page (`evidence.is_backfill_complete` already
+    implements this "any endpoint" rule).
+
+    `rpc_or_endpoints` accepts three shapes: an `RpcClient` (its configured
+    URLs are each given a fresh single-endpoint `RpcClient`, bypassing
+    `_pick`); a plain iterable of URL strings (same); or a `dict` mapping an
+    endpoint identifier to an already-constructed RPC-like object (what
+    `tests/test_scan.py` uses to inject fakes -- this is also what makes an
+    identifier other than a real URL, such as a fake test endpoint name,
+    equally valid: `scan_cursor.endpoint` is just an opaque identifier).
+
+    Returns `(newest_signature_seen, oldest_signature_seen,
+    backfill_complete, contributing_endpoint_count)`.
+    """
+    if isinstance(rpc_or_endpoints, dict):
+        clients = dict(rpc_or_endpoints)
+    else:
+        urls = (
+            rpc_or_endpoints.endpoint_urls
+            if isinstance(rpc_or_endpoints, RpcClient)
+            else tuple(rpc_or_endpoints)
+        )
+        clients = {url: RpcClient([url], timeout=timeout) for url in urls}
+
+    for endpoint_id, client in clients.items():
+        try:
+            scan_inflows(
+                client,
+                evidence,
+                mint,
+                destinations,
+                leg_of,
+                target,
+                endpoint=endpoint_id,
+                pages=pages,
+                limit=limit,
+                grandfathered=grandfathered,
+            )
+        except Exception as exc:
+            evidence.set_cursor(
+                target, "inflow", endpoint=endpoint_id, last_error=f"{type(exc).__name__}: {exc}"
+            )
+            continue
+
+    newest_seen: str | None = None
+    oldest_seen: str | None = None
+    for endpoint_id in clients:
+        cursor = evidence.get_cursor(target, "inflow", endpoint=endpoint_id)
+        if not cursor:
+            continue
+        if cursor.get("last_signature") and newest_seen is None:
+            newest_seen = cursor["last_signature"]
+        if cursor.get("oldest_signature"):
+            oldest_seen = cursor["oldest_signature"]
+
+    backfill_complete = evidence.is_backfill_complete(target, "inflow")
+    contributing = len(evidence.cursor_endpoints(target, "inflow"))
+    return newest_seen, oldest_seen, backfill_complete, contributing

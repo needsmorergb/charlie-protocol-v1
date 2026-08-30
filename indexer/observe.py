@@ -41,6 +41,7 @@ class Observation:
     checks: tuple = ()
     verdict: invariants.Verdict | None = None
     evidence: dict | None = None   # address -> recorded lamports, only when an evidence handle was consulted
+    evidence_coverage: dict | None = None   # address -> count of distinct endpoints that contributed (D-13)
 
     @property
     def ok(self) -> bool:
@@ -99,6 +100,8 @@ class Observation:
             record["seal_balances"] = self.seal_balances
         if self.evidence is not None:
             record["evidence"] = self.evidence
+        if self.evidence_coverage is not None:
+            record["evidence_coverage"] = self.evidence_coverage
         record["checks"] = [c.as_dict() for c in self.checks]
         if self.verdict is not None:
             record["publishable"] = sorted(self.verdict.publishable)
@@ -157,6 +160,13 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
 
         record.evidence = {
             address: evidence.recorded_lamports(address)
+            for address in seal_destinations + ops_destinations
+        }
+        # D-13: an inflow set assembled from one endpoint when three were
+        # configured is a materially weaker claim than one where three
+        # agreed -- the reader is entitled to know which they are looking at.
+        record.evidence_coverage = {
+            address: len(evidence.cursor_endpoints(address, "inflow"))
             for address in seal_destinations + ops_destinations
         }
 

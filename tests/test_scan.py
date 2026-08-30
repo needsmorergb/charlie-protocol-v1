@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from indexer import invariants
 from indexer.evidence import Evidence
 from indexer.legs import Attribution, GRANDFATHERED_SEAL, Registry, Split
-from indexer.scan import scan_inflows
+from indexer.scan import scan_inflows, scan_inflows_all_endpoints
 
 MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 GRANDFATHERED = "burn111111111111111111111111111111111111111"
@@ -307,6 +307,145 @@ class TestOpsRouted(unittest.TestCase):
         check = invariants.ops_routed(split)
         self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertIn("no OPS destination in this split", check.detail)
+
+
+class RaisingRpc:
+    """An endpoint that fails outright -- e.g. `solana.drpc.org`'s HTTP 400."""
+
+    def signatures_for_address(self, address, before=None, until=None, limit=1000):
+        raise RuntimeError("endpoint refused the request")
+
+    def transaction(self, signature):
+        raise RuntimeError("endpoint refused the request")
+
+
+# -- D-13: the recorded set must not depend on which endpoint answered -----
+class TestUnionAcrossEndpoints(unittest.TestCase):
+    def test_disjoint_signature_sets_are_unioned_not_whichever_answered_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx_a = make_tx({GRANDFATHERED: (0, 100)})
+            tx_b = make_tx({GRANDFATHERED: (100, 500)})
+            endpoint_a = FakeScanRpc(
+                pages=[[{"signature": "sig-a", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-a": tx_a},
+            )
+            endpoint_b = FakeScanRpc(
+                pages=[[{"signature": "sig-b", "err": None, "slot": 2, "blockTime": 2}]],
+                transactions={"sig-b": tx_b},
+            )
+            evidence = evidence_db(tmp)
+            newest, oldest, complete, contributing = scan_inflows_all_endpoints(
+                {"endpoint-a": endpoint_a, "endpoint-b": endpoint_b},
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            rows = evidence.inflows_for(GRANDFATHERED)
+            evidence.close()
+
+            self.assertEqual({row["signature"] for row in rows}, {"sig-a", "sig-b"})
+            self.assertEqual(contributing, 2)
+            self.assertTrue(complete)
+
+    def test_rerunning_the_union_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx_a = make_tx({GRANDFATHERED: (0, 100)})
+            tx_b = make_tx({GRANDFATHERED: (100, 500)})
+            evidence = evidence_db(tmp)
+
+            def endpoints():
+                return {
+                    "endpoint-a": FakeScanRpc(
+                        pages=[[{"signature": "sig-a", "err": None, "slot": 1, "blockTime": 1}]],
+                        transactions={"sig-a": tx_a},
+                    ),
+                    "endpoint-b": FakeScanRpc(
+                        pages=[[{"signature": "sig-b", "err": None, "slot": 2, "blockTime": 2}]],
+                        transactions={"sig-b": tx_b},
+                    ),
+                }
+
+            scan_inflows_all_endpoints(
+                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            first_rows = evidence.inflows_for(GRANDFATHERED)
+
+            scan_inflows_all_endpoints(
+                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            second_rows = evidence.inflows_for(GRANDFATHERED)
+            evidence.close()
+
+            self.assertEqual(len(first_rows), 2)
+            self.assertEqual(first_rows, second_rows)  # same rows, same lamports, unchanged
+
+    def test_an_erroring_endpoint_is_recorded_but_does_not_abort_the_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({GRANDFATHERED: (0, 100)})
+            good = FakeScanRpc(
+                pages=[[{"signature": "sig-good", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-good": tx},
+            )
+            evidence = evidence_db(tmp)
+            newest, oldest, complete, contributing = scan_inflows_all_endpoints(
+                {"endpoint-bad": RaisingRpc(), "endpoint-good": good},
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            rows = evidence.inflows_for(GRANDFATHERED)
+            bad_cursor = evidence.get_cursor(GRANDFATHERED, "inflow", endpoint="endpoint-bad")
+            evidence.close()
+
+            self.assertEqual(len(rows), 1)  # the good endpoint's data made it in
+            self.assertIsNotNone(bad_cursor)
+            self.assertIsNotNone(bad_cursor["last_error"])
+            self.assertIsNone(bad_cursor["last_signature"])  # never counted as a contribution
+            self.assertTrue(complete)  # the good endpoint alone completed the walk
+            self.assertEqual(contributing, 1)
+
+    def test_backfill_never_completes_while_the_only_endpoint_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            _newest, _oldest, complete, contributing = scan_inflows_all_endpoints(
+                {"endpoint-bad": RaisingRpc()},
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            evidence.close()
+            self.assertFalse(complete)
+            self.assertEqual(contributing, 0)
+
+    def test_seal_balance_unchecked_never_fail_while_no_endpoint_has_completed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            scan_inflows_all_endpoints(
+                {"endpoint-bad": RaisingRpc()},
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                target=GRANDFATHERED, pages=1,
+            )
+            split = split_with([seal_attr(GRANDFATHERED)])
+            check = invariants.seal_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 0})
+            evidence.close()
+
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertNotEqual(check.status, invariants.FAIL)
+
+    def test_contributing_endpoint_count_reaches_the_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({GRANDFATHERED: (0, 100)})
+            endpoint = FakeScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_inflows_all_endpoints(
+                {"endpoint-only": endpoint}, evidence, MINT, {GRANDFATHERED},
+                leg_of=lambda _d: "seal", target=GRANDFATHERED, pages=1,
+            )
+            coverage = evidence.cursor_endpoints(GRANDFATHERED, "inflow")
+            evidence.close()
+            self.assertEqual(len(coverage), 1)
 
 
 if __name__ == "__main__":

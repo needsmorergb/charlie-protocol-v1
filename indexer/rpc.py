@@ -86,6 +86,17 @@ class RpcClient:
         self._id = 0
         self.calls = 0
 
+    @property
+    def endpoint_urls(self) -> tuple[str, ...]:
+        """This client's configured endpoint URLs, in the order given.
+
+        Exists for `scan.scan_inflows_all_endpoints` (D-13): a per-endpoint
+        walk needs to address each endpoint deliberately rather than let
+        `_pick` choose the healthiest one, which is exactly what makes the
+        recorded set non-deterministic across runs.
+        """
+        return tuple(e.url for e in self._endpoints)
+
     # -- public -----------------------------------------------------------
     def call(self, method: str, params: list | None = None):
         self._id += 1
