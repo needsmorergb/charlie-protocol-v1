@@ -26,6 +26,7 @@ EXPORT_TABLES: tuple[tuple[str, str], ...] = (
     ("opening_balance", "id"),
     ("scan_cursor", "endpoint, target, purpose"),
     ("initial_supply", "mint"),
+    ("burn_event", "signature, mint, instruction_index"),
 )
 
 

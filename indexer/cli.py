@@ -33,7 +33,7 @@ from .observe import observe
 from .pump import read_bonding_curve, read_sharing_config
 from .report import render
 from .rpc import DEFAULT_ENDPOINTS, RpcClient
-from .scan import BACKFILL_PAGES_PER_RUN, scan_inflows_all_endpoints
+from .scan import BACKFILL_PAGES_PER_RUN, derive_initial_supply, scan_burns, scan_inflows_all_endpoints
 from .store import DEFAULT_PATH, Store
 
 
@@ -98,8 +98,7 @@ def _scan(args) -> int:
             leg_of = {a.address: a.leg for a in split.attributions}
             destinations = {addr for addr, leg in leg_of.items() if leg in ("seal", "paid")}
             if not destinations:
-                print(f"{mint}: no SEAL or OPS destination -- nothing to scan")
-                continue
+                print(f"{mint}: no SEAL or OPS destination -- nothing to scan for inflows")
             for destination in sorted(destinations):
                 # D-13: every configured endpoint is walked deliberately and
                 # unioned -- which inflows get recorded must not depend on
@@ -114,6 +113,29 @@ def _scan(args) -> int:
                     f"reached {oldest or '-'}  newest {newest or '-'}  "
                     f"({endpoints_contributed} endpoint(s) contributed)"
                 )
+
+            # The burn walk and initial-supply derivation apply to every mint
+            # regardless of whether it has a SEAL/OPS destination configured --
+            # EVID-06/09/10: the mint-wide burn walk -- every burn against the
+            # mint, by anyone, not just one known actor's transactions (D-09).
+            burn_newest, burn_oldest, burn_complete = scan_burns(rpc, evidence, mint, pages=pages)
+            burn_state = "backfill complete" if burn_complete else "backfill incomplete"
+            print(
+                f"{mint}  burn  {mint}  {burn_state}  "
+                f"reached {burn_oldest or '-'}  newest {burn_newest or '-'}"
+            )
+
+            # EVID-07/08: derive once, cache forever.
+            supply_row = derive_initial_supply(rpc, evidence, mint)
+            if supply_row is None:
+                print(f"{mint}  initial_supply  walk unfinished this run -- try again")
+            elif supply_row.get("raw_supply") is not None:
+                print(
+                    f"{mint}  initial_supply  {supply_row['raw_supply']} raw units "
+                    f"(decimals {supply_row['decimals']}, from {supply_row['creation_signature']})"
+                )
+            else:
+                print(f"{mint}  initial_supply  UNCHECKED -- {supply_row['unchecked_reason']}")
     finally:
         evidence.close()
     return worst

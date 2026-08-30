@@ -28,7 +28,11 @@ SPLIT = "split"
 SEAL_TOTAL = "seal_total"
 BURN_TOTAL = "burn_total"
 OPS_TOTAL = "ops_total"
-FIGURES = (SPLIT, SEAL_TOTAL, BURN_TOTAL, OPS_TOTAL)
+# D-09: the one published burn figure -- every burn against the mint, by
+# anyone, whether or not it invoked our crank. Distinct from BURN_TOTAL,
+# which plan 03 gives its own named check.
+SUPPLY_DESTROYED = "supply_destroyed"
+FIGURES = (SPLIT, SEAL_TOTAL, BURN_TOTAL, OPS_TOTAL, SUPPLY_DESTROYED)
 
 
 @dataclass(frozen=True)
@@ -293,24 +297,65 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     )
 
 
-def burn_supply(mint_state, initial_supply=None, burned=None) -> Check:
-    """PROTOCOL.md sec.4: initial_supply - sum(burn_amounts) == getMint(mint).supply."""
-    if initial_supply is None or burned is None:
+def burn_supply(mint_state, initial_supply_row=None, burned=None, walk_complete=False) -> Check:
+    """PROTOCOL.md sec.4: initial_supply - sum(burn_amounts) == getMint(mint).supply.
+
+    Backs both `BURN_TOTAL` (unchanged -- plan 03 gives `BURN_TOTAL` its own
+    additional named check) and `SUPPLY_DESTROYED` (D-09's one published burn
+    figure, new this phase).
+
+    `initial_supply_row` is the `initial_supply` table row (or `None` if
+    derivation has not run at all). Three UNCHECKED paths, in order:
+
+    1. No row at all -- derivation hasn't run yet (today's default, before
+       any evidence handle exists).
+    2. A row exists but `raw_supply` is null -- EVID-08: the supply could not
+       be derived, and the row's `unchecked_reason` is carried verbatim.
+    3. `walk_complete` is False -- the burn walk for this mint hasn't seen
+       every burn yet, so a reconciliation now would be premature, not wrong;
+       never `FAIL` for an unfinished scan.
+
+    Only once a real `raw_supply` exists AND the walk is complete does this
+    compute `PASS`/`FAIL`.
+    """
+    if initial_supply_row is None:
         return _check(
             "BURN_SUPPLY",
             UNCHECKED,
-            [BURN_TOTAL],
+            [BURN_TOTAL, SUPPLY_DESTROYED],
             "initial_supply - sum(burn_amounts) == getMint(mint).supply",
             "burn events are not recorded yet. Live supply is observed and stored, but a "
             "supply reading on its own proves a total, not that we know which burns "
             "produced it",
             actual=str(mint_state.supply),
         )
+    if initial_supply_row.get("raw_supply") is None:
+        return _check(
+            "BURN_SUPPLY",
+            UNCHECKED,
+            [BURN_TOTAL, SUPPLY_DESTROYED],
+            "initial_supply - sum(burn_amounts) == getMint(mint).supply",
+            initial_supply_row.get("unchecked_reason")
+            or "initial_supply could not be derived, and no reason was recorded",
+            actual=str(mint_state.supply),
+        )
+    if not walk_complete:
+        return _check(
+            "BURN_SUPPLY",
+            UNCHECKED,
+            [BURN_TOTAL, SUPPLY_DESTROYED],
+            "initial_supply - sum(burn_amounts) == getMint(mint).supply",
+            "the burn walk for this mint is incomplete -- not every burn against it has "
+            "been recorded yet, so a supply reconciliation now would be premature, not wrong",
+            actual=str(mint_state.supply),
+        )
+    initial_supply = initial_supply_row["raw_supply"]
+    burned = burned or 0
     ok = initial_supply - burned == mint_state.supply
     return _check(
         "BURN_SUPPLY",
         PASS if ok else FAIL,
-        [BURN_TOTAL],
+        [BURN_TOTAL, SUPPLY_DESTROYED],
         "initial_supply - sum(burn_amounts) == getMint(mint).supply",
         "every claimed burn is visible in the mint's supply"
         if ok
@@ -326,12 +371,16 @@ def burn_irreversible(mint_state) -> Check:
     Not in PROTOCOL.md sec.4 -- found while building. A live mint authority can
     reissue every token a crank ever burned, which makes the permitted claim
     "permanently destroyed" false however honest the burn arithmetic is.
+
+    Backs `SUPPLY_DESTROYED` as well as `BURN_TOTAL`: a live mint authority
+    can reissue everything a crank ever burned, so it backs the same figure
+    `burn_supply()` backs.
     """
     ok = mint_state.mint_authority is None
     return _check(
         "BURN_IRREVERSIBLE",
         PASS if ok else FAIL,
-        [BURN_TOTAL],
+        [BURN_TOTAL, SUPPLY_DESTROYED],
         "getMint(mint).mint_authority == None",
         "the mint authority is revoked: burned supply cannot be reissued"
         if ok

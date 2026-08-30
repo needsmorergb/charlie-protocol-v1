@@ -126,6 +126,27 @@ class Evidence:
 
         self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS burn_event (
+                signature           TEXT    NOT NULL,
+                mint                TEXT    NOT NULL,
+                instruction_index   INTEGER NOT NULL,
+                tokens_burned       INTEGER NOT NULL,
+                sol_spent           INTEGER,
+                supply_after        INTEGER,
+                protocol_attributed INTEGER NOT NULL DEFAULT 0,
+                atomic              TEXT,
+                source              TEXT    NOT NULL,
+                block_time          INTEGER,
+                slot                INTEGER NOT NULL,
+                recorded_at         INTEGER NOT NULL,
+                PRIMARY KEY (signature, mint, instruction_index)
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS burn_event_mint ON burn_event(mint)")
+
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS initial_supply (
                 mint               TEXT PRIMARY KEY,
                 raw_supply         INTEGER,
@@ -353,6 +374,85 @@ class Evidence:
         )
         self._conn.commit()
         return new_id
+
+    # -- burn_event (EVID-06/D-09/D-10) -------------------------------------
+    def record_burn_event(
+        self,
+        *,
+        signature: str,
+        mint: str,
+        instruction_index: int,
+        tokens_burned: int,
+        source: str,
+        slot: int,
+        sol_spent: int | None = None,
+        supply_after: int | None = None,
+        protocol_attributed: int = 0,
+        atomic: str | None = None,
+        block_time: int | None = None,
+        recorded_at: int | None = None,
+    ) -> bool:
+        """`INSERT OR IGNORE` on `(signature, mint, instruction_index)` -- a
+        re-scan re-observing the same burn instruction must not rewrite a
+        recorded amount (T-01-10). Returns True iff this call inserted a NEW
+        row.
+        """
+        recorded_at = recorded_at if recorded_at is not None else int(time.time())
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO burn_event
+                (signature, mint, instruction_index, tokens_burned, sol_spent,
+                 supply_after, protocol_attributed, atomic, source, block_time,
+                 slot, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                signature,
+                mint,
+                int(instruction_index),
+                int(tokens_burned),
+                sol_spent,
+                supply_after,
+                int(bool(protocol_attributed)),
+                atomic,
+                source,
+                block_time,
+                int(slot),
+                recorded_at,
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def burns_for(self, mint: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM burn_event WHERE mint = ? ORDER BY signature, instruction_index",
+            (mint,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def total_burned(self, mint: str) -> int:
+        """D-09: every burn against the mint, by anyone -- the sum backing
+        `supply_destroyed`.
+        """
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(tokens_burned), 0) AS total FROM burn_event WHERE mint = ?",
+            (mint,),
+        ).fetchone()
+        return int(row["total"])
+
+    def fill_missing_supply_after(self, mint: str, supply: int) -> int:
+        """Fills a still-null `supply_after` with the mint supply observed at
+        this tick -- the one field a `burn_event` row may gain after being
+        recorded, since `tokens_burned`/`sol_spent` are never touched again
+        once written. Returns the number of rows updated.
+        """
+        cursor = self._conn.execute(
+            "UPDATE burn_event SET supply_after = ? WHERE mint = ? AND supply_after IS NULL",
+            (supply, mint),
+        )
+        self._conn.commit()
+        return cursor.rowcount
 
     # -- initial_supply (EVID-07/08, cached once per mint, permanently) -----
     def record_initial_supply(

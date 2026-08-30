@@ -20,11 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from indexer import decode
+from indexer import decode, invariants
 from indexer.base58 import pubkey_bytes
 from indexer.evidence import Evidence
-from indexer.pump import DecodeError, TOKEN_2022_PROGRAM, TOKEN_PROGRAM
-from indexer.scan import derive_initial_supply
+from indexer.pump import DecodeError, MintState, TOKEN_2022_PROGRAM, TOKEN_PROGRAM
+from indexer.scan import derive_initial_supply, scan_burns
 
 CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 CHARLIE_CURVE = "7VxCTsEknMC9ofXsddPM8piaGorGrMR8FQnDFjsQ7bjx"
@@ -381,6 +381,190 @@ class TestDeriveInitialSupply(unittest.TestCase):
 
             self.assertIsNone(row)
             self.assertIsNone(stored)
+
+
+class FakeBurnScanRpc:
+    """Serves `signatures_for_address` pages in order, honoring `until` --
+    the shape `tests/test_scan.py`'s `FakeScanRpc` uses.
+    """
+
+    def __init__(self, pages, transactions, unfetchable=frozenset()):
+        self._pages = list(pages)
+        self._call_count = 0
+        self._transactions = transactions
+        self._unfetchable = unfetchable
+
+    def signatures_for_address(self, address, before=None, until=None, limit=1000):
+        if self._call_count >= len(self._pages):
+            return []
+        page = self._pages[self._call_count]
+        self._call_count += 1
+        if until:
+            page = list(page)
+            for i, entry in enumerate(page):
+                if entry["signature"] == until:
+                    page = page[:i]
+                    break
+        return page
+
+    def transaction(self, signature):
+        if signature in self._unfetchable:
+            return None
+        return self._transactions.get(signature)
+
+
+# -- scan_burns (EVID-06/D-09/D-10) -------------------------------------------
+class TestScanBurns(unittest.TestCase):
+    def test_two_burns_in_one_transaction_write_two_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = tx_with(top_instructions=[burn_instruction(CHARLIE, 100), burn_instruction(CHARLIE, 200)])
+            rpc = FakeBurnScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_burns(rpc, evidence, CHARLIE, pages=1)
+            rows = evidence.burns_for(CHARLIE)
+            evidence.close()
+
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({row["tokens_burned"] for row in rows}, {100, 200})
+            self.assertTrue(all(row["signature"] == "sig-1" for row in rows))
+            self.assertEqual(len({row["instruction_index"] for row in rows}), 2)
+
+    def test_boost_crank_names_the_boost_event_and_carries_sol_spent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            boost_tx = tx_with(
+                top_instructions=[{"programId": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"}],
+                inner=[{"index": 0, "instructions": [burn_instruction(CHARLIE, 1_500_000_000)]}],
+                log_messages=[program_data_log(boost_event_payload(mint=CHARLIE, quote_used=900_000, base_burned=1_500_000_000))],
+            )
+            bare_tx = tx_with(top_instructions=[burn_instruction(CHARLIE, 50)])
+            rpc = FakeBurnScanRpc(
+                pages=[[
+                    {"signature": "sig-boost", "err": None, "slot": 1, "blockTime": 1},
+                    {"signature": "sig-bare", "err": None, "slot": 2, "blockTime": 2},
+                ]],
+                transactions={"sig-boost": boost_tx, "sig-bare": bare_tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_burns(rpc, evidence, CHARLIE, pages=1)
+            rows = {row["signature"]: row for row in evidence.burns_for(CHARLIE)}
+            evidence.close()
+
+            self.assertEqual(rows["sig-boost"]["source"], "boost_buy_and_burn")
+            self.assertEqual(rows["sig-boost"]["sol_spent"], 900_000)
+            self.assertEqual(rows["sig-bare"]["source"], "spl_burn")
+            self.assertIsNone(rows["sig-bare"]["sol_spent"])
+
+    def test_protocol_attributed_is_zero_on_every_row(self):
+        """D-10: unforgeable and trivially checkable -- zero for every coin
+        until a protocol program id is registered (phase 5).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = tx_with(top_instructions=[burn_instruction(CHARLIE, 100)])
+            rpc = FakeBurnScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_burns(rpc, evidence, CHARLIE, pages=1)
+            rows = evidence.burns_for(CHARLIE)
+            evidence.close()
+
+            self.assertTrue(all(row["protocol_attributed"] == 0 for row in rows))
+
+
+# -- evidence.record_burn_event / fill_missing_supply_after -------------------
+class TestBurnEventRecording(unittest.TestCase):
+    def test_rescan_of_the_same_burn_writes_no_duplicate_and_never_overwrites(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            inserted_first = evidence.record_burn_event(
+                signature="sig-1", mint=CHARLIE, instruction_index=0,
+                tokens_burned=100, source="spl_burn", slot=1,
+            )
+            inserted_second = evidence.record_burn_event(
+                signature="sig-1", mint=CHARLIE, instruction_index=0,
+                tokens_burned=999, source="spl_burn", slot=1,
+            )
+            rows = evidence.burns_for(CHARLIE)
+            evidence.close()
+
+            self.assertTrue(inserted_first)
+            self.assertFalse(inserted_second)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["tokens_burned"], 100)  # never overwritten
+
+    def test_fill_missing_supply_after_fills_only_null_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.record_burn_event(
+                signature="sig-1", mint=CHARLIE, instruction_index=0,
+                tokens_burned=100, source="spl_burn", slot=1,
+            )
+            evidence.record_burn_event(
+                signature="sig-2", mint=CHARLIE, instruction_index=0,
+                tokens_burned=50, source="spl_burn", slot=2, supply_after=999,
+            )
+            updated = evidence.fill_missing_supply_after(CHARLIE, 12_345)
+            rows = {row["signature"]: row for row in evidence.burns_for(CHARLIE)}
+            evidence.close()
+
+            self.assertEqual(updated, 1)
+            self.assertEqual(rows["sig-1"]["supply_after"], 12_345)
+            self.assertEqual(rows["sig-2"]["supply_after"], 999)  # already known, untouched
+
+
+# -- BURN_SUPPLY / SUPPLY_DESTROYED (EVID-07/08, D-09) ------------------------
+def mint_state(supply: int) -> MintState:
+    return MintState(
+        mint=CHARLIE, supply=supply, decimals=6,
+        mint_authority=None, freeze_authority=None, program=TOKEN_2022_PROGRAM,
+    )
+
+
+class TestBurnSupply(unittest.TestCase):
+    def test_pass_when_initial_supply_minus_burned_equals_observed_supply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=1_000, decimals=6)
+            evidence.close()
+            check = invariants.burn_supply(mint_state(900), row, burned=100, walk_complete=True)
+            self.assertEqual(check.status, invariants.PASS)
+
+    def test_fail_when_arithmetic_does_not_reconcile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=1_000, decimals=6)
+            evidence.close()
+            check = invariants.burn_supply(mint_state(900), row, burned=50, walk_complete=True)
+            self.assertEqual(check.status, invariants.FAIL)
+
+    def test_unchecked_carries_the_stored_reason_when_supply_is_underivable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            reason = "walked the bonding-curve PDA to exhaustion without finding a CreateEvent"
+            row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=None, decimals=6, unchecked_reason=reason)
+            evidence.close()
+            check = invariants.burn_supply(mint_state(900), row, burned=0, walk_complete=True)
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertEqual(check.detail, reason)
+
+    def test_unchecked_names_the_incomplete_walk_never_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=1_000, decimals=6)
+            evidence.close()
+            check = invariants.burn_supply(mint_state(900), row, burned=100, walk_complete=False)
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertNotEqual(check.status, invariants.FAIL)
+            self.assertIn("incomplete", check.detail)
+
+    def test_supply_destroyed_is_in_figures_and_backed_by_burn_supply(self):
+        self.assertIn(invariants.SUPPLY_DESTROYED, invariants.FIGURES)
+        check = invariants.burn_supply(mint_state(900))
+        self.assertIn(invariants.SUPPLY_DESTROYED, check.backs)
 
 
 if __name__ == "__main__":

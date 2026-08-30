@@ -483,3 +483,123 @@ def derive_initial_supply(rpc, evidence, mint: str, *, limit: int = DEFAULT_PAGE
             # page if the RPC itself returned nothing without signalling exhaustion.
             return None
         before = page[0]["signature"]  # oldest signature seen this page -- walk further back
+
+
+def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, limit=DEFAULT_PAGE_LIMIT):
+    """One bounded walk over the **mint account's** own signature history,
+    recording every burn instruction found against it (D-09: every burn
+    against the mint, by anyone -- not one known actor's transactions).
+
+    Returns `(newest_signature_seen, oldest_signature_seen, exhausted)`,
+    following `_walk_and_record`'s exact convention: `exhausted` is only
+    True when every fetch in this call succeeded, and the cursor never
+    advances past a signature this call could not fetch.
+    """
+    signatures, exhausted = fetch_new_signatures(
+        rpc, mint, until=until, before=before, pages=pages, limit=limit
+    )
+    newest_seen: str | None = None
+    oldest_seen: str | None = None
+    stopped_early = False
+
+    for record in signatures:
+        signature = record.get("signature")
+        if record.get("err") is not None:
+            newest_seen = signature
+            oldest_seen = oldest_seen if oldest_seen is not None else signature
+            continue
+
+        tx = rpc.transaction(signature)
+        if not tx:
+            stopped_early = True
+            break
+        if (tx.get("meta") or {}).get("err") is not None:
+            newest_seen = signature
+            oldest_seen = oldest_seen if oldest_seen is not None else signature
+            continue
+
+        block_time = record.get("blockTime") or tx.get("blockTime")
+        slot = int(record.get("slot") or tx.get("slot") or 0)
+        burns = decode.find_burns(tx, mint)
+        if burns:
+            # At most one boost crank per transaction in practice; if one is
+            # present, its SOL-spent figure applies to every burn instruction
+            # this same transaction contains.
+            boost_event = None
+            for payload in decode.program_data_lines(tx):
+                event = decode.decode_boost_event(payload)
+                if event is not None:
+                    boost_event = event
+                    break
+            for burn in burns:
+                evidence.record_burn_event(
+                    signature=signature,
+                    mint=mint,
+                    instruction_index=burn["instruction_index"],
+                    tokens_burned=burn["amount"],
+                    sol_spent=boost_event["sol_spent"] if boost_event is not None else None,
+                    source="boost_buy_and_burn" if boost_event is not None else "spl_burn",
+                    # D-10: unforgeable and trivially checkable -- zero for
+                    # every coin until a protocol program id is registered
+                    # (phase 5). The correct answer today, not an awkward one.
+                    protocol_attributed=0,
+                    block_time=block_time,
+                    slot=slot,
+                )
+        newest_seen = signature
+        oldest_seen = oldest_seen if oldest_seen is not None else signature
+
+    return newest_seen, oldest_seen, (exhausted and not stopped_early)
+
+
+def scan_burns(
+    rpc,
+    evidence,
+    mint: str,
+    *,
+    pages: int = BACKFILL_PAGES_PER_RUN,
+    limit: int = DEFAULT_PAGE_LIMIT,
+):
+    """The mint-wide burn scan (EVID-06/D-09): walks the **mint account's**
+    own signature history, not the boost vault's -- RESEARCH.md Q8
+    recomputed $CHARLIE live and found supply still falling days after the
+    boost's 341-second window closed, so a scan restricted to one known
+    actor's transactions would permanently under-record.
+
+    Same forward-catch-up-plus-bounded-backfill shape as `scan_inflows`,
+    cursor state owned by `evidence` under `purpose='burn'`. Returns
+    `(newest_signature_seen, oldest_signature_seen, backfill_complete)`.
+    """
+    cursor = evidence.get_cursor(mint, "burn") or {}
+    last_signature = cursor.get("last_signature")
+    oldest_signature = cursor.get("oldest_signature")
+    backfill_complete = bool(cursor.get("backfill_complete"))
+
+    newest_seen = last_signature
+    oldest_seen = oldest_signature
+
+    if last_signature:
+        forward_newest, _forward_oldest, _exhausted = _walk_burns(
+            rpc, evidence, mint, until=last_signature, before=None, pages=1_000_000, limit=limit,
+        )
+        if forward_newest:
+            newest_seen = forward_newest
+
+    if not backfill_complete:
+        backward_newest, backward_oldest, exhausted = _walk_burns(
+            rpc, evidence, mint, until=None, before=oldest_signature, pages=pages, limit=limit,
+        )
+        if backward_oldest:
+            oldest_seen = backward_oldest
+        if not last_signature and backward_newest:
+            newest_seen = backward_newest
+        backfill_complete = exhausted
+
+    evidence.set_cursor(
+        mint,
+        "burn",
+        last_signature=newest_seen,
+        oldest_signature=oldest_seen,
+        backfill_complete=int(backfill_complete),
+    )
+    return newest_seen, oldest_seen, backfill_complete

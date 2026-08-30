@@ -150,10 +150,11 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
             record.error = f"seal balance read failed: {type(exc).__name__}: {exc}"
 
     # Evidence plugs in here: the no-argument call sites below are exactly
-    # what forced SEAL_BALANCE/OPS_ROUTED to UNCHECKED before this evidence
-    # store existed.
+    # what forced SEAL_BALANCE/OPS_ROUTED/BURN_SUPPLY to UNCHECKED before
+    # this evidence store existed.
     seal_check = invariants.seal_balance()
     ops_check = invariants.ops_routed(split)
+    burn_check = invariants.burn_supply(mint_state)
     if evidence is not None:
         seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
         ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
@@ -184,12 +185,25 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
         )
         ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
 
+        # A burn observed on an earlier tick may only now have a `supply_after`
+        # to fill -- this tick's own supply reading is the next observation
+        # after any burn recorded before it.
+        evidence.fill_missing_supply_after(mint, mint_state.supply)
+
+        initial_supply_row = evidence.initial_supply_for(mint)
+        burned = evidence.total_burned(mint)
+        walk_complete = evidence.is_backfill_complete(mint, "burn")
+        burn_check = invariants.burn_supply(mint_state, initial_supply_row, burned, walk_complete)
+
+        record.evidence["burn_total"] = burned
+        record.evidence["initial_supply"] = initial_supply_row
+
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
         invariants.seal_unspendable(split),
         seal_check,
-        invariants.burn_supply(mint_state),
+        burn_check,
         invariants.burn_irreversible(mint_state),
         ops_check,
     )
