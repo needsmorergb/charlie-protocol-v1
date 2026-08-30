@@ -8,3 +8,10 @@ node_modules/
 .pytest_cache/
 .anchor/
 test-ledger/
+
+# The evidence SQLite store is the working store, not the committed artifact
+# (D-04). What is committed is the deterministic text export in
+# state/evidence/*.jsonl, which this pattern does not match.
+state/*.db
+state/*.db-wal
+state/*.db-shm

@@ -23,7 +23,7 @@ from . import invariants
 from .legs import Registry, Split, split_of
 from .pump import DecodeError, MintState, SharingConfig, read_bonding_curve, read_mint, read_sharing_config
 
-SCHEMA = 1
+SCHEMA = 2
 
 
 @dataclass
@@ -40,6 +40,7 @@ class Observation:
     seal_balances: dict = field(default_factory=dict)   # address -> lamports
     checks: tuple = ()
     verdict: invariants.Verdict | None = None
+    evidence: dict | None = None   # address -> recorded lamports, only when an evidence handle was consulted
 
     @property
     def ok(self) -> bool:
@@ -96,6 +97,8 @@ class Observation:
             }
         if self.seal_balances:
             record["seal_balances"] = self.seal_balances
+        if self.evidence is not None:
+            record["evidence"] = self.evidence
         record["checks"] = [c.as_dict() for c in self.checks]
         if self.verdict is not None:
             record["publishable"] = sorted(self.verdict.publishable)
@@ -109,7 +112,7 @@ class Observation:
         return record
 
 
-def observe(rpc, mint: str, registry: Registry | None = None, now=None) -> Observation:
+def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence=None) -> Observation:
     registry = registry or Registry()
     observed_at = now() if callable(now) else (now if now is not None else time.time())
     record = Observation(mint=mint, observed_at=observed_at)
@@ -143,11 +146,29 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None) -> Obser
             record.seal_balances[attribution.address] = None
             record.error = f"seal balance read failed: {type(exc).__name__}: {exc}"
 
+    # Evidence plugs in here: the no-argument call sites below are exactly
+    # what forced SEAL_BALANCE/OPS_ROUTED to UNCHECKED before this evidence
+    # store existed. Task 1 hard-codes the single-destination path; task 2
+    # folds every SEAL destination of a split into one Check.
+    seal_check = invariants.seal_balance()
+    if evidence is not None:
+        seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+        record.evidence = {
+            address: evidence.recorded_lamports(address) for address in seal_destinations
+        }
+        if seal_destinations:
+            destination = seal_destinations[0]
+            seal_check = invariants.seal_balance(
+                destination=destination,
+                recorded=record.evidence[destination],
+                vault_balance=record.seal_balances.get(destination),
+            )
+
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
         invariants.seal_unspendable(split),
-        invariants.seal_balance(),
+        seal_check,
         invariants.burn_supply(mint_state),
         invariants.burn_irreversible(mint_state),
         invariants.ops_routed(split),

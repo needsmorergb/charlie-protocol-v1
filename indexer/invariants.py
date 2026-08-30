@@ -133,33 +133,51 @@ def seal_unspendable(split) -> Check:
     )
 
 
-def seal_balance(recorded_inflows=None, vault_balance=None) -> Check:
+def seal_balance(
+    destination=None,
+    recorded=None,
+    vault_balance=None,
+    comparator="==",
+    reason=None,
+) -> Check:
     """PROTOCOL.md sec.4: sum(recorded_inflows) == getBalance(vault).
 
-    Not computable until inflows are recorded per signature. Publishing a seal
-    total without it would be publishing a balance, not a reconciliation --
-    precisely what every burn dashboard already does.
+    Single-destination path (task 1 of `01-01`): a caller with no evidence
+    handle still gets today's `UNCHECKED` and today's wording -- old callers
+    are not broken by this becoming computable. `comparator` is `==` for a
+    derived protocol vault and `<=` for the grandfathered shared address
+    (EVID-04, PROTOCOL.md sec.3, D-06); task 2 chooses it per destination from
+    the registry and folds every SEAL destination of a split into one Check.
     """
-    if recorded_inflows is None:
+    if recorded is None or vault_balance is None:
         return _check(
             "SEAL_BALANCE",
             UNCHECKED,
             [SEAL_TOTAL],
             "sum(recorded_inflows) == getBalance(vault)",
-            "inflow recording is not built. Until it is, a vault balance is a number "
+            reason
+            or "inflow recording is not built. Until it is, a vault balance is a number "
             "read off the chain rather than a reconciled total, and the protocol will "
             "not publish it",
         )
-    ok = recorded_inflows == vault_balance
+    if comparator == "<=":
+        ok = recorded <= vault_balance
+        equation = "opening + sum(recorded_inflows) <= getBalance(vault)"
+    else:
+        ok = recorded == vault_balance
+        equation = "sum(recorded_inflows) == getBalance(vault)"
+    detail_ok = "recorded inflows reconcile against the vault balance"
+    detail_fail = "recorded inflows do not match the vault balance"
+    if destination:
+        detail_ok += f" ({destination})"
+        detail_fail += f" ({destination})"
     return _check(
         "SEAL_BALANCE",
         PASS if ok else FAIL,
         [SEAL_TOTAL],
-        "sum(recorded_inflows) == getBalance(vault)",
-        "recorded inflows reconcile against the vault balance"
-        if ok
-        else "recorded inflows do not match the vault balance",
-        expected=str(recorded_inflows),
+        equation,
+        detail_ok if ok else detail_fail,
+        expected=str(recorded),
         actual=str(vault_balance),
     )
 

@@ -24,6 +24,8 @@ import sys
 from datetime import datetime, timezone
 
 from . import invariants
+from .evidence import DEFAULT_DB_PATH, Evidence
+from .export import DEFAULT_EXPORT_DIR, export_all
 from .legs import GRANDFATHERED_SEAL, Registry
 from .observe import observe
 from .report import render
@@ -48,10 +50,11 @@ def _observe(args) -> int:
     rpc = RpcClient(_endpoints(args.rpc))
     registry = _registry(args.program)
     store = Store(args.store) if args.store else None
+    evidence = Evidence(args.evidence) if getattr(args, "evidence", None) else None
 
     worst = 0
     for index, mint in enumerate(args.mints):
-        record = observe(rpc, mint, registry)
+        record = observe(rpc, mint, registry, evidence=evidence)
         if store:
             store.append(record)
         if args.json:
@@ -64,9 +67,22 @@ def _observe(args) -> int:
             worst = max(worst, 2)
         elif record.failures:
             worst = max(worst, 1)
+    if evidence is not None:
+        evidence.close()
     if store and not args.json:
         print(f"\nappended {len(args.mints)} observation(s) to {store.path}")
     return worst
+
+
+def _export(args) -> int:
+    evidence = Evidence(args.db)
+    try:
+        written = export_all(evidence, args.out)
+    finally:
+        evidence.close()
+    for path in written:
+        print(f"wrote {path}")
+    return 0
 
 
 def _stamp(value) -> str:
@@ -140,6 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"append each observation to this log (default {DEFAULT_PATH})",
     )
     observe_cmd.add_argument("--json", action="store_true", help="one JSON record per line")
+    observe_cmd.add_argument(
+        "--evidence",
+        nargs="?",
+        const=str(DEFAULT_DB_PATH),
+        help=f"read/write recorded inflows from this SQLite store (default {DEFAULT_DB_PATH})",
+    )
     observe_cmd.set_defaults(handler=_observe)
 
     log_cmd = sub.add_parser("log", parents=[common],
@@ -154,6 +176,13 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="show the vault PDAs for a coin")
     derive_cmd.add_argument("mints", nargs="+")
     derive_cmd.set_defaults(handler=_derive)
+
+    export_cmd = sub.add_parser(
+        "export", help="write the deterministic committed text export of the evidence store"
+    )
+    export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
+    export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
+    export_cmd.set_defaults(handler=_export)
 
     return parser
 

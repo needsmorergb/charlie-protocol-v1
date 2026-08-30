@@ -131,6 +131,46 @@ class RpcClient:
         result = self.call("getBalance", [address])
         return int((result or {}).get("value") or 0)
 
+    def signatures_for_address(
+        self,
+        address: str,
+        before: str | None = None,
+        until: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Newest-first signature history for `address`.
+
+        `before` walks strictly older than that signature (exclusive); `until`
+        stops the walk once that signature is reached (exclusive). Both are
+        the RPC's own semantics -- this method does not reinterpret them.
+        """
+        options: dict = {"limit": limit}
+        if before:
+            options["before"] = before
+        if until:
+            options["until"] = until
+        result = self.call("getSignaturesForAddress", [address, options])
+        return list(result or [])
+
+    def transaction(self, signature: str) -> dict | None:
+        """A single transaction, fully jsonParsed.
+
+        `maxSupportedTransactionVersion: 0` is required or the RPC refuses any
+        versioned transaction outright; `commitment: confirmed` matches the
+        rest of this client.
+        """
+        return self.call(
+            "getTransaction",
+            [
+                signature,
+                {
+                    "encoding": "jsonParsed",
+                    "maxSupportedTransactionVersion": 0,
+                    "commitment": "confirmed",
+                },
+            ],
+        )
+
     # -- internals --------------------------------------------------------
     def _pick(self) -> _Endpoint | None:
         now = time.time()
