@@ -14,14 +14,30 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 36 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 147 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
 | `web/` — the index, `/coin`, `/enroll`, `/verify` | **not built** |
 
-Of the seven checks the indexer knows about, four compute and three are
-`UNCHECKED` because the evidence they need is not recorded yet. `UNCHECKED` is
-not a soft pass: it withholds its figure exactly as hard as `FAIL` does. So
-today the indexer publishes a coin's **split** and nothing else.
+Of the nine checks the indexer knows about, `CONFIG_MINT`, `SPLIT_SUM`,
+`SEAL_UNSPENDABLE`, `SEAL_BALANCE`, `BURN_SUPPLY`, `BURN_IRREVERSIBLE`,
+`BURN_ATOMIC` and `OPS_ROUTED` compute real `PASS`/`FAIL` against stored
+evidence, not a placeholder. Only `BURN_SPEND` stays `UNCHECKED` — by
+construction, not by omission: it needs recorded fee claims at a BURN
+destination, and no coin has a BURN destination while the protocol program
+is not deployed. `UNCHECKED` is not a soft pass: it withholds its figure
+exactly as hard as `FAIL` does, and every check states why in one sentence.
+
+$CHARLIE specifically: `SEAL_UNSPENDABLE` fails permanently — its seal
+address is on the ed25519 curve, so a private key can exist for it, and its
+config is `admin_revoked` so only pump could ever fix that. No seal total is
+publishable for $CHARLIE, now or later. The opening-balance mechanism
+(EVID-02) is built and tested but dormant on live data until dedicated PDA
+vaults exist (phase 5) — every SEAL destination today is the grandfathered
+shared address, which the mechanism deliberately excludes (D-06/D-07).
+`BURN_ATOMIC` runs against $CHARLIE's real boost-crank burns today and
+passes — [`state/RECONCILIATION.md`](state/RECONCILIATION.md) is the
+committed, reproducible record of its exact residual, correct as of a named
+observation.
 
 [`.planning/ROADMAP.md`](.planning/ROADMAP.md) is the plan for closing that, in
 order, with what "done" means for each phase — five phases, and the public
@@ -43,6 +59,8 @@ one record per line, `--rpc` (or `CHARLIE_RPC_URLS`) chooses endpoints.
 ```bash
 python -m indexer log --mint <mint>          # replay the append-only record
 python -m indexer derive <mint> --program X  # the vault PDAs for a coin
+python -m indexer scan <mint> --evidence      # walk SEAL/OPS inflows and burns into evidence
+python -m indexer reconcile <mint> --evidence --write   # EVID-10's residual, as of an observation
 ```
 
 Exit codes: `0` every check that ran passed · `1` a check FAILED · `2` the coin

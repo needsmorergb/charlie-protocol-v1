@@ -5,6 +5,7 @@
     python -m indexer derive <mint> --program <id>  the vault PDAs for a coin
     python -m indexer scan <mint> [--evidence] [--pages N]   walk SEAL/OPS inflows into evidence
     python -m indexer export [--db] [--out]         write the deterministic committed text export
+    python -m indexer reconcile <mint> [--evidence PATH] [--write]   EVID-10's residual, as of an observation
 
 Exit codes are meant to be usable from a cron line or a CI step:
 
@@ -24,13 +25,15 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import invariants, publish
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
 from .legs import GRANDFATHERED_SEAL, Registry, split_of
 from .observe import observe
-from .pump import read_bonding_curve, read_sharing_config
+from .pump import read_bonding_curve, read_mint, read_sharing_config
+from .reconcile import DEFAULT_OUTPUT_PATH, reconcile, record as record_reconciliation, render as render_reconciliation
 from .report import render
 from .rpc import DEFAULT_ENDPOINTS, RpcClient
 from .scan import BACKFILL_PAGES_PER_RUN, derive_initial_supply, scan_burns, scan_inflows_all_endpoints
@@ -142,6 +145,28 @@ def _scan(args) -> int:
     finally:
         evidence.close()
     return worst
+
+
+def _reconcile(args) -> int:
+    rpc = RpcClient(_endpoints(args.rpc))
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    try:
+        mint_state = read_mint(rpc, args.mint)
+        result = reconcile(evidence, args.mint, mint_state)
+        row = record_reconciliation(evidence, result)
+    finally:
+        evidence.close()
+
+    text = render_reconciliation(row)
+    if args.write:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text + "\n")
+        print(f"wrote {out_path}")
+    else:
+        print(text)
+    return 0
 
 
 def _export(args) -> int:
@@ -265,6 +290,20 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
     export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
     export_cmd.set_defaults(handler=_export)
+
+    reconcile_cmd = sub.add_parser(
+        "reconcile", parents=[common],
+        help="EVID-10: record and render the mint's exact residual, as of an observation",
+    )
+    reconcile_cmd.add_argument("mint")
+    reconcile_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"SQLite evidence store to read (default {DEFAULT_DB_PATH})"
+    )
+    reconcile_cmd.add_argument(
+        "--write", action="store_true", help=f"write to --out (default {DEFAULT_OUTPUT_PATH}) instead of printing"
+    )
+    reconcile_cmd.add_argument("--out", default=str(DEFAULT_OUTPUT_PATH), help=f"default {DEFAULT_OUTPUT_PATH}")
+    reconcile_cmd.set_defaults(handler=_reconcile)
 
     return parser
 
