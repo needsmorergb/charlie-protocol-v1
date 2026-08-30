@@ -126,6 +126,19 @@ class Evidence:
 
         self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS initial_supply (
+                mint               TEXT PRIMARY KEY,
+                raw_supply         INTEGER,
+                decimals           INTEGER NOT NULL,
+                creation_signature TEXT,
+                derived_at         INTEGER NOT NULL,
+                unchecked_reason   TEXT
+            )
+            """
+        )
+
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS scan_cursor (
                 target             TEXT    NOT NULL,
                 purpose            TEXT    NOT NULL,
@@ -340,6 +353,48 @@ class Evidence:
         )
         self._conn.commit()
         return new_id
+
+    # -- initial_supply (EVID-07/08, cached once per mint, permanently) -----
+    def record_initial_supply(
+        self,
+        *,
+        mint: str,
+        raw_supply: int | None,
+        decimals: int,
+        creation_signature: str | None = None,
+        unchecked_reason: str | None = None,
+        derived_at: int | None = None,
+    ) -> dict:
+        """Write once per mint. `raw_supply` is null exactly when
+        `unchecked_reason` is set -- never both, never neither (EVID-08: a
+        coin whose supply cannot be derived is recorded as such, with a
+        reason, rather than silently omitted or defaulted).
+
+        `INSERT OR IGNORE` on the `mint` primary key: the supply a coin was
+        created with never changes, so a second call for an already-recorded
+        mint is a no-op and returns the existing row -- this is what lets
+        `derive_initial_supply` treat any cached row (even an UNCHECKED one)
+        as the final answer rather than re-walking the chain.
+        """
+        if (raw_supply is None) == (unchecked_reason is None):
+            raise ValueError("exactly one of raw_supply or unchecked_reason must be set")
+        derived_at = derived_at if derived_at is not None else int(time.time())
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO initial_supply
+                (mint, raw_supply, decimals, creation_signature, derived_at, unchecked_reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (mint, raw_supply, int(decimals), creation_signature, derived_at, unchecked_reason),
+        )
+        self._conn.commit()
+        return self.initial_supply_for(mint)
+
+    def initial_supply_for(self, mint: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM initial_supply WHERE mint = ?", (mint,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
         """Every endpoint that successfully walked at least one signature for

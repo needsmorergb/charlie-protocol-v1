@@ -14,10 +14,19 @@ gap in the record indistinguishable from "nothing happened here".
 
 from __future__ import annotations
 
+from . import decode
+from . import pump
 from .rpc import RpcClient
 
 DEFAULT_PAGE_LIMIT = 1000
 BACKFILL_PAGES_PER_RUN = 5
+
+# Every mint created through pump's bonding-curve program is minted at a
+# fixed 6 decimals -- enforced by the program's own mint initialization, not
+# a value `CreateEvent` carries or that varies per coin. This is a protocol
+# constant of pump's, unlike `token_total_supply` (EVID-07's figure), which
+# is the one quantity this module actually derives rather than assumes.
+PUMP_MINT_DECIMALS = 6
 
 
 def account_keys(tx: dict) -> list[str]:
@@ -400,3 +409,77 @@ def scan_inflows_all_endpoints(
     backfill_complete = evidence.is_backfill_complete(target, "inflow")
     contributing = len(evidence.cursor_endpoints(target, "inflow"))
     return newest_seen, oldest_seen, backfill_complete, contributing
+
+
+def derive_initial_supply(rpc, evidence, mint: str, *, limit: int = DEFAULT_PAGE_LIMIT):
+    """EVID-07: `initial_supply` read out of the mint's own `CreateEvent`,
+    never assumed. Cached permanently once found -- RESEARCH.md Q5 measured
+    11 round trips (10,163 signatures) to reach $CHARLIE's creation
+    transaction, so re-deriving on every tick is not affordable.
+
+    Paginates the **bonding-curve PDA**'s signature history backward, one
+    page at a time, oldest-first within each page, looking for a
+    `Program data:` line matching `CreateEvent`'s discriminator.
+
+    EVID-08's trigger, settled concretely (RESEARCH.md Open Question 3): the
+    derivation is impossible only when the walk exhausts (a page shorter
+    than `limit`) without ever finding a `CreateEvent` -- not a page-count
+    cap, which would false-negative an actively-traded coin. When that
+    happens, a row is written with `raw_supply` null and a reason naming the
+    walk that was exhausted. When the walk is merely unfinished (this run
+    could not fetch a transaction it needed), NOTHING is written -- a run
+    that ran out of budget must not be recorded as a coin whose supply
+    cannot be derived; the difference between "not found" and "not finished
+    looking" is preserved by returning `None` in that case.
+    """
+    cached = evidence.initial_supply_for(mint)
+    if cached is not None:
+        return cached
+
+    target = pump.bonding_curve(mint)
+    before = None
+
+    while True:
+        page, exhausted = fetch_new_signatures(
+            rpc, target, until=None, before=before, pages=1, limit=limit
+        )
+        for record in page:
+            signature = record.get("signature")
+            if record.get("err") is not None:
+                continue
+            tx = rpc.transaction(signature)
+            if not tx:
+                # This run could not fetch a transaction it needed -- the
+                # walk is unfinished, not exhausted. Write nothing.
+                return None
+            if (tx.get("meta") or {}).get("err") is not None:
+                continue
+            for payload in decode.program_data_lines(tx):
+                event = decode.decode_create_event(payload)
+                if event is None:
+                    continue
+                return evidence.record_initial_supply(
+                    mint=mint,
+                    raw_supply=event["token_total_supply"],
+                    decimals=PUMP_MINT_DECIMALS,
+                    creation_signature=signature,
+                )
+
+        if exhausted:
+            reason = (
+                f"walked {target} (the bonding-curve PDA for {mint}) to the end of its "
+                "signature history without finding a CreateEvent -- the creation "
+                "transaction is unreachable within this endpoint's retained history"
+            )
+            return evidence.record_initial_supply(
+                mint=mint,
+                raw_supply=None,
+                decimals=PUMP_MINT_DECIMALS,
+                unchecked_reason=reason,
+            )
+
+        if not page:
+            # Defensive: fetch_new_signatures only returns an empty, non-exhausted
+            # page if the RPC itself returned nothing without signalling exhaustion.
+            return None
+        before = page[0]["signature"]  # oldest signature seen this page -- walk further back

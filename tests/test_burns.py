@@ -22,7 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from indexer import decode
 from indexer.base58 import pubkey_bytes
+from indexer.evidence import Evidence
 from indexer.pump import DecodeError, TOKEN_2022_PROGRAM, TOKEN_PROGRAM
+from indexer.scan import derive_initial_supply
 
 CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 CHARLIE_CURVE = "7VxCTsEknMC9ofXsddPM8piaGorGrMR8FQnDFjsQ7bjx"
@@ -267,6 +269,118 @@ class TestDecodeCreateEvent(unittest.TestCase):
     def test_non_matching_discriminator_decodes_to_none(self):
         b64 = base64.b64encode(bytes(buy_event_payload())).decode()
         self.assertIsNone(decode.decode_create_event(b64))
+
+
+class FakeSupplyRpc:
+    """Serves `signatures_for_address` pages in order, one page per call
+    (`derive_initial_supply` always requests `pages=1`), regardless of the
+    `before` cursor -- matching `tests/test_scan.py`'s `FakeScanRpc` style.
+    """
+
+    def __init__(self, pages, transactions, unfetchable=frozenset()):
+        self._pages = list(pages)
+        self._call_count = 0
+        self._transactions = transactions
+        self._unfetchable = unfetchable
+        self.transaction_calls = 0
+
+    def signatures_for_address(self, address, before=None, until=None, limit=1000):
+        if self._call_count >= len(self._pages):
+            return []
+        page = self._pages[self._call_count]
+        self._call_count += 1
+        return page
+
+    def transaction(self, signature):
+        self.transaction_calls += 1
+        if signature in self._unfetchable:
+            return None
+        return self._transactions.get(signature)
+
+
+def evidence_db(tmp_dir: str) -> Evidence:
+    return Evidence(Path(tmp_dir) / "evidence.db")
+
+
+# -- derive_initial_supply (EVID-07/EVID-08) ----------------------------------
+class TestDeriveInitialSupply(unittest.TestCase):
+    def test_charlie_fixture_derives_the_chain_recorded_supply(self):
+        """1,000,000,000,000,000 raw units -- read off the chain's own
+        CreateEvent, not assumed (EVID-07).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            create_tx = tx_with(
+                log_messages=[program_data_log(create_event_payload(token_total_supply=CHARLIE_INITIAL_SUPPLY))]
+            )
+            other_tx = tx_with(log_messages=["Program log: Instruction: Buy"])
+            rpc = FakeSupplyRpc(
+                pages=[[
+                    {"signature": "sig-2", "err": None, "slot": 2, "blockTime": 2},
+                    {"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1},
+                ]],
+                transactions={"sig-1": create_tx, "sig-2": other_tx},
+            )
+            evidence = evidence_db(tmp)
+            row = derive_initial_supply(rpc, evidence, CHARLIE, limit=5)
+            evidence.close()
+
+            self.assertIsNotNone(row)
+            self.assertEqual(row["raw_supply"], CHARLIE_INITIAL_SUPPLY)
+            self.assertEqual(row["decimals"], 6)
+            self.assertEqual(row["creation_signature"], "sig-1")
+            self.assertIsNone(row["unchecked_reason"])
+
+    def test_second_derivation_performs_no_additional_rpc_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            create_tx = tx_with(
+                log_messages=[program_data_log(create_event_payload(token_total_supply=CHARLIE_INITIAL_SUPPLY))]
+            )
+            rpc = FakeSupplyRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": create_tx},
+            )
+            evidence = evidence_db(tmp)
+            first = derive_initial_supply(rpc, evidence, CHARLIE, limit=5)
+            calls_after_first = rpc._call_count
+            tx_calls_after_first = rpc.transaction_calls
+
+            second = derive_initial_supply(rpc, evidence, CHARLIE, limit=5)
+            evidence.close()
+
+            self.assertEqual(second, first)
+            self.assertEqual(rpc._call_count, calls_after_first)
+            self.assertEqual(rpc.transaction_calls, tx_calls_after_first)
+
+    def test_exhausted_without_create_event_writes_unchecked_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            no_create_tx = tx_with(log_messages=["Program log: nothing relevant"])
+            rpc = FakeSupplyRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": no_create_tx},
+            )
+            evidence = evidence_db(tmp)
+            row = derive_initial_supply(rpc, evidence, OTHER_MINT, limit=5)
+            evidence.close()
+
+            self.assertIsNotNone(row)
+            self.assertIsNone(row["raw_supply"])
+            self.assertIsNotNone(row["unchecked_reason"])
+            self.assertIn("CreateEvent", row["unchecked_reason"])
+
+    def test_unfinished_walk_writes_no_row_at_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rpc = FakeSupplyRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={},
+                unfetchable={"sig-1"},
+            )
+            evidence = evidence_db(tmp)
+            row = derive_initial_supply(rpc, evidence, OTHER_MINT, limit=5)
+            stored = evidence.initial_supply_for(OTHER_MINT)
+            evidence.close()
+
+            self.assertIsNone(row)
+            self.assertIsNone(stored)
 
 
 if __name__ == "__main__":
