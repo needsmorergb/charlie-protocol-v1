@@ -480,7 +480,7 @@ INITIAL_SUPPLY_SENTINEL = 1_000_000_000_000
 # two happen to collide. Two DIFFERENT sentinels is what forces a real test.
 LIVE_SEAL_BALANCE_SENTINEL_BLOCKED = 777_000_111
 
-FULL_DETAIL_SURFACES = ("report_text", "observe_json", "durable_record")
+FULL_DETAIL_SURFACES = ("report_text", "observe_json", "durable_record", "web_page")
 
 
 def _sentinel_registry() -> Registry:

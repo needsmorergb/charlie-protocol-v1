@@ -459,6 +459,8 @@ SURFACES = {
     "durable_record": {"target": "indexer.publish:durable_record", "input": "observation"},
     "log_text": {"target": "indexer.cli:_log_lines", "input": "stored_records"},
     "log_json": {"target": "indexer.cli:_log_json_lines", "input": "stored_records"},
+    "web_page": {"target": "indexer.site:render", "input": "observation"},
+    "web_json": {"target": "indexer.site:record_json", "input": "observation"},
 }
 
 # Every other function under `indexer/` whose body calls `print` or
