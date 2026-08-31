@@ -25,7 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from indexer import invariants, publish, site
+from indexer.evidence import Evidence
+from indexer.observe import Observation, observe
 
+from test_indexer import CHARLIE, charlie_rpc  # noqa: E402
 from test_publication import (  # noqa: E402
     build_all_blocked_sentinel_observation,
     build_observation,
@@ -130,6 +133,55 @@ class TestEscaping(unittest.TestCase):
         rendered = site.render(observation)
         self.assertNotIn(malicious_name, rendered, "raw markup leaked into the rendered page unescaped")
         self.assertIn("&lt;b&gt;SEAL_UNSPENDABLE&lt;/b&gt; &amp; friends", rendered)
+
+
+class TestBurnEvents(unittest.TestCase):
+    """02-02 Task 1: `Observation.burn_events` -- the raw `evidence.burns_for(mint)`
+    rows, carried as a plain non-figure field (never a member of
+    `invariants.FIGURES`, never routed through `Publisher.figure()`).
+    """
+
+    def test_default_burn_events_is_an_empty_list_not_shared_between_instances(self):
+        first = Observation(mint="m", observed_at=1.0)
+        second = Observation(mint="n", observed_at=1.0)
+        self.assertEqual(first.burn_events, [])
+        self.assertIsNot(first.burn_events, second.burn_events)
+
+    def test_burn_events_is_never_a_figure(self):
+        self.assertNotIn("burn_events", invariants.FIGURES)
+
+    def test_observe_without_evidence_leaves_burn_events_empty(self):
+        record = observe(charlie_rpc(), CHARLIE)
+        self.assertEqual(record.burn_events, [])
+
+    def test_observe_with_evidence_populates_burn_events_from_burns_for(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.record_burn_event(
+                signature="sig-boost-1", mint=CHARLIE, instruction_index=0,
+                tokens_burned=1_500_000_000, source="boost_buy_and_burn", slot=1, block_time=100,
+            )
+            evidence.record_burn_event(
+                signature="sig-boost-2", mint=CHARLIE, instruction_index=0,
+                tokens_burned=2_500_000_000, source="boost_buy_and_burn", slot=2, block_time=200,
+            )
+            record = observe(charlie_rpc(), CHARLIE, evidence=evidence)
+            expected_rows = evidence.burns_for(CHARLIE)
+            evidence.close()
+
+        self.assertEqual(len(record.burn_events), len(expected_rows))
+        self.assertEqual(len(record.burn_events), 2)
+        self.assertEqual(record.burn_events[0]["signature"], expected_rows[0]["signature"])
+
+    def test_burns_for_is_called_exactly_once_in_observe_py(self):
+        import ast
+
+        source = Path(__file__).resolve().parents[1].joinpath("indexer", "observe.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        calls = sum(
+            1 for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "burns_for"
+        )
+        self.assertEqual(calls, 1, "burns_for() must be called exactly once and its result reused")
 
 
 class TestWrite(unittest.TestCase):

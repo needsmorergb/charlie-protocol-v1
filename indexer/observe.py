@@ -52,6 +52,7 @@ class Observation:
     verdict: invariants.Verdict | None = None
     evidence: dict | None = None   # address -> recorded lamports, only when an evidence handle was consulted
     evidence_coverage: dict | None = None   # address -> count of distinct endpoints that contributed (D-13)
+    burn_events: list = field(default_factory=list)   # raw evidence.burns_for(mint) rows -- observed fact, never a figure
 
     @property
     def ok(self) -> bool:
@@ -159,6 +160,7 @@ def observe(rpc, mint: str, registry: Registry | None = None, now=None, evidence
 
         # EVID-09: BURN_ATOMIC over every burn recorded for this mint so far.
         burn_rows = evidence.burns_for(mint)
+        record.burn_events = burn_rows   # 02-02: the raw rows site.py's "The Burn" section needs
         burn_walk_complete = evidence.is_backfill_complete(mint, "burn")
         atomic_check = invariants.burn_atomic(mint, burn_rows, burn_walk_complete)
 
