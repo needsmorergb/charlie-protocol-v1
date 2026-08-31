@@ -6,6 +6,7 @@
     python -m indexer scan <mint> [--evidence] [--pages N]   walk SEAL/OPS inflows into evidence
     python -m indexer export [--db] [--out]         write the deterministic committed text export
     python -m indexer reconcile <mint> [--evidence PATH] [--write]   EVID-10's residual, as of an observation
+    python -m indexer site <mint> [--evidence PATH] [--write] [--out]   WEB-02/WEB-03/WEB-06: the HTML page + raw JSON
 
 Exit codes are meant to be usable from a cron line or a CI step:
 
@@ -27,7 +28,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import invariants, publish
+from . import invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
 from .legs import GRANDFATHERED_SEAL, Registry, split_of
@@ -166,6 +167,30 @@ def _reconcile(args) -> int:
         print(f"wrote {out_path}")
     else:
         print(text)
+    return 0
+
+
+def _site(args) -> int:
+    """WEB-02/WEB-03/WEB-06: build one Observation (real RPC + a pre-populated
+    Evidence store, same as `_observe`/`_reconcile`) and render it through
+    `site.render`/`site.record_json` -- both already-classified `SURFACES`
+    targets. `--write` writes both artifacts to sibling paths under `--out`;
+    without it, the HTML is printed to stdout (matching `_reconcile`'s shape).
+    """
+    rpc = RpcClient(_endpoints(args.rpc))
+    registry = _registry(args.program)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    try:
+        record = observe(rpc, args.mint, registry, evidence=evidence)
+    finally:
+        evidence.close()
+
+    if args.write:
+        html_path, json_path = site.write(record, Path(args.out))
+        print(f"wrote {html_path}")
+        print(f"wrote {json_path}")
+    else:
+        print(site.render(record))
     return 0
 
 
@@ -332,6 +357,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reconcile_cmd.add_argument("--out", default=str(DEFAULT_OUTPUT_PATH), help=f"default {DEFAULT_OUTPUT_PATH}")
     reconcile_cmd.set_defaults(handler=_reconcile)
+
+    site_cmd = sub.add_parser(
+        "site", parents=[common],
+        help="WEB-02/WEB-03/WEB-06: render the HTML page + raw observation JSON for a coin",
+    )
+    site_cmd.add_argument("mint")
+    site_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"SQLite evidence store to read (default {DEFAULT_DB_PATH})"
+    )
+    site_cmd.add_argument(
+        "--write", action="store_true", help=f"write to --out (default {site.DEFAULT_OUTPUT_DIR}) instead of printing"
+    )
+    site_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
+    site_cmd.set_defaults(handler=_site)
 
     return parser
 

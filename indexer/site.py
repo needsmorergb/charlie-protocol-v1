@@ -27,8 +27,11 @@ from __future__ import annotations
 
 import html
 import json
+from pathlib import Path
 
 from . import invariants, publish
+
+DEFAULT_OUTPUT_DIR = Path("web")
 
 
 def esc(value) -> str:
@@ -237,3 +240,20 @@ def record_json(observation) -> str:
     in this module lives inside this one function.
     """
     return json.dumps(publish.durable_record(observation), sort_keys=True, indent=2)
+
+
+def write(observation, out_dir=DEFAULT_OUTPUT_DIR) -> tuple[Path, Path]:
+    """Writes `render(observation)` to `<mint>.html` and `record_json(observation)`
+    (plus a trailing newline) to `<mint>.json`, sibling paths differing only
+    by extension -- WEB-06's "published beside the page" (02-03's in-page
+    raw-JSON link depends on this sibling relationship). Calls neither
+    `print` nor `json.dumps` directly; delegates to `render`/`record_json`,
+    which are already-classified `SURFACES` targets.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    html_path = out_dir / f"{observation.mint}.html"
+    json_path = out_dir / f"{observation.mint}.json"
+    html_path.write_text(render(observation), encoding="utf-8", newline="\n")
+    json_path.write_text(record_json(observation) + "\n", encoding="utf-8", newline="\n")
+    return html_path, json_path

@@ -15,7 +15,9 @@ thing in both files.
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,7 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from indexer import invariants, publish, site
 
-from test_publication import build_observation  # noqa: E402
+from test_publication import (  # noqa: E402
+    build_all_blocked_sentinel_observation,
+    build_observation,
+    evidence_db,
+)
 
 
 class TestFigureRowOrder(unittest.TestCase):
@@ -124,6 +130,40 @@ class TestEscaping(unittest.TestCase):
         rendered = site.render(observation)
         self.assertNotIn(malicious_name, rendered, "raw markup leaked into the rendered page unescaped")
         self.assertIn("&lt;b&gt;SEAL_UNSPENDABLE&lt;/b&gt; &amp; friends", rendered)
+
+
+class TestWrite(unittest.TestCase):
+    def test_write_produces_a_sibling_html_json_pair_matching_the_durable_record(self):
+        observation = build_observation()
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path, json_path = site.write(observation, tmp)
+
+            self.assertTrue(html_path.is_file())
+            self.assertTrue(json_path.is_file())
+            self.assertEqual(html_path.stem, json_path.stem)
+            self.assertNotEqual(html_path.suffix, json_path.suffix)
+
+            written_json = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertEqual(written_json, publish.durable_record(observation))
+
+            first_pass = site.record_json(observation)
+            second_pass = site.record_json(observation)
+            self.assertEqual(first_pass, second_pass, "record_json must be byte-identical across runs")
+
+    def test_write_still_produces_a_valid_json_artifact_when_every_figure_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_blocked_sentinel_observation(evidence)
+            evidence.close()
+
+            out_dir = Path(tmp) / "out"
+            html_path, json_path = site.write(observation, out_dir)
+
+            self.assertTrue(json_path.is_file())
+            written_json = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertIn("blocked", written_json)
+            self.assertTrue(written_json["blocked"], "an all-blocked observation must carry a non-empty blocked map")
+            self.assertTrue(html_path.is_file())
 
 
 if __name__ == "__main__":

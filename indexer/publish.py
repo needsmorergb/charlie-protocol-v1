@@ -501,6 +501,12 @@ NON_FIGURE_EMITTERS = {
     "indexer.cli:_derive": (
         "prints protocol PDAs derived from a program id -- addresses, not figures"
     ),
+    "indexer.cli:_site": (
+        "dispatches to indexer.site:render and indexer.site:record_json, both already "
+        "registered SURFACES targets; this wrapper's own print calls emit only the file "
+        "paths site.write() wrote (mirroring _export's entry above) or the already-gated "
+        "HTML string those targets already produced, never a figure read directly"
+    ),
     "indexer.store:Store.append": (
         "persists whatever durable_record()/Observation.as_dict() already produced "
         "to the append-only log -- the gate is upstream of this call, not here"
