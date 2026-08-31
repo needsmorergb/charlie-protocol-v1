@@ -227,6 +227,299 @@ def _check_row(check) -> str:
     return "".join(pieces)
 
 
+# -- The Burn: boost attribution, computed live from observation.burn_events --
+BOOST_SOURCE = "boost_buy_and_burn"
+EXPLORER_TX_PREFIX = "https://explorer.solana.com/tx/"
+TX_LINK_LIMIT = 10
+
+
+def _boost_summary(burn_events) -> dict:
+    """Count, summed tokens, summed lamports and the window (max - min
+    block_time) over only the boost-attributed rows -- every value derived
+    at render time from the rows passed in, never a literal in this module.
+    An empty list of boost rows returns zeroed values; the caller renders
+    prose instead of numbers.
+    """
+    rows = [r for r in burn_events if r.get("source") == BOOST_SOURCE]
+    if not rows:
+        return {"count": 0, "tokens": 0, "lamports": 0, "window_seconds": 0}
+    return {
+        "count": len(rows),
+        "tokens": sum(r["tokens_burned"] for r in rows),
+        "lamports": sum(r.get("sol_spent") or 0 for r in rows),
+        "window_seconds": max(r["block_time"] for r in rows) - min(r["block_time"] for r in rows),
+    }
+
+
+def _boost_sentence(summary: dict, decimals: int) -> str:
+    """UI-SPEC's mandatory boost-attribution copy block, with its three
+    numbers (tokens, transaction count, window) filled from `summary` --
+    never pasted as string literals. `summary`'s own pinned-figure correction:
+    an earlier UI-SPEC draft carried a stale window figure; this sentence is
+    never that literal, only ever this computation's result.
+    """
+    if summary["count"] == 0:
+        return (
+            "No burns are recorded against $CHARLIE yet. The moment the evidence store "
+            "records one, it is attributed here."
+        )
+    tokens_ui = summary["tokens"] / (10 ** decimals)
+    tx_word = "transaction" if summary["count"] == 1 else "transactions"
+    return (
+        "Every token $CHARLIE has ever lost was destroyed by pump's boost, at migration "
+        "-- not by any keeper of ours, and this protocol's own watcher could not see it "
+        f"happen. Boost burned {tokens_ui:,.{decimals}f} tokens across {summary['count']} "
+        f"{tx_word} in a {summary['window_seconds']}-second window. The protocol's own "
+        "crank has never run for this coin -- no program is deployed yet."
+    )
+
+
+def _truncate_middle(value: str, head: int = 5, tail: int = 4) -> str:
+    if len(value) <= head + tail + 1:
+        return value
+    return f"{value[:head]}…{value[-tail:]}"
+
+
+def _tx_links(burn_events) -> str:
+    """The first `TX_LINK_LIMIT` boost signatures as links -- full signature
+    in both `href` and `title`, truncated-middle visible text -- followed by
+    a count of how many more exist and a link to the raw record when more
+    remain. Zero rows render prose, never an empty list. `href` is built only
+    by concatenating `EXPLORER_TX_PREFIX` with an escaped signature, never
+    from a stored URL, so no evidence-store value can occupy the scheme
+    position.
+    """
+    rows = [r for r in burn_events if r.get("source") == BOOST_SOURCE]
+    if not rows:
+        return '<p class="no-burns">No burns are recorded for this mint yet.</p>'
+
+    visible = rows[:TX_LINK_LIMIT]
+    remainder = len(rows) - len(visible)
+    items = []
+    for row in visible:
+        signature = str(row["signature"])
+        href = EXPLORER_TX_PREFIX + esc(signature)
+        display = esc(_truncate_middle(signature))
+        items.append(
+            f'<li><a href="{href}" title="{esc(signature)}">{display}'
+            '<span class="visually-hidden"> (opens in Solana Explorer)</span></a></li>'
+        )
+    out = '<ul class="tx-links">' + "".join(items) + "</ul>"
+    if remainder > 0:
+        out += (
+            f'<p class="tx-links-more">+ {remainder} more '
+            '-- see the raw observation JSON</p>'
+        )
+    return out
+
+
+# -- copy-to-clipboard control ---------------------------------------------
+def _copy_button(address) -> str:
+    """A `<button>` accelerator for the mint address, which stays selectable
+    text in the header regardless -- the button is never the only route to
+    the value. Icon is `aria-hidden="true"`/`focusable="false"`; the status
+    span is `aria-live="polite"` so success/failure is announced, not only
+    shown by swapping the glyph.
+    """
+    escaped_address = esc(address)
+    return (
+        f'<button type="button" class="copy-button" data-copy-address="{escaped_address}" '
+        'aria-label="Copy mint address">'
+        '<svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="18" height="18">'
+        '<rect x="3" y="3" width="9" height="9" fill="none" stroke="currentColor"/>'
+        '</svg>'
+        '</button>'
+        '<span class="copy-status" aria-live="polite"></span>'
+    )
+
+
+_COPY_SCRIPT = """
+document.querySelectorAll('.copy-button').forEach(function (btn) {
+  var status = btn.nextElementSibling;
+  var defaultLabel = 'Copy mint address';
+  var successLabel = 'Copied';
+  var failureLabel = 'Copy failed -- select the address to copy it manually';
+  btn.addEventListener('click', function () {
+    var address = btn.getAttribute('data-copy-address');
+    function succeed() {
+      btn.setAttribute('aria-label', successLabel);
+      if (status) { status.textContent = successLabel; }
+      setTimeout(function () {
+        btn.setAttribute('aria-label', defaultLabel);
+        if (status) { status.textContent = ''; }
+      }, 2000);
+    }
+    function fail() {
+      btn.setAttribute('aria-label', failureLabel);
+      if (status) { status.textContent = failureLabel; }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(address).then(succeed, fail);
+    } else {
+      fail();
+    }
+  });
+});
+"""
+
+
+# -- D-20: the generator itself is unverified ------------------------------
+_GENERATOR_UNVERIFIED = (
+    "The publication sweep proves no ungated figure can leak onto this page. It does "
+    "not prove the numbers shown are the right ones, because nothing independently "
+    "checks that this renderer faithfully reflects the record it was generated from."
+)
+RISK_GENERATOR_ANCHOR = "risk-generator-unverified"
+
+_RISKS = (
+    "No program is deployed.",
+    "There is no funding, and Phase 5 is gated on SOL that does not exist yet.",
+    "Revoking upgrade authority is a one-way door.",
+    "SEAL_UNSPENDABLE fails permanently for this coin, not pending.",
+    "The opening-balance mechanism is dormant on live data (D-07).",
+    "The mint-wide burn walk is incomplete, so the residual is not a settled figure -- "
+    "see the committed reconciliation artifact (state/RECONCILIATION.md), never a number "
+    "on this page.",
+)
+
+
+def _cannot_enroll() -> str:
+    """UI-SPEC's mandatory copy block (domain context #2), rendered as plain
+    prose with no card/border treatment -- it is context, not a figure.
+    """
+    return (
+        '<section id="cannot-enroll">'
+        "<p>$CHARLIE is the reference implementation -- the coin this protocol helps "
+        "least. Its sharing config is <code>admin_revoked</code>: permanent, single "
+        "shareholder, and only pump could ever reset it. $CHARLIE cannot enroll in its "
+        "own protocol.</p>"
+        "</section>"
+    )
+
+
+def _how_it_works() -> str:
+    """Static prose: the three legs, adapted from PROTOCOL.md sec.1, with the
+    permitted/forbidden claims table reproduced so a visitor does not have to
+    leave the page to learn the vocabulary.
+    """
+    return (
+        '<section id="how-it-works">'
+        "<h2>How It Works</h2>"
+        "<p>Three destinations for creator fees. They are not the same kind of object, "
+        "and the protocol never calls them by the same word.</p>"
+        '<table class="legs">'
+        "<tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr>"
+        "<tr><td>SEAL</td><td>SOL to an unspendable vault</td>"
+        '<td>"removed from circulation"</td><td>"burned"</td></tr>'
+        "<tr><td>BURN</td><td>SOL buys the token, then an SPL burn</td>"
+        '<td>"permanently destroyed"</td><td>—</td></tr>'
+        "<tr><td>OPS</td><td>SOL to a spendable wallet</td>"
+        '<td>"funds operations"</td><td>"burned", "sealed"</td></tr>'
+        "</table>"
+        "</section>"
+    )
+
+
+def _the_burn(observation) -> str:
+    """The boost-attribution mandatory copy block (figures computed live),
+    the linked transaction list, and BURN_ATOMIC's own live not-applicable
+    detail, rendered verbatim as prose -- it backs no figure today (D-14).
+    """
+    decimals = observation.mint_state.decimals if observation.mint_state is not None else 6
+    summary = _boost_summary(observation.burn_events)
+    sentence = _boost_sentence(summary, decimals)
+    tx_links = _tx_links(observation.burn_events)
+    atomic_check = next((c for c in observation.checks if c.name == "BURN_ATOMIC"), None)
+    atomic_paragraph = (
+        f'<p class="burn-atomic-detail">{esc(atomic_check.detail)}</p>' if atomic_check is not None else ""
+    )
+    return (
+        '<section id="the-burn">'
+        "<h2>The Burn</h2>"
+        f"<p>{esc(sentence)}</p>"
+        f"{tx_links}"
+        f"{atomic_paragraph}"
+        "</section>"
+    )
+
+
+def _quiet(observation) -> str:
+    """Honest about what does not apply -- the window figure is computed
+    from the same `_boost_summary`, never a second, independently hardcoded
+    copy of the number `_the_burn` already computed.
+    """
+    summary = _boost_summary(observation.burn_events)
+    return (
+        '<section id="quiet">'
+        "<h2>Quiet</h2>"
+        "<p>$CHARLIE has no BURN leg -- its split is 100% SEAL. There is no crank to "
+        "pause or resume, because none has ever run. The one burn event in this coin's "
+        f"history was pump's boost, a single {esc(summary['window_seconds'])}-second "
+        "window at migration, not a recurring mechanism.</p>"
+        "</section>"
+    )
+
+
+def _log() -> str:
+    """Today's expected empty state -- no protocol crank has ever run,
+    against any coin, until phase 5 deploys a program.
+    """
+    return (
+        '<section id="log">'
+        "<h2>Log</h2>"
+        "<h3>No cranks yet</h3>"
+        "<p>The protocol's crank has never run for $CHARLIE -- no program is deployed "
+        '(see <a href="#risks">Risks</a>). Every burn recorded against this mint so far '
+        "was pump's boost, not any keeper of ours -- see "
+        '<a href="#the-burn">The Burn</a>.</p>'
+        "</section>"
+    )
+
+
+def _footer() -> str:
+    """Links to the public spec/buildlog and this repository -- no social or
+    marketing content. Neither repository has a public URL yet (D-15: hosting
+    and a public remote are out of scope for this phase; `git remote -v`
+    returns nothing today), so these are named, not hyperlinked to a URL that
+    does not yet resolve.
+    """
+    return (
+        "<footer>"
+        "<p>charlie-mode -- the public spec and buildlog.</p>"
+        "<p>This repository is the whole of the public project (see README.md, "
+        '"Relationship to the other repos").</p>'
+        "</footer>"
+    )
+
+
+def _sections(observation) -> str:
+    """How It Works, The Burn, Quiet, Log and Risks, in UI-SPEC's Page
+    Structure order (items 5-9) -- everything after the checks list and
+    before the footer. The cannot-enroll statement (item 2) and the Seal
+    Failure Banner (item 3) are rendered earlier in `render()`, ahead of the
+    Figures section (item 4), matching UI-SPEC's approved structural order
+    exactly.
+
+    Risks is built inline here, not in a helper, so D-20's seventh entry --
+    the sweep's claim and its limit, carried in the module's one generator-
+    unverified constant -- is interpolated exactly once in this function's
+    own source, never re-typed apart from it.
+    """
+    risk_items = [f"<li>{esc(text)}</li>" for text in _RISKS]
+    risk_items.append(f'<li id="{RISK_GENERATOR_ANCHOR}">{esc(_GENERATOR_UNVERIFIED)}</li>')
+    risks = '<section id="risks"><h2>Risks</h2><ol class="risks">' + "".join(risk_items) + "</ol></section>"
+
+    return "".join(
+        (
+            _how_it_works(),
+            _the_burn(observation),
+            _quiet(observation),
+            _log(),
+            risks,
+        )
+    )
+
+
 _STYLE = """
 :root {
   --paper: #FAF7F0;
@@ -322,6 +615,34 @@ a { color: var(--accent); }
 .check-detail { font-size: 16px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
 .check-expected-actual { font-size: 14px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
 .error-state p { font-size: 16px; font-weight: 400; }
+.copy-button {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px dashed var(--unchecked);
+  cursor: pointer;
+  color: var(--ink);
+}
+.copy-status { margin-left: var(--sp-sm); font-size: 14px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.legs { border-collapse: collapse; width: 100%; }
+.legs th, .legs td { text-align: left; padding: var(--sp-sm); border-bottom: 1px solid var(--panel); }
+.tx-links { list-style: none; margin: var(--sp-md) 0; padding: 0; }
+.tx-links li { margin-bottom: var(--sp-xs); }
+.risks { padding-left: var(--sp-lg); }
 """
 
 
@@ -355,7 +676,13 @@ def render(observation, *, now=None) -> str:
     now = now if now is not None else time.time()
     mint = esc(observation.mint)
     freshness = _freshness(observation, now)
-    header = f"<header><h1>{mint}</h1>{freshness}</header>"
+    header = (
+        "<header>"
+        f"<h1>{mint}</h1>"
+        f"{_copy_button(observation.mint)}"
+        f"{freshness}"
+        "</header>"
+    )
 
     if observation.error and observation.config is None:
         # Mirrors report.py's established voice (report.py:52-58), translated
@@ -372,15 +699,20 @@ def render(observation, *, now=None) -> str:
             + "<p>See the observation history: <code>python -m indexer log</code>.</p>"
             + "</section>"
         )
-        return _document(mint, body)
+        return _document(mint, body + f"<script>{_COPY_SCRIPT}</script>")
 
     publisher = publish.Publisher(observation)
     banner = _seal_failure_banner(observation)
     figure_rows = "".join(_figure_row(publisher, name) for name in invariants.FIGURES)
     checks_rows = "".join(_check_row(check) for check in observation.checks)
 
+    # Structural order follows UI-SPEC's Page Structure & Component Inventory
+    # exactly: header (1) -> cannot-enroll (2) -> Seal Failure Banner (3) ->
+    # Figures (4) -> [checks list, not separately numbered there] -> How It
+    # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> footer (11).
     body = (
         header
+        + _cannot_enroll()
         + banner
         + '<section id="figures">'
         + "<h2>Figures</h2>"
@@ -390,6 +722,9 @@ def render(observation, *, now=None) -> str:
         + "<h2>Checks</h2>"
         + checks_rows
         + "</section>"
+        + _sections(observation)
+        + _footer()
+        + f"<script>{_COPY_SCRIPT}</script>"
     )
 
     return _document(mint, body)

@@ -318,6 +318,169 @@ class TestChecksList(unittest.TestCase):
         self.assertNotIn("expected " + ops_check.expected, rendered)
 
 
+def _boost_rows(count: int, *, tokens_start=1_000_000, block_time_start=100, step=100):
+    """Boost-source burn_event rows, shaped exactly like `evidence.burns_for()`'s
+    output, distinct enough in `tokens_burned`/`block_time` that a hardcoded
+    figure would fail the "not hardcoded" tests below.
+    """
+    return [
+        {
+            "signature": f"sig-boost-{i}-{'x' * 60}",
+            "source": "boost_buy_and_burn",
+            "tokens_burned": tokens_start + i * 1_000,
+            "sol_spent": 10 + i,
+            "block_time": block_time_start + i * step,
+            "slot": i,
+            "instruction_index": 0,
+        }
+        for i in range(count)
+    ]
+
+
+class TestBoostSummary(unittest.TestCase):
+    def test_zero_rows_returns_zeroed_values(self):
+        summary = site._boost_summary([])
+        self.assertEqual(summary, {"count": 0, "tokens": 0, "lamports": 0, "window_seconds": 0})
+
+    def test_non_boost_rows_are_excluded(self):
+        rows = [{"signature": "s", "source": "spl_burn", "tokens_burned": 999, "block_time": 1}]
+        summary = site._boost_summary(rows)
+        self.assertEqual(summary["count"], 0)
+
+    def test_summary_computed_from_rows_changing_rows_changes_the_result(self):
+        first = site._boost_summary(_boost_rows(3, tokens_start=1_000, block_time_start=0, step=10))
+        second = site._boost_summary(_boost_rows(3, tokens_start=99_999, block_time_start=500, step=50))
+        self.assertNotEqual(first, second)
+
+
+class TestTheBurnSection(unittest.TestCase):
+    """02-02 Task 3: the boost-attribution figures are computed live from
+    `observation.burn_events`, never hardcoded, and the transaction list
+    handles zero/one/many/overflow per UI-SPEC's Overflow section.
+    """
+
+    def _observation_with_rows(self, rows):
+        observation = build_observation()
+        observation.burn_events = rows
+        return observation
+
+    def test_boost_figures_are_not_hardcoded_two_fixtures_render_differently(self):
+        rendered_a = site.render(
+            self._observation_with_rows(_boost_rows(2, tokens_start=1_000_000, block_time_start=0, step=50)),
+            now=2.0,
+        )
+        rendered_b = site.render(
+            self._observation_with_rows(_boost_rows(2, tokens_start=7_000_000, block_time_start=900, step=50)),
+            now=2.0,
+        )
+        self.assertNotEqual(rendered_a, rendered_b)
+
+    def test_more_rows_than_limit_shows_exactly_the_limit_and_a_remainder_count(self):
+        rows = _boost_rows(site.TX_LINK_LIMIT + 5)
+        rendered = site.render(self._observation_with_rows(rows), now=2.0)
+        self.assertEqual(rendered.count(site.EXPLORER_TX_PREFIX), site.TX_LINK_LIMIT)
+        self.assertIn("+ 5 more", rendered)
+
+    def test_every_link_carries_the_full_signature_in_href_and_title(self):
+        rows = _boost_rows(2)
+        rendered = site.render(self._observation_with_rows(rows), now=2.0)
+        for row in rows:
+            self.assertIn(f'href="{site.EXPLORER_TX_PREFIX}{row["signature"]}"', rendered)
+            self.assertIn(f'title="{row["signature"]}"', rendered)
+
+    def test_one_row_uses_singular_wording(self):
+        rendered = site.render(self._observation_with_rows(_boost_rows(1)), now=2.0)
+        self.assertIn(" 1 transaction ", rendered)
+        self.assertNotIn(" 1 transactions ", rendered)
+
+    def test_several_rows_use_plural_wording(self):
+        rendered = site.render(self._observation_with_rows(_boost_rows(3)), now=2.0)
+        self.assertIn(" 3 transactions ", rendered)
+
+    def test_zero_rows_renders_prose_not_an_empty_link_list(self):
+        rendered = site.render(self._observation_with_rows([]), now=2.0)
+        self.assertNotIn(site.EXPLORER_TX_PREFIX, rendered)
+        self.assertIn("No burns are recorded", rendered)
+
+    def test_burn_atomic_detail_rendered_verbatim_as_prose(self):
+        observation = self._observation_with_rows(_boost_rows(1))
+        atomic_check = next(c for c in observation.checks if c.name == "BURN_ATOMIC")
+        rendered = site.render(observation, now=2.0)
+        self.assertIn(atomic_check.detail, rendered)
+
+
+class TestErrorBranchNoFigures(unittest.TestCase):
+    def test_error_branch_has_no_figure_row_markers(self):
+        observation = Observation(mint=CHARLIE, observed_at=1.0, error="RPC unavailable")
+        rendered = site.render(observation, now=2.0)
+        self.assertIn("RPC unavailable", rendered)
+        self.assertNotIn("data-figure=", rendered)
+
+
+class TestRisksSection(unittest.TestCase):
+    def test_exactly_seven_risk_entries(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        start = rendered.index('id="risks"')
+        end = rendered.index("</section>", start)
+        risks_html = rendered[start:end]
+        self.assertEqual(risks_html.count("<li"), 7)
+
+    def test_seventh_entry_carries_the_generator_unverified_constant_as_one_unit(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        self.assertIn(site._GENERATOR_UNVERIFIED, rendered)
+        self.assertIn(site.RISK_GENERATOR_ANCHOR, rendered)
+
+
+class TestSingleScriptNoClockRead(unittest.TestCase):
+    def test_exactly_one_script_element_with_no_src(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        self.assertEqual(rendered.count("<script"), 1)
+        start = rendered.index("<script")
+        end = rendered.index("</script>")
+        self.assertNotIn("src=", rendered[start:end])
+
+    def test_copy_script_reads_no_clock(self):
+        self.assertFalse(any(t in site._COPY_SCRIPT for t in ("Date", "getTime", "now(")))
+
+
+FORBIDDEN_PHRASES = (
+    "the seal burned",
+    "burned into the seal",
+    "sealed and burned",
+    "charlie protocol verified",
+)
+
+
+class TestForbiddenBurnLanguageAbsent(unittest.TestCase):
+    def test_forbidden_burn_language_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            pass_observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+
+        fail_observation = build_observation()
+
+        for observation in (fail_observation, pass_observation):
+            rendered = site.render(observation, now=2.0).lower()
+            for phrase in FORBIDDEN_PHRASES:
+                self.assertNotIn(phrase, rendered, f"forbidden phrase {phrase!r} found in web_page output")
+
+
+class TestStdlibOnlyImport(unittest.TestCase):
+    def test_site_imports_no_indexer_module_but_invariants_and_publish(self):
+        import ast
+
+        source = Path(__file__).resolve().parents[1].joinpath("indexer", "site.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        names = sorted(
+            {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level for alias in node.names}
+        )
+        self.assertEqual(names, ["invariants", "publish"])
+
+
 class TestWrite(unittest.TestCase):
     def test_write_produces_a_sibling_html_json_pair_matching_the_durable_record(self):
         observation = build_observation()
