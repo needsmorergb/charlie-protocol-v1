@@ -1,9 +1,10 @@
 """EVID-10: $CHARLIE's exact residual, recorded as an open discrepancy that
 is correct *as of a named observation* -- not a one-time reconciliation.
 
-Two corrections this module carries, both load-bearing (see
-`.planning/phases/01-evidence/01-03-PLAN.md`'s "Two corrections this plan
-carries" and `01-CONTEXT.md`'s `<specifics>`):
+Two corrections this module carries, both load-bearing (the planning record
+for phase 1 carries the same two under "Two corrections this plan carries";
+that directory is stripped from the published repo, so they are restated in
+full here rather than cited by path):
 
 1. The quantity to explain is **40,045.536145 tokens** -- all non-boost
    burns, from `initial_supply` 1,000,000,000.000000 minus live supply
