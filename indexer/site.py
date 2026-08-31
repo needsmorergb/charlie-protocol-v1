@@ -36,6 +36,28 @@ from . import invariants, publish
 DEFAULT_OUTPUT_DIR = Path("web")
 
 
+def _artifact_name(mint: str, suffix: str) -> str:
+    """The one place a `web/` artifact filename is constructed (D-19): every
+    reference to either file -- `write()`'s own paths, the raw-JSON href, and
+    the rendered `git log -p` command -- resolves through this function, so
+    the page can never name a file the generator does not produce. No dated,
+    timestamped or `latest` variant exists here or anywhere else in this
+    module; D-19 rejected a dated series as unbounded growth duplicating what
+    git already records losslessly, and a second naming scheme is exactly how
+    that rejection would quietly come back.
+    """
+    return f"{mint}{suffix}"
+
+
+# The committed deterministic evidence export directory (D-16's rejected
+# alternative was bundling raw evidence rows into the published record
+# instead of linking to this) -- matches export.py's DEFAULT_EXPORT_DIR
+# (`state/evidence`), kept here as a plain string rather than an import so
+# this module's stdlib-only, flat-module import list (invariants, publish
+# only) is untouched.
+EVIDENCE_EXPORT_PATH = "state/evidence"
+
+
 def esc(value) -> str:
     """`html.escape` with quotes escaped too, so a value is safe inside both
     element text and a double-quoted attribute. Route every interpolated
@@ -501,6 +523,83 @@ def _footer() -> str:
     )
 
 
+# -- WEB-06/D-16: the raw record, linked and honestly described -----------
+def _raw_record_link(observation) -> str:
+    """UI-SPEC's Copywriting Contract Primary CTA, verbatim: a plain link
+    (nothing is submitted or triggered -- the JSON already exists), href
+    derived from the same `_artifact_name` helper `write()` uses, so the link
+    and the sibling file it points at can never disagree. Visually-hidden
+    suffix follows the accessible-labelling clip pattern (`.visually-hidden`),
+    not `display:none`.
+    """
+    href = esc(_artifact_name(observation.mint, ".json"))
+    return (
+        f'<a href="{href}">View the raw observation JSON'
+        '<span class="visually-hidden"> (opens the raw observation record)</span></a>'
+    )
+
+
+_HISTORY_COMMAND = "git log -p web/{name}"
+
+
+def _history_note(observation) -> str:
+    """D-19: two plain sentences -- this page and its record are overwritten
+    on every build, and every previous version lives in the repository's git
+    history -- followed by the exact command that shows it, rendered against
+    this page's own filename via `_artifact_name` so the command can never
+    name a file the generator does not produce. Says what the command shows
+    (the diff at which a figure moved between published and withheld), not
+    just that it exists.
+    """
+    name = _artifact_name(observation.mint, ".html")
+    command = _HISTORY_COMMAND.format(name=name)
+    return (
+        '<div class="history-note">'
+        "<p>Every build overwrites this page and its record in place -- there "
+        'is no dated series and no "latest" pointer.</p>'
+        "<p>Every version this page has ever had is in this repository's git "
+        "history. The command below shows the diff at which a figure moved "
+        "between published and withheld:</p>"
+        f"<pre><code>{esc(command)}</code></pre>"
+        "</div>"
+    )
+
+
+_RECORD_LIMIT_STATEMENT = (
+    "This record proves that the page above faithfully renders it. It does "
+    "not prove that the record itself matches the chain -- that is a "
+    "different check, and it is the indexer's job, not the page's."
+)
+
+
+def _raw_record_section(observation) -> str:
+    """Page Structure item 10 (WEB-06/D-16): the primary-CTA link repeated,
+    the record's own framing, the limit D-16 says to state rather than hide
+    (with an inline link to the Risks entry naming the generator itself as
+    unverified -- D-20 -- since this section is where the page's
+    verification claim is strongest and therefore where that limit is most
+    likely to be over-read), D-19's history pointer immediately after the
+    limit statement, and the route to verify the underlying transaction list
+    without bundling it into the published record (D-16's rejected
+    alternative).
+    """
+    link = _raw_record_link(observation)
+    evidence_href = esc(f"../{EVIDENCE_EXPORT_PATH}/")
+    return (
+        '<section id="raw-record">'
+        "<h2>Raw Observation JSON</h2>"
+        f"<p>{link} -- the exact record this page was generated from. "
+        "Recompute it yourself rather than trust it.</p>"
+        f'<p class="record-limit">{esc(_RECORD_LIMIT_STATEMENT)} See '
+        f'<a href="#{RISK_GENERATOR_ANCHOR}">the generator-unverified risk</a> '
+        "for the reason this page cannot check itself.</p>"
+        f"{_history_note(observation)}"
+        "<p>Verify the boost transaction list yourself in the committed "
+        f'evidence export: <a href="{evidence_href}">{evidence_href}</a></p>'
+        "</section>"
+    )
+
+
 def _sections(observation) -> str:
     """How It Works, The Burn, Quiet, Log and Risks, in UI-SPEC's Page
     Structure order (items 5-9) -- everything after the checks list and
@@ -652,6 +751,17 @@ a { color: var(--accent); }
 .tx-links { list-style: none; margin: var(--sp-md) 0; padding: 0; }
 .tx-links li { margin-bottom: var(--sp-xs); }
 .risks { padding-left: var(--sp-lg); }
+.raw-record-cta { margin: var(--sp-sm) 0 0 0; }
+.record-limit { font-weight: 700; }
+.history-note pre {
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin: var(--sp-xs) 0 var(--sp-md) 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.history-note code { -webkit-user-select: all; user-select: all; }
 """
 
 
@@ -690,6 +800,7 @@ def render(observation, *, now=None) -> str:
         f"<h1>{mint}</h1>"
         f"{_copy_button(observation.mint)}"
         f"{freshness}"
+        f'<p class="raw-record-cta">{_raw_record_link(observation)}</p>'
         "</header>"
     )
 
@@ -718,7 +829,8 @@ def render(observation, *, now=None) -> str:
     # Structural order follows UI-SPEC's Page Structure & Component Inventory
     # exactly: header (1) -> cannot-enroll (2) -> Seal Failure Banner (3) ->
     # Figures (4) -> [checks list, not separately numbered there] -> How It
-    # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> footer (11).
+    # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> Raw Observation
+    # JSON (10, `_raw_record_section()`) -> footer (11).
     body = (
         header
         + _cannot_enroll()
@@ -732,6 +844,7 @@ def render(observation, *, now=None) -> str:
         + checks_rows
         + "</section>"
         + _sections(observation)
+        + _raw_record_section(observation)
         + _footer()
         + f"<script>{_COPY_SCRIPT}</script>"
     )
@@ -758,8 +871,8 @@ def write(observation, out_dir=DEFAULT_OUTPUT_DIR) -> tuple[Path, Path]:
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    html_path = out_dir / f"{observation.mint}.html"
-    json_path = out_dir / f"{observation.mint}.json"
+    html_path = out_dir / _artifact_name(observation.mint, ".html")
+    json_path = out_dir / _artifact_name(observation.mint, ".json")
     html_path.write_text(render(observation), encoding="utf-8", newline="\n")
     json_path.write_text(record_json(observation) + "\n", encoding="utf-8", newline="\n")
     return html_path, json_path

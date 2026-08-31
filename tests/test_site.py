@@ -481,6 +481,165 @@ class TestStdlibOnlyImport(unittest.TestCase):
         self.assertEqual(names, ["invariants", "publish"])
 
 
+class TestArtifactName(unittest.TestCase):
+    """02-03 Task 1, D-19: `_artifact_name` is the one place a `web/`
+    artifact filename is constructed -- `write()`'s own paths resolve
+    through it, and so must every in-page reference to either file.
+    """
+
+    def test_artifact_name_matches_writes_own_filenames(self):
+        observation = build_observation()
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path, json_path = site.write(observation, tmp)
+        self.assertEqual(html_path.name, site._artifact_name(observation.mint, ".html"))
+        self.assertEqual(json_path.name, site._artifact_name(observation.mint, ".json"))
+
+    def test_write_builds_both_paths_through_the_shared_helper(self):
+        import inspect
+
+        source = inspect.getsource(site.write)
+        self.assertEqual(source.count("_artifact_name"), 2, "write() must build both paths through _artifact_name (D-19)")
+
+    def test_no_dated_or_latest_variant_of_the_helper_exists(self):
+        # D-19 rejected a dated series / `latest` pointer -- a second naming
+        # scheme is how that rejection would quietly come back.
+        self.assertFalse(hasattr(site, "_dated_artifact_name"))
+        self.assertFalse(hasattr(site, "_latest_artifact_name"))
+
+
+class TestRawRecordLink(unittest.TestCase):
+    """02-03 Task 1, WEB-06: the primary-CTA raw-JSON link, present in both
+    the header and the closing raw-record section, its href derived from the
+    same helper `write()` uses so the link and the file can never disagree.
+    """
+
+    def test_raw_record_link_href_matches_artifact_name(self):
+        observation = build_observation()
+        expected_href = site._artifact_name(observation.mint, ".json")
+        link = site._raw_record_link(observation)
+        self.assertIn(f'href="{expected_href}"', link)
+
+    def test_primary_cta_copy_matches_ui_spec_verbatim(self):
+        observation = build_observation()
+        link = site._raw_record_link(observation)
+        self.assertIn("View the raw observation JSON", link)
+
+    def test_link_not_a_button(self):
+        observation = build_observation()
+        link = site._raw_record_link(observation)
+        self.assertNotIn("<button", link)
+        self.assertTrue(link.strip().startswith("<a "))
+
+    def test_raw_record_link_appears_at_least_twice_header_and_closing_section(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        expected_href = site._artifact_name(observation.mint, ".json")
+        self.assertGreaterEqual(rendered.count(f'href="{expected_href}"'), 2)
+
+    def test_json_filename_appears_at_least_twice_computed_from_shared_helper(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        filename = site._artifact_name(observation.mint, ".json")
+        self.assertGreaterEqual(rendered.count(filename), 2)
+
+
+class TestHistoryNote(unittest.TestCase):
+    """02-03 Task 1, D-19: the page names its own git history, rendering the
+    `git log -p` command against its own filename -- computed, not pasted.
+    """
+
+    def test_history_command_present_for_own_filename(self):
+        observation = Observation(mint="ZZTOP", observed_at=1_000_000.0)
+        rendered = site.render(observation, now=1_000_100.0)
+        self.assertIn("git log -p web/" + site._artifact_name("ZZTOP", ".html"), rendered)
+
+    def test_history_command_is_specific_to_each_mint(self):
+        first = Observation(mint="MINTONE", observed_at=1_000_000.0)
+        second = Observation(mint="MINTTWO", observed_at=1_000_000.0)
+        rendered_first = site.render(first, now=1_000_100.0)
+        rendered_second = site.render(second, now=1_000_100.0)
+
+        first_command = "git log -p web/" + site._artifact_name("MINTONE", ".html")
+        second_command = "git log -p web/" + site._artifact_name("MINTTWO", ".html")
+
+        self.assertIn(first_command, rendered_first)
+        self.assertNotIn(second_command, rendered_first)
+        self.assertIn(second_command, rendered_second)
+        self.assertNotIn(first_command, rendered_second)
+
+    def test_history_note_states_overwrite_and_no_latest_pointer(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        self.assertIn("overwrites this page", rendered)
+        self.assertIn("no dated series", rendered)
+        self.assertIn("latest", rendered.lower())
+        # No actual dated/latest artifact name is ever named -- only this
+        # page's own two filenames appear anywhere in the document.
+        own_html = site._artifact_name(observation.mint, ".html")
+        own_json = site._artifact_name(observation.mint, ".json")
+        for token in ("latest.html", "latest.json"):
+            self.assertNotIn(token, rendered)
+        self.assertNotEqual(own_html, "latest.html")
+        self.assertNotEqual(own_json, "latest.json")
+
+
+class TestRawRecordSection(unittest.TestCase):
+    """02-03 Task 1, D-16: the closing section states what the raw record
+    proves and what it does not, links the generator-unverified risk, and
+    links the committed evidence export as the route to verify the
+    transaction list.
+    """
+
+    def test_limit_statement_present(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        # esc() turns the constant's apostrophes into entities on render --
+        # compare the escaped form, the same transform every other
+        # interpolated value in this module goes through.
+        self.assertIn(site.esc(site._RECORD_LIMIT_STATEMENT), rendered)
+
+    def test_closing_section_links_the_generator_unverified_risk(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        self.assertIn(f'href="#{site.RISK_GENERATOR_ANCHOR}"', rendered)
+        self.assertIn(f'id="{site.RISK_GENERATOR_ANCHOR}"', rendered)
+
+    def test_page_links_the_evidence_export_directory(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        self.assertIn(site.EVIDENCE_EXPORT_PATH, rendered)
+
+    def test_no_second_json_producing_entry_point_was_added(self):
+        json_producing = sorted(
+            n for n in dir(site) if "json" in n.lower() and callable(getattr(site, n))
+        )
+        self.assertEqual(json_producing, ["record_json"])
+
+
+class TestRecordJsonEqualsDurableRecord(unittest.TestCase):
+    """02-03 Task 1: record_json's payload is exactly publish.durable_record(),
+    for both the all-publishable and the all-blocked sentinel observations,
+    and is byte-identical across two calls on an unchanged observation."""
+
+    def test_record_json_equals_durable_record_for_all_publishable_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+        self.assertEqual(json.loads(site.record_json(observation)), publish.durable_record(observation))
+
+    def test_record_json_equals_durable_record_for_all_blocked_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_blocked_sentinel_observation(evidence)
+            evidence.close()
+        self.assertEqual(json.loads(site.record_json(observation)), publish.durable_record(observation))
+
+    def test_record_json_byte_identical_across_two_calls(self):
+        observation = build_observation()
+        self.assertEqual(site.record_json(observation), site.record_json(observation))
+
+
 class TestWrite(unittest.TestCase):
     def test_write_produces_a_sibling_html_json_pair_matching_the_durable_record(self):
         observation = build_observation()
