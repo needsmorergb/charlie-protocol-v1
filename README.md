@@ -1,11 +1,20 @@
 # charlie_protocol
 
-The implementation of [Charlie Protocol](https://github.com/needsmorergb/charlie-mode)
-— a fee-routing and **verification** standard for pump.fun coins.
+Charlie Protocol — a fee-routing and **verification** standard for pump.fun
+coins.
 
-The spec lives in `charlie-mode`: `PROTOCOL.md` defines the rules, three legs
-(SEAL, BURN, OPS), the invariants, and — the part nobody else specifies — what a
-coin is permitted to *claim* about its fees in public. This repo is the code.
+Three legs (SEAL, BURN, OPS), a set of invariants, and — the part nobody else
+specifies — what a coin is permitted to *claim* about its fees in public.
+
+- [**PROTOCOL.md**](PROTOCOL.md) — the spec: legs, modes, invariants, claims policy
+- [**ARCHITECTURE.md**](ARCHITECTURE.md) — what goes on-chain, what does not, and why
+- [**BUILDLOG.md**](BUILDLOG.md) — build-in-public log, append-only
+- `indexer/` — the code, and the executable statement of the spec
+
+Spec and implementation are in one repository on purpose. Every check in
+`indexer/invariants.py` names the rule it enforces, what it expected and what it
+found, so a claim in `PROTOCOL.md` and the code that tests it can be read side
+by side.
 
 ## Status
 
@@ -29,8 +38,7 @@ and every check states why in one sentence.
 
 `BURN_ATOMIC` needs its own paragraph because it means two different things
 at two different levels, and conflating them was a mistake this project made
-once already (see the dated correction in
-[`01-03-SUMMARY.md`](.planning/phases/01-evidence/01-03-SUMMARY.md)). At the
+once already, corrected on the record rather than quietly. At the
 per-transaction level, `scan.classify_atomicity` classifies each of
 $CHARLIE's 29 recorded boost-crank burns individually, and all 29 classify
 `PASS`. That is not the same claim as the aggregate `BURN_ATOMIC` check
@@ -54,9 +62,11 @@ shared address, which the mechanism deliberately excludes (D-06/D-07).
 reproducible record of $CHARLIE's exact residual, correct as of a named
 observation.
 
-[`.planning/ROADMAP.md`](.planning/ROADMAP.md) is the plan for closing that, in
-order, with what "done" means for each phase — five phases, and the public
-surface lands in phase 2 rather than behind the deploy gate.
+The plan for closing that runs to five phases, and "done" for each one means a
+check that currently reads `UNCHECKED` returns `PASS` or `FAIL` — not that code
+exists. The public surface lands in phase 2, deliberately ahead of the deploy
+gate rather than behind it. Phase 1 is complete; the program is phase 4 and is
+not written.
 
 ## Running the indexer
 
@@ -93,10 +103,9 @@ wrong number in a published post.
 
 ## Relationship to the other repos
 
-- **[`charlie-mode`](https://github.com/needsmorergb/charlie-mode)** — public.
-  The spec, the architecture, and the build log. It also still carries a copy of
-  the indexer under `protocol/`; consolidating that is open question 3 in the
-  roadmap.
+This repository is the whole of the public project. There is one implementation
+and no second copy to drift.
+
 - **`charlie_xbot`** — private. The $CHARLIE burn watcher, live since
   2026-08-23. Predates the protocol and implements one leg of it. Where the
   hand-rolled base58, ed25519, PDA derivation and transaction building came

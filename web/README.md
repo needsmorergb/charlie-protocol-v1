@@ -1,7 +1,8 @@
 # web/ — not built
 
-Four routes, described in `ARCHITECTURE.md` §4 and planned in
-[`../ROADMAP.md`](../ROADMAP.md) §4.
+Four routes, described in [`ARCHITECTURE.md`](../ARCHITECTURE.md) §4. The
+single-coin page is phase 2; the index, `/enroll` and `/verify` are phases 3
+and 5.
 
 ```
 /                 the index — every coin, its split, its class
