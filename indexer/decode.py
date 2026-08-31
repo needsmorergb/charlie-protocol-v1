@@ -95,11 +95,30 @@ def find_burns(tx: dict, mint: str) -> list[dict]:
         info = parsed.get("info") or {}
         if info.get("mint") != mint:
             continue
+        # WR-02: every other untrusted field this module reads is validated
+        # defensively (`_need`, `_read_borsh_string`) -- `amount` was the one
+        # field in this function still trusted with a bare `int(info["amount"])`.
+        # A missing or unparseable `amount` is a malformed/untrusted RPC
+        # response, not a bug in this code, and must raise this module's own
+        # `DecodeError` (not a bare `KeyError`/`ValueError`) so the caller can
+        # catch it and record the failure per-signature (WR-02) instead of
+        # letting it abort the whole scan invocation.
+        if "amount" not in info:
+            raise DecodeError(
+                f"burn instruction at flat index {flat_index} has no 'amount' field"
+            )
+        try:
+            amount = int(info["amount"])  # Pitfall 2: always a JSON string
+        except (TypeError, ValueError) as exc:
+            raise DecodeError(
+                f"burn instruction at flat index {flat_index} has an unparseable "
+                f"'amount' field: {info['amount']!r}"
+            ) from exc
         found.append(
             {
                 "instruction_index": flat_index,
                 "top_index": top_index,
-                "amount": int(info["amount"]),  # Pitfall 2: always a JSON string
+                "amount": amount,
                 "account": info.get("account"),
                 "authority": info.get("authority"),
                 "type": parsed.get("type"),

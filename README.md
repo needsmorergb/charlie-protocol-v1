@@ -14,7 +14,7 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 165 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 172 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
 | `web/` — the index, `/coin`, `/enroll`, `/verify` | **not built** |
 

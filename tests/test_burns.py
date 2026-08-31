@@ -201,6 +201,24 @@ class TestFindBurns(unittest.TestCase):
         self.assertEqual(len(burns), 2)
         self.assertNotEqual(burns[0]["instruction_index"], burns[1]["instruction_index"])
 
+    def test_missing_amount_field_raises_decode_error_not_key_error(self):
+        """WR-02: every other untrusted field in this module raises
+        `DecodeError`; `amount` was the one field still trusted with a bare
+        `info["amount"]`.
+        """
+        instr = burn_instruction(CHARLIE, 100)
+        del instr["parsed"]["info"]["amount"]
+        tx = tx_with(top_instructions=[instr])
+        with self.assertRaises(DecodeError):
+            decode.find_burns(tx, CHARLIE)
+
+    def test_unparseable_amount_field_raises_decode_error_not_value_error(self):
+        instr = burn_instruction(CHARLIE, 100)
+        instr["parsed"]["info"]["amount"] = "not-a-number"
+        tx = tx_with(top_instructions=[instr])
+        with self.assertRaises(DecodeError):
+            decode.find_burns(tx, CHARLIE)
+
 
 # -- program_data_lines -------------------------------------------------------
 class TestProgramDataLines(unittest.TestCase):
@@ -473,6 +491,73 @@ class TestScanBurns(unittest.TestCase):
             evidence.close()
 
             self.assertTrue(all(row["protocol_attributed"] == 0 for row in rows))
+
+
+# -- WR-02: a malformed burn field is a stored failure, not a crash ----------
+class TestBurnWalkRecordsMalformedField(unittest.TestCase):
+    def test_malformed_amount_recorded_as_cursor_failure_walk_stays_incomplete(self):
+        bad_instr = burn_instruction(CHARLIE, 100)
+        bad_instr["parsed"]["info"]["amount"] = "not-a-number"
+        bad_tx = tx_with(top_instructions=[bad_instr])
+        good_tx = tx_with(top_instructions=[burn_instruction(CHARLIE, 50)])
+        with tempfile.TemporaryDirectory() as tmp:
+            # `fetch_new_signatures` reverses the raw (newest-first) page it
+            # is given into oldest-first processing order -- listing
+            # sig-bad before sig-good here means sig-good (older) is
+            # processed FIRST, then sig-bad (newer) interrupts the walk.
+            rpc = FakeBurnScanRpc(
+                pages=[[
+                    {"signature": "sig-bad", "err": None, "slot": 2, "blockTime": 2},
+                    {"signature": "sig-good", "err": None, "slot": 1, "blockTime": 1},
+                ]],
+                transactions={"sig-good": good_tx, "sig-bad": bad_tx},
+            )
+            evidence = evidence_db(tmp)
+            _newest, _oldest, complete = scan_burns(rpc, evidence, CHARLIE, pages=1)
+            rows = evidence.burns_for(CHARLIE)
+            cursor = evidence.get_cursor(CHARLIE, "burn")
+            evidence.close()
+
+            # The walk stayed incomplete -- it stopped at the malformed
+            # signature rather than reporting itself exhausted.
+            self.assertFalse(complete)
+            # Nothing written for the signature it could not read; the good
+            # signature ahead of it (in walk order) was still recorded.
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["signature"], "sig-good")
+            # The failure is stored against the mint's burn cursor, naming
+            # the signature that raised it.
+            self.assertIsNotNone(cursor["last_error"])
+            self.assertIn("sig-bad", cursor["last_error"])
+
+    def test_second_mint_in_same_invocation_still_scanned_after_first_hits_malformed_burn(self):
+        """The exception does not propagate past the mint being walked --
+        `scan_burns(mint_a)` raising past the caller would abort every other
+        mint queued in the same CLI invocation.
+        """
+        bad_instr = burn_instruction(CHARLIE, 100)
+        bad_instr["parsed"]["info"]["amount"] = "not-a-number"
+        bad_tx = tx_with(top_instructions=[bad_instr])
+        good_tx = tx_with(top_instructions=[burn_instruction(OTHER_MINT, 50)])
+        with tempfile.TemporaryDirectory() as tmp:
+            rpc_a = FakeBurnScanRpc(
+                pages=[[{"signature": "sig-bad", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-bad": bad_tx},
+            )
+            rpc_b = FakeBurnScanRpc(
+                pages=[[{"signature": "sig-good", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-good": good_tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_burns(rpc_a, evidence, CHARLIE, pages=1)  # must not raise
+            scan_burns(rpc_b, evidence, OTHER_MINT, pages=1)
+            rows_charlie = evidence.burns_for(CHARLIE)
+            rows_other = evidence.burns_for(OTHER_MINT)
+            evidence.close()
+
+            self.assertEqual(len(rows_charlie), 0)  # the malformed burn wrote nothing
+            self.assertEqual(len(rows_other), 1)
+            self.assertEqual(rows_other[0]["tokens_burned"], 50)
 
 
 # -- evidence.record_burn_event / fill_missing_supply_after -------------------

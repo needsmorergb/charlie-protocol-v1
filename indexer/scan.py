@@ -279,6 +279,7 @@ def scan_inflows(
 
     newest_seen = last_signature
     oldest_seen = oldest_signature
+    last_error: str | None = None
 
     if last_signature:
         forward_newest, _forward_oldest, _exhausted, _earliest = _walk_and_record(
@@ -301,12 +302,39 @@ def scan_inflows(
 
         if exhausted and earliest_fetched and target not in grandfathered:
             opening_signature, opening_pre_balance = earliest_fetched
-            if opening_pre_balance:
+            # WR-03: an explicit three-way distinction, not a truthiness
+            # test -- `opening_pre_balance` is `0` (history readable to its
+            # start, nothing to admit), a positive int (D-05: record the
+            # admission), or `None` (genuinely undeterminable: `target` was
+            # absent from the transaction's account list, or the balance
+            # arrays were too short to index -- an untrusted-response edge
+            # case). A bare `if opening_pre_balance:` conflates the last two,
+            # silently treating "we could not read the beginning" as
+            # "nothing to admit", which is the opposite of D-05's policy.
+            if opening_pre_balance is not None and opening_pre_balance != 0:
                 evidence.record_opening_balance(
                     destination=target,
                     lamports=opening_pre_balance,
                     opening_signature=opening_signature,
                 )
+            elif opening_pre_balance is None:
+                # Do not invent a zero-lamport opening-balance row to stand
+                # in for the unknown -- `opening_balance` records a balance
+                # that was actually read, and a fabricated zero there would
+                # be the same conflation moved one layer down. Instead,
+                # record the failure against this destination's cursor for
+                # this endpoint, naming the signature, and leave the
+                # backfill NOT complete -- so SEAL_BALANCE/OPS_ROUTED read
+                # UNCHECKED with a stated reason rather than quietly
+                # reconciling against history nobody could read.
+                backfill_complete = False
+                last_error = (
+                    f"{opening_signature}: could not determine the pre-transaction "
+                    f"balance of {target} -- absent from the account list, or the "
+                    "balance arrays were too short to index"
+                )
+            # opening_pre_balance == 0: history was readable to its start and
+            # there is nothing to admit -- record nothing, exactly as before.
 
     evidence.set_cursor(
         target,
@@ -315,6 +343,7 @@ def scan_inflows(
         last_signature=newest_seen,
         oldest_signature=oldest_seen,
         backfill_complete=int(backfill_complete),
+        last_error=last_error,
     )
     return newest_seen, oldest_seen, backfill_complete
 
@@ -511,10 +540,21 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
     recording every burn instruction found against it (D-09: every burn
     against the mint, by anyone -- not one known actor's transactions).
 
-    Returns `(newest_signature_seen, oldest_signature_seen, exhausted)`,
-    following `_walk_and_record`'s exact convention: `exhausted` is only
-    True when every fetch in this call succeeded, and the cursor never
-    advances past a signature this call could not fetch.
+    Returns `(newest_signature_seen, oldest_signature_seen, exhausted,
+    last_error)`, following `_walk_and_record`'s exact convention:
+    `exhausted` is only True when every fetch in this call succeeded, and
+    the cursor never advances past a signature this call could not fetch.
+
+    WR-02: a `decode.DecodeError` raised while decoding a burn instruction
+    (a malformed/untrusted `amount` field) is caught for the signature that
+    raised it and treated exactly like a failed fetch -- the walk stops
+    (`stopped_early`, so `exhausted` reads False), nothing is written for
+    that signature, and the cursor does not advance past it. `last_error`
+    carries the signature and the decode message out to `scan_burns`, which
+    records it against the mint's burn cursor -- the walk stays visibly
+    incomplete, so `BURN_SUPPLY`/`BURN_ATOMIC` stay `UNCHECKED` and
+    `SUPPLY_DESTROYED` stays withheld, rather than silently under-counting a
+    burn this call could not read.
     """
     signatures, exhausted = fetch_new_signatures(
         rpc, mint, until=until, before=before, pages=pages, limit=limit
@@ -522,6 +562,7 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
     newest_seen: str | None = None
     oldest_seen: str | None = None
     stopped_early = False
+    last_error: str | None = None
 
     for record in signatures:
         signature = record.get("signature")
@@ -541,7 +582,12 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
 
         block_time = record.get("blockTime") or tx.get("blockTime")
         slot = int(record.get("slot") or tx.get("slot") or 0)
-        burns = decode.find_burns(tx, mint)
+        try:
+            burns = decode.find_burns(tx, mint)
+        except decode.DecodeError as exc:
+            stopped_early = True
+            last_error = f"{signature}: {exc}"
+            break
         if burns:
             # At most one boost crank per transaction in practice; if one is
             # present, its SOL-spent figure applies to every burn instruction
@@ -575,7 +621,7 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
         newest_seen = signature
         oldest_seen = oldest_seen if oldest_seen is not None else signature
 
-    return newest_seen, oldest_seen, (exhausted and not stopped_early)
+    return newest_seen, oldest_seen, (exhausted and not stopped_early), last_error
 
 
 def scan_burns(
@@ -595,6 +641,12 @@ def scan_burns(
     Same forward-catch-up-plus-bounded-backfill shape as `scan_inflows`,
     cursor state owned by `evidence` under `purpose='burn'`. Returns
     `(newest_signature_seen, oldest_signature_seen, backfill_complete)`.
+
+    WR-02: either walk may stop early on a `DecodeError` (a malformed burn
+    field). That failure is recorded against the mint's burn cursor as
+    `last_error`, naming the signature and the decode message -- the cursor
+    already carries `last_error` and `set_cursor` already merges partial
+    updates, so this needs no schema change.
     """
     cursor = evidence.get_cursor(mint, "burn") or {}
     last_signature = cursor.get("last_signature")
@@ -603,16 +655,18 @@ def scan_burns(
 
     newest_seen = last_signature
     oldest_seen = oldest_signature
+    last_error: str | None = None
 
     if last_signature:
-        forward_newest, _forward_oldest, _exhausted = _walk_burns(
+        forward_newest, _forward_oldest, _exhausted, forward_error = _walk_burns(
             rpc, evidence, mint, until=last_signature, before=None, pages=1_000_000, limit=limit,
         )
         if forward_newest:
             newest_seen = forward_newest
+        last_error = forward_error or last_error
 
     if not backfill_complete:
-        backward_newest, backward_oldest, exhausted = _walk_burns(
+        backward_newest, backward_oldest, exhausted, backward_error = _walk_burns(
             rpc, evidence, mint, until=None, before=oldest_signature, pages=pages, limit=limit,
         )
         if backward_oldest:
@@ -620,6 +674,7 @@ def scan_burns(
         if not last_signature and backward_newest:
             newest_seen = backward_newest
         backfill_complete = exhausted
+        last_error = backward_error or last_error
 
     evidence.set_cursor(
         mint,
@@ -627,5 +682,6 @@ def scan_burns(
         last_signature=newest_seen,
         oldest_signature=oldest_seen,
         backfill_complete=int(backfill_complete),
+        last_error=last_error,
     )
     return newest_seen, oldest_seen, backfill_complete

@@ -492,5 +492,83 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
             self.assertEqual(len(coverage), 1)
 
 
+# -- WR-03: "pre-balance is zero" vs "pre-balance could not be determined" --
+class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
+    def test_zero_pre_balance_records_no_opening_balance(self):
+        """History was readable to its start and there is nothing to admit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({SHAREHOLDER_A: (0, 500)})
+            rpc = FakeScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            _newest, _oldest, complete = scan_inflows(
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                target=SHAREHOLDER_A, pages=1,
+            )
+            opening = evidence.active_opening_balance(SHAREHOLDER_A)
+            evidence.close()
+
+            self.assertTrue(complete)
+            self.assertIsNone(opening)
+
+    def test_positive_pre_balance_still_records_the_admission(self):
+        """Unchanged from before the three-way distinction: a real non-zero
+        pre-balance still records D-05's admission.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tx = make_tx({SHAREHOLDER_A: (250, 500)})
+            rpc = FakeScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            scan_inflows(
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                target=SHAREHOLDER_A, pages=1,
+            )
+            opening = evidence.active_opening_balance(SHAREHOLDER_A)
+            evidence.close()
+
+            self.assertIsNotNone(opening)
+            self.assertEqual(opening["lamports"], 250)
+
+    def test_undeterminable_pre_balance_records_no_opening_balance_but_a_named_cursor_error(self):
+        """`target` absent from the transaction's account list is an
+        untrusted-response edge case where `_pre_balance` returns `None` --
+        genuinely unknown, not zero. Must not be silently treated as
+        "nothing to admit": no opening balance is fabricated, the failure is
+        recorded against the destination's cursor for this endpoint naming
+        the signature, and the backfill is left NOT complete so
+        `SEAL_BALANCE` reads `UNCHECKED` with a stated reason.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            # SHAREHOLDER_A is never a key in this transaction's account
+            # list, so `_pre_balance(tx, SHAREHOLDER_A)` returns None.
+            tx = make_tx({SHAREHOLDER_B: (0, 500)})
+            rpc = FakeScanRpc(
+                pages=[[{"signature": "sig-1", "err": None, "slot": 1, "blockTime": 1}]],
+                transactions={"sig-1": tx},
+            )
+            evidence = evidence_db(tmp)
+            _newest, _oldest, complete = scan_inflows(
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                target=SHAREHOLDER_A, pages=1,
+            )
+            opening = evidence.active_opening_balance(SHAREHOLDER_A)
+            cursor = evidence.get_cursor(SHAREHOLDER_A, "inflow")
+            split = split_with([seal_attr(SHAREHOLDER_A)])
+            check = invariants.seal_balance(split=split, evidence=evidence, balances={SHAREHOLDER_A: 500})
+            evidence.close()
+
+            self.assertFalse(complete)
+            self.assertIsNone(opening)  # no fabricated zero-lamport row
+            self.assertIsNotNone(cursor["last_error"])
+            self.assertIn("sig-1", cursor["last_error"])
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertNotEqual(check.status, invariants.FAIL)
+
+
 if __name__ == "__main__":
     unittest.main()
