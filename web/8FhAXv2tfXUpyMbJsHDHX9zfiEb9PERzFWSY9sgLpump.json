@@ -1,0 +1,219 @@
+{
+  "attribution": [
+    {
+      "address": "burn111111111111111111111111111111111111111",
+      "bps": 10000,
+      "keyless": false,
+      "leg": "seal",
+      "reason": "grandfathered legacy seal address (PROTOCOL.md sec.3)"
+    }
+  ],
+  "backed_by": {
+    "split": [
+      "CONFIG_MINT",
+      "SPLIT_SUM"
+    ]
+  },
+  "blocked": {
+    "burn_total": [
+      {
+        "check": "BURN_SUPPLY",
+        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
+        "status": "UNCHECKED"
+      },
+      {
+        "check": "BURN_SPEND",
+        "detail": "no BURN destination in this split -- the protocol program is not deployed, so a burn pool PDA cannot be derived yet, and this equation has nothing to check",
+        "status": "UNCHECKED"
+      }
+    ],
+    "ops_total": [
+      {
+        "check": "OPS_ROUTED",
+        "detail": "no OPS destination in this split -- nothing to check",
+        "status": "UNCHECKED"
+      }
+    ],
+    "seal_total": [
+      {
+        "check": "SEAL_UNSPENDABLE",
+        "detail": "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
+        "status": "FAIL"
+      },
+      {
+        "check": "SEAL_BALANCE",
+        "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+        "status": "UNCHECKED"
+      }
+    ],
+    "supply_destroyed": [
+      {
+        "check": "BURN_SUPPLY",
+        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
+        "status": "UNCHECKED"
+      },
+      {
+        "check": "BURN_ATOMIC",
+        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so an atomicity verdict now would be premature, not wrong",
+        "status": "UNCHECKED"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "actual": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "backs": [
+        "split",
+        "seal_total",
+        "burn_total",
+        "ops_total",
+        "supply_destroyed"
+      ],
+      "detail": "the sharing config names this coin",
+      "equation": "sharing_config.mint == mint",
+      "expected": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "name": "CONFIG_MINT",
+      "status": "PASS"
+    },
+    {
+      "actual": "10000",
+      "backs": [
+        "split"
+      ],
+      "detail": "the split accounts for the whole fee stream",
+      "equation": "seal_bps + burn_bps + paid_bps == 10000",
+      "expected": "10000",
+      "name": "SPLIT_SUM",
+      "status": "PASS"
+    },
+    {
+      "actual": "not program-derived: burn111111111111111111111111111111111111111",
+      "backs": [
+        "seal_total"
+      ],
+      "detail": "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
+      "equation": "is_on_curve(seal_vault) == False",
+      "expected": "program-derived",
+      "name": "SEAL_UNSPENDABLE",
+      "status": "FAIL"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "seal_total"
+      ],
+      "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+      "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
+      "expected": null,
+      "name": "SEAL_BALANCE",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": "956383374035955",
+      "backs": [
+        "burn_total",
+        "supply_destroyed"
+      ],
+      "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
+      "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
+      "expected": null,
+      "name": "BURN_SUPPLY",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": "None",
+      "backs": [
+        "burn_total",
+        "supply_destroyed"
+      ],
+      "detail": "the mint authority is revoked: burned supply cannot be reissued",
+      "equation": "getMint(mint).mint_authority == None",
+      "expected": "None",
+      "name": "BURN_IRREVERSIBLE",
+      "status": "PASS"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "supply_destroyed"
+      ],
+      "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so an atomicity verdict now would be premature, not wrong",
+      "equation": "swap_instruction.transaction == burn_instruction.transaction",
+      "expected": null,
+      "name": "BURN_ATOMIC",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "burn_total"
+      ],
+      "detail": "no BURN destination in this split -- the protocol program is not deployed, so a burn pool PDA cannot be derived yet, and this equation has nothing to check",
+      "equation": "sum(SOL_spent_on_BURN) <= sum(fees_claimed) * bps_BURN / 10000",
+      "expected": null,
+      "name": "BURN_SPEND",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "ops_total"
+      ],
+      "detail": "no OPS destination in this split -- nothing to check",
+      "equation": "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
+      "expected": null,
+      "name": "OPS_ROUTED",
+      "status": "UNCHECKED"
+    }
+  ],
+  "config": {
+    "address": "8cUvP3q3KqcKMT6rEowN55ZepafYLFLwY2vijETRK3E4",
+    "admin": "2CFywHXDPjDK2iRQsb95vnjgncDUZeQKJ6MceJ4ALpdc",
+    "admin_revoked": true,
+    "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+    "shareholders": [
+      {
+        "address": "burn111111111111111111111111111111111111111",
+        "bps": 10000
+      }
+    ],
+    "status": 1,
+    "version": 2
+  },
+  "error": null,
+  "evidence": {
+    "initial_supply": {
+      "creation_signature": "gzqXeVGjT3FouJae8w8ytDgxvKXhpEsrfhgdt4GvdGzecEz4QgTmjouXZpVMaTfdFFeyiAAwhxkTZkerYqynTxd",
+      "decimals": 6,
+      "derived_at": 1788123388,
+      "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "raw_supply": 1000000000000000,
+      "unchecked_reason": null
+    }
+  },
+  "evidence_coverage": {
+    "burn111111111111111111111111111111111111111": 0
+  },
+  "graduated": true,
+  "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+  "mint_state": {
+    "decimals": 6,
+    "freeze_authority": null,
+    "mint_authority": null,
+    "supply": 956383374035955,
+    "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+  },
+  "observed_at": 1788205406.6467996,
+  "publishable": [
+    "split"
+  ],
+  "schema": 3,
+  "seal_balances": {
+    "burn111111111111111111111111111111111111111": 178734302038
+  },
+  "split": {
+    "burn": 0,
+    "paid": 0,
+    "seal": 10000
+  }
+}

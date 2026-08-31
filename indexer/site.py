@@ -429,7 +429,7 @@ def _how_it_works() -> str:
         "<h2>How It Works</h2>"
         "<p>Three destinations for creator fees. They are not the same kind of object, "
         "and the protocol never calls them by the same word.</p>"
-        '<table class="legs">'
+        '<div class="table-scroll"><table class="legs">'
         "<tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr>"
         "<tr><td>SEAL</td><td>SOL to an unspendable vault</td>"
         '<td>"removed from circulation"</td><td>"burned"</td></tr>'
@@ -437,7 +437,7 @@ def _how_it_works() -> str:
         '<td>"permanently destroyed"</td><td>—</td></tr>'
         "<tr><td>OPS</td><td>SOL to a spendable wallet</td>"
         '<td>"funds operations"</td><td>"burned", "sealed"</td></tr>'
-        "</table>"
+        "</table></div>"
         "</section>"
     )
 
@@ -655,8 +655,14 @@ body {
   line-height: 1.5;
   margin: 0;
   padding: var(--sp-3xl) var(--sp-lg);
+  /* The page is full of long, unbroken chain-derived strings (addresses,
+     signatures) with no internal spaces to wrap at -- inherited so every
+     descendant wraps a long token rather than forcing the whole document
+     into horizontal scroll at a narrow viewport (the mint-address/config-
+     admin-address backstop). */
+  overflow-wrap: anywhere;
 }
-h1 { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 var(--sp-md) 0; }
+h1 { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 var(--sp-md) 0; overflow-wrap: anywhere; }
 h2 { font-size: 20px; font-weight: 700; line-height: 1.2; margin: var(--sp-xl) 0 var(--sp-md) 0; }
 .meta { font-size: 14px; font-weight: 400; line-height: 1.5; }
 section { margin-bottom: var(--sp-xl); }
@@ -746,8 +752,15 @@ a { color: var(--accent); }
   white-space: nowrap;
   border: 0;
 }
-.legs { border-collapse: collapse; width: 100%; }
-.legs th, .legs td { text-align: left; padding: var(--sp-sm); border-bottom: 1px solid var(--panel); }
+.table-scroll { overflow-x: auto; }
+.legs { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.legs th, .legs td {
+  text-align: left;
+  padding: var(--sp-sm);
+  border-bottom: 1px solid var(--panel);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 .tx-links { list-style: none; margin: var(--sp-md) 0; padding: 0; }
 .tx-links li { margin-bottom: var(--sp-xs); }
 .risks { padding-left: var(--sp-lg); }
@@ -762,6 +775,7 @@ a { color: var(--accent); }
   word-break: break-all;
 }
 .history-note code { -webkit-user-select: all; user-select: all; }
+footer a { word-break: break-all; overflow-wrap: anywhere; }
 """
 
 
