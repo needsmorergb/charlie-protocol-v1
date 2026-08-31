@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import html
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import invariants, publish
@@ -120,6 +122,111 @@ def _figure_row(publisher: publish.Publisher, name: str) -> str:
         )
 
 
+# -- D-18: freshness -- observed-at stamp, an age computed at generation
+# time (never stored, never client-computed), and a static snapshot notice.
+# No staleness judgment of any kind lives here: D-18 explicitly rejected a
+# self-marking stale banner because the max-age threshold it would assert is
+# a number nothing in this project derives.
+def _stamp(epoch) -> str:
+    """UTC form matching `cli._stamp`/`reconcile.render`'s existing format
+    exactly, so a reader comparing this page against the text surfaces sees
+    one stamp convention, not two.
+    """
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def _age(seconds) -> str:
+    """Plain-English age from the two largest non-zero units among days,
+    hours, minutes and seconds. Clamped at zero: a generation time at or
+    before the observation reads as "0 seconds", never a negative duration --
+    a minus sign here is a bug report the visitor cannot act on.
+    """
+    seconds = int(seconds)
+    if seconds <= 0:
+        return "0 seconds"
+    units = (("day", 86_400), ("hour", 3_600), ("minute", 60), ("second", 1))
+    parts: list[str] = []
+    remaining = seconds
+    for unit_name, unit_size in units:
+        if len(parts) == 2:
+            break
+        value = remaining // unit_size
+        if value <= 0:
+            continue
+        remaining -= value * unit_size
+        parts.append(f"{value} {unit_name}" if value == 1 else f"{value} {unit_name}s")
+    return ", ".join(parts) if parts else "0 seconds"
+
+
+_SNAPSHOT_NOTE = (
+    "This page is a snapshot taken at the observation time above -- it does "
+    "not update itself, and nothing on it reads your clock."
+)
+
+
+def _freshness(observation, now) -> str:
+    """The stamp, the age measured as `now - observation.observed_at`, and
+    the snapshot sentence -- one header block, always rendered, including in
+    the page-level error branch: a failed observation still has an
+    observed-at, and a reader needs to know how old the failure is.
+    """
+    stamp = _stamp(observation.observed_at)
+    age = _age(now - observation.observed_at)
+    return (
+        '<div class="freshness">'
+        f'<p class="meta">observed at {esc(stamp)} (epoch {esc(observation.observed_at)})</p>'
+        f'<p class="meta">age: {esc(age)}</p>'
+        f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
+        "</div>"
+    )
+
+
+# -- PUB-03: the Seal Failure Banner ---------------------------------------
+_SEAL_FAILURE_STATIC_SENTENCE = "No seal total is publishable for $CHARLIE — permanently, not pending."
+
+
+def _seal_failure_banner(observation) -> str:
+    """Unconditional, full-bleed banner when `SEAL_UNSPENDABLE` reads FAIL --
+    never dismissible, never collapsible, never conditionally hidden beyond
+    that one test. Renders the check's own `detail` verbatim and in full;
+    never a hardcoded restatement of it.
+    """
+    check = next((c for c in observation.checks if c.name == "SEAL_UNSPENDABLE"), None)
+    if check is None or check.status != invariants.FAIL:
+        return ""
+    return (
+        '<section class="seal-failure-banner" data-banner="seal-failure">'
+        '<h1 class="banner-headline">SEAL_UNSPENDABLE — FAIL</h1>'
+        f'<p class="banner-body">{esc(check.detail)}</p>'
+        f'<p class="banner-static">{esc(_SEAL_FAILURE_STATIC_SENTENCE)}</p>'
+        "</section>"
+    )
+
+
+def _check_row(check) -> str:
+    """One row per check: name, status badge, equation, and -- unlike
+    `report.py`, which shows `detail` only for a non-passing check -- the
+    complete `detail` for EVERY check, because this page's checks list is
+    the evidence surface and the detail is the falsifying explanation
+    itself. Never truncated, never ellipsised, never CSS `line-clamp`ed.
+    """
+    css_class = _status_class(check.status)
+    label = _status_label(check.status)
+    pieces = [
+        f'<div class="check-row" data-check="{esc(check.name)}">',
+        f'<span class="check-name">{esc(check.name)}</span>',
+        f'<span class="badge {css_class}">{label}</span>',
+        f'<span class="check-equation">{esc(check.equation)}</span>',
+        f'<p class="check-detail">{esc(check.detail)}</p>',
+    ]
+    if check.expected is not None and check.actual is not None:
+        pieces.append(f'<p class="check-expected-actual">expected {esc(check.expected)} | actual {esc(check.actual)}</p>')
+    elif check.actual is not None:
+        pieces.append(f'<p class="check-expected-actual">observed {esc(check.actual)}</p>')
+    pieces.append("</div>")
+    return "".join(pieces)
+
+
 _STYLE = """
 :root {
   --paper: #FAF7F0;
@@ -195,31 +302,34 @@ section { margin-bottom: var(--sp-xl); }
   background: rgba(163, 39, 31, 0.08);
 }
 a { color: var(--accent); }
+.freshness { margin-bottom: var(--sp-md); }
+.freshness .meta { margin: 0 0 var(--sp-xs) 0; }
+.seal-failure-banner {
+  background: var(--destructive);
+  color: #fff;
+  padding: var(--sp-lg);
+  margin: var(--sp-2xl) 0;
+}
+.banner-headline { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 var(--sp-md) 0; color: #fff; }
+.banner-body { font-size: 16px; font-weight: 400; margin: 0 0 var(--sp-md) 0; }
+.banner-static { font-size: 16px; font-weight: 700; margin: 0; }
+.check-row {
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-md);
+}
+.check-name { font-size: 14px; font-weight: 400; }
+.check-equation { font-size: 14px; font-weight: 400; }
+.check-detail { font-size: 16px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.check-expected-actual { font-size: 14px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.error-state p { font-size: 16px; font-weight: 400; }
 """
 
 
-def render(observation) -> str:
-    """A complete HTML5 document for one observation. Single positional
-    parameter -- `publish.render_surface()` calls `target(subject)` with
-    exactly one positional argument for an `"observation"`-input `SURFACES`
-    entry.
+def _document(mint: str, body: str) -> str:
+    """Wraps `body` (already-built HTML) in the page shell -- the one place
+    `<!doctype html>`/`<head>`/`<style>` are assembled, shared by both the
+    normal render path and the page-level error branch.
     """
-    publisher = publish.Publisher(observation)
-    mint = esc(observation.mint)
-
-    figure_rows = "".join(_figure_row(publisher, name) for name in invariants.FIGURES)
-
-    body = (
-        f"<header>"
-        f"<h1>{mint}</h1>"
-        f'<p class="meta">observed at {esc(observation.observed_at)}</p>'
-        f"</header>"
-        f"<section>"
-        f"<h2>Figures</h2>"
-        f"{figure_rows}"
-        f"</section>"
-    )
-
     return (
         "<!doctype html>"
         '<html lang="en">'
@@ -231,6 +341,58 @@ def render(observation) -> str:
         f"<body>{body}</body>"
         "</html>"
     )
+
+
+def render(observation, *, now=None) -> str:
+    """A complete HTML5 document for one observation. Single required
+    positional parameter -- `publish.render_surface()` calls `target(subject)`
+    with exactly one positional argument for an `"observation"`-input
+    `SURFACES` entry; `now` is keyword-only with a default so that call site
+    is unaffected. `now` defaults to `time.time()` -- the same injectable-clock
+    shape `observe()` already uses -- so the D-18 freshness block's age is
+    computed here at generation time and is assertable without freezing time.
+    """
+    now = now if now is not None else time.time()
+    mint = esc(observation.mint)
+    freshness = _freshness(observation, now)
+    header = f"<header><h1>{mint}</h1>{freshness}</header>"
+
+    if observation.error and observation.config is None:
+        # Mirrors report.py's established voice (report.py:52-58), translated
+        # to markup per UI-SPEC's Copywriting Contract error-state entry. A
+        # tick that could not read the chain is part of the record, not an
+        # absence from it -- no figure rows, no sections, below the freshness
+        # block a failed observation still carries.
+        body = (
+            header
+            + '<section class="error-state">'
+            + f"<p>No observation: {esc(observation.error)}. Recorded as a failed "
+            "observation -- a tick that could not read the chain is part of the "
+            "record, not an absence from it.</p>"
+            + "<p>See the observation history: <code>python -m indexer log</code>.</p>"
+            + "</section>"
+        )
+        return _document(mint, body)
+
+    publisher = publish.Publisher(observation)
+    banner = _seal_failure_banner(observation)
+    figure_rows = "".join(_figure_row(publisher, name) for name in invariants.FIGURES)
+    checks_rows = "".join(_check_row(check) for check in observation.checks)
+
+    body = (
+        header
+        + banner
+        + '<section id="figures">'
+        + "<h2>Figures</h2>"
+        + figure_rows
+        + "</section>"
+        + '<section id="checks">'
+        + "<h2>Checks</h2>"
+        + checks_rows
+        + "</section>"
+    )
+
+    return _document(mint, body)
 
 
 def record_json(observation) -> str:

@@ -31,6 +31,7 @@ from indexer.observe import Observation, observe
 from test_indexer import CHARLIE, charlie_rpc  # noqa: E402
 from test_publication import (  # noqa: E402
     build_all_blocked_sentinel_observation,
+    build_all_publishable_sentinel_observation,
     build_observation,
     evidence_db,
 )
@@ -182,6 +183,139 @@ class TestBurnEvents(unittest.TestCase):
             1 for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "burns_for"
         )
         self.assertEqual(calls, 1, "burns_for() must be called exactly once and its result reused")
+
+
+class TestFreshness(unittest.TestCase):
+    """02-02 Task 2, D-18: the header's freshness block -- the observed-at
+    stamp, the age computed at generation time, and the snapshot sentence.
+    """
+
+    def test_age_moves_with_generation_time_while_the_stamp_does_not(self):
+        observation = Observation(mint="m", observed_at=1_000_000.0)
+        rendered_soon = site.render(observation, now=1_000_000.0 + 3 * 86_400)
+        rendered_later = site.render(observation, now=1_000_000.0 + 40 * 86_400)
+        stamp = site._stamp(observation.observed_at)
+        self.assertIn(stamp, rendered_soon)
+        self.assertIn(stamp, rendered_later)
+        self.assertNotEqual(rendered_soon, rendered_later)
+
+    def test_freshness_is_a_pure_function_of_its_arguments(self):
+        observation = Observation(mint="m", observed_at=1_000_000.0)
+        first = site._freshness(observation, now=1_000_000.0 + 7_200)
+        second = site._freshness(observation, now=1_000_000.0 + 7_200)
+        self.assertEqual(first, second)
+
+    def test_age_clamps_at_zero_never_a_negative_duration(self):
+        self.assertNotIn("-", site._age(-500))
+        self.assertNotIn("-", site._age(0))
+
+    def test_snapshot_note_present_and_read_off_the_module(self):
+        observation = Observation(mint="m", observed_at=1_000_000.0)
+        rendered = site.render(observation, now=1_000_100.0)
+        self.assertIn(site._SNAPSHOT_NOTE, rendered)
+
+    def test_stamp_survives_the_page_level_error_branch(self):
+        observation = Observation(mint="m", observed_at=1_000_000.0, error="RPC unavailable")
+        rendered = site.render(observation, now=1_000_100.0)
+        self.assertIn(site._stamp(observation.observed_at), rendered)
+        self.assertIn("RPC unavailable", rendered)
+
+
+class TestSealFailureBanner(unittest.TestCase):
+    """02-02 Task 2, PUB-03: the Seal Failure Banner -- unconditional on
+    SEAL_UNSPENDABLE: FAIL, above every other section, carrying the check's
+    own `detail` verbatim, and naming no seal total anywhere on the page.
+    """
+
+    def test_banner_present_with_the_check_detail_verbatim_for_a_fail_observation(self):
+        observation = build_observation()
+        check = next(c for c in observation.checks if c.name == "SEAL_UNSPENDABLE")
+        self.assertEqual(check.status, invariants.FAIL)
+
+        rendered = site.render(observation, now=2.0)
+        self.assertIn('data-banner="seal-failure"', rendered)
+        self.assertIn(check.detail, rendered)
+
+    def test_banner_absent_for_a_pass_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+
+        check = next(c for c in observation.checks if c.name == "SEAL_UNSPENDABLE")
+        self.assertEqual(check.status, invariants.PASS)
+
+        rendered = site.render(observation, now=2.0)
+        self.assertNotIn('data-banner="seal-failure"', rendered)
+
+    def test_no_seal_lamports_value_appears_anywhere_for_a_fail_observation(self):
+        distinctive_balance = 91_234_567
+        observation = build_observation(seal_balance=distinctive_balance)
+        rendered = site.render(observation, now=2.0)
+        self.assertNotIn(str(distinctive_balance), rendered)
+
+    def test_banner_renders_above_the_figures_section(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        banner_pos = rendered.index('data-banner="seal-failure"')
+        figures_pos = rendered.index('id="figures"')
+        self.assertLess(banner_pos, figures_pos)
+
+    def test_freshness_renders_above_the_banner(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        freshness_pos = rendered.index('class="freshness"')
+        banner_pos = rendered.index('data-banner="seal-failure"')
+        self.assertLess(freshness_pos, banner_pos)
+
+    def test_detail_over_400_characters_renders_in_full_with_no_ellipsis(self):
+        long_detail = "x" * 450
+        malicious_check = invariants.Check(
+            name="SEAL_UNSPENDABLE",
+            status=invariants.FAIL,
+            backs=(invariants.SEAL_TOTAL,),
+            equation="n/a",
+            detail=long_detail,
+        )
+        observation = build_observation()
+        observation.checks = tuple(
+            c for c in observation.checks if c.name != "SEAL_UNSPENDABLE"
+        ) + (malicious_check,)
+        observation.verdict = invariants.apply_silence_rule(observation.checks)
+
+        rendered = site.render(observation, now=2.0)
+        self.assertIn(long_detail, rendered)
+        self.assertNotIn("…", rendered)  # horizontal ellipsis
+
+
+class TestChecksList(unittest.TestCase):
+    """02-02 Task 2: every check in `observation.checks` renders with its
+    status badge and its full `detail` string -- never truncated.
+    """
+
+    def test_every_check_name_and_full_detail_appear(self):
+        observation = build_observation()
+        rendered = site.render(observation, now=2.0)
+        for check in observation.checks:
+            self.assertIn(check.name, rendered, f"{check.name} missing from checks list")
+            self.assertIn(check.detail, rendered, f"{check.name}'s detail missing from checks list")
+
+    def test_detail_string_with_a_literal_angle_bracket_is_escaped(self):
+        # invariants.py's ops_routed() writes a literal `"> 0"` into `expected`
+        # today (a live escaping path, not a hypothetical one -- flagged by
+        # 02-01's own escaping test, which could not cover `detail` because
+        # the checks list did not exist until this task).
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+
+        ops_check = next(c for c in observation.checks if c.name == "OPS_ROUTED")
+        self.assertIn("> 0", ops_check.expected)
+
+        rendered = site.render(observation, now=2.0)
+        self.assertIn("&gt; 0", rendered)
+        self.assertNotIn("expected " + ops_check.expected, rendered)
 
 
 class TestWrite(unittest.TestCase):
