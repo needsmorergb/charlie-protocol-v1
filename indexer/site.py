@@ -476,18 +476,27 @@ def _log() -> str:
     )
 
 
+REPO_URL = "https://github.com/needsmorergb/charlie-protocol-v1"
+
+
 def _footer() -> str:
-    """Links to the public spec/buildlog and this repository -- no social or
-    marketing content. Neither repository has a public URL yet (D-15: hosting
-    and a public remote are out of scope for this phase; `git remote -v`
-    returns nothing today), so these are named, not hyperlinked to a URL that
-    does not yet resolve.
+    """Links to the repository -- no social or marketing content.
+
+    `git remote -v` is empty in this working tree, and that is NOT evidence
+    that the project is unpublished: the public repo is a *filtered* publish
+    pushed from a throwaway clone (see PUBLISHING.md), so this tree has no
+    remote by design. `charlie-protocol-v1` is public and carries the spec,
+    the architecture, the build log and this code, so the link resolves.
+
+    There is deliberately no `charlie-mode` link: that repository was
+    published and then deleted, and the spec it held now lives here.
     """
     return (
         "<footer>"
-        "<p>charlie-mode -- the public spec and buildlog.</p>"
-        "<p>This repository is the whole of the public project (see README.md, "
-        '"Relationship to the other repos").</p>'
+        f'<p>Spec, code and committed evidence: <a href="{esc(REPO_URL)}">'
+        f"{esc(REPO_URL)}</a></p>"
+        "<p>Every figure above is recomputable from the record published "
+        "beside this page.</p>"
         "</footer>"
     )
 
