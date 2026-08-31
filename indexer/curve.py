@@ -1,10 +1,11 @@
 """ed25519 point decompression, and the PDA derivation that depends on it.
 
 This module is the cryptographic core of the SEAL leg. PROTOCOL.md sec.3 says a
-seal vault must be a PDA rather than a vanity address because a PDA is
-*provably* off the ed25519 curve -- no private key can exist for it, as opposed
-to the assumption that nobody ground one out. `is_on_curve` is where that proof
-is actually computed, so it is written out longhand rather than imported.
+seal vault must be a program-derived address rather than a vanity address,
+because program derivation is a property the Solana runtime itself enforces,
+whereas a vanity address's standing rests on convention. `is_on_curve` is where
+that derivation is actually computed, so it is written out longhand rather than
+imported.
 
 Mirrors curve25519-dalek's `CompressedEdwardsY::decompress`, which is what the
 Solana runtime uses when it rejects a PDA candidate.
@@ -38,9 +39,9 @@ def _xrecover(y: int) -> int | None:
 def is_on_curve(candidate) -> bool:
     """Does this 32-byte value decompress to an ed25519 point?
 
-    True  -> a private key could exist for it. It is spendable by whoever holds
-             that key, and the protocol may not call it a seal.
-    False -> no private key exists. Only a program that can sign for the
+    True  -> an ordinary account, not program-derived. The protocol may not
+             call it a seal.
+    False -> a program-derived address. Only a program that can sign for the
              address may move its lamports -- and if no such program exists, or
              the program that owns it has no instruction that moves them, the
              lamports cannot move at all.

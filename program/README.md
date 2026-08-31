@@ -8,9 +8,9 @@ init_vault(mint)   -> creates seal_vault = PDA(["seal", mint]) and burn_pool = P
 crank_burn(mint)   -> atomic: pull -> swap -> SPL burn
 ```
 
-The guarantee comes from the *absence* of code: no private key exists for a PDA,
-and this program will contain no instruction that moves lamports out of a `seal`
-PDA. Anyone can verify that by reading it.
+The guarantee comes from the *absence* of code: a PDA can only be signed for by
+its owning program, and this program will contain no instruction that moves
+lamports out of a `seal` PDA. Anyone can verify that by reading it.
 
 That only holds if the program is **immutable**. Upgrade authority must be
 revoked before any coin enrolls, and revoking it is a one-way door that freezes

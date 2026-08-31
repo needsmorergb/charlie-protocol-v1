@@ -6,7 +6,7 @@ failing decode test rather than as a wrong number in a published post.
 
 Two of these are regression vectors pinned against mainnet on 2026-08-29 and
 noted as such: the bonding-curve PDA for $CHARLIE, and the fact that
-`burn111...111` sits ON the ed25519 curve.
+`burn111...111` is not program-derived.
 """
 
 from __future__ import annotations
@@ -144,17 +144,18 @@ class TestCurve(unittest.TestCase):
     def test_zero_key_is_on_curve(self):
         self.assertTrue(is_on_curve(bytes(32)))
 
-    def test_burn_vanity_address_is_on_curve(self):
+    def test_burn_vanity_address_is_not_program_derived(self):
         """Pinned against mainnet 2026-08-29, and it is the finding, not a detail.
 
-        `burn111...111` holds $CHARLIE's entire fee stream and a private key CAN
-        exist for it. PROTOCOL.md sec.3 grandfathers the address for attribution;
-        this is a second and separate weakness, and SEAL_UNSPENDABLE fails on it.
+        `burn111...111` holds $CHARLIE's entire fee stream and is a vanity address
+        rather than the program-derived seal vault PROTOCOL.md sec.3 requires. That
+        section grandfathers the address for attribution; meeting the seal-vault
+        standard is separate, and SEAL_UNSPENDABLE fails on it.
         """
         self.assertTrue(is_on_curve(BURN_VANITY))
 
-    def test_incinerator_is_off_curve(self):
-        """The contrast that makes the point: a keyless burn address is possible."""
+    def test_incinerator_is_program_derived(self):
+        """The contrast that makes the point: a program-derived burn address exists."""
         self.assertFalse(is_on_curve(INCINERATOR))
 
     def test_bonding_curve_pda_matches_mainnet(self):

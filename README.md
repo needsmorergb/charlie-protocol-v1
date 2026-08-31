@@ -44,9 +44,9 @@ protocol program exists yet), so `BURN_ATOMIC` reads not-applicable for
 $CHARLIE, and for every coin, until phase 5.
 
 $CHARLIE specifically: `SEAL_UNSPENDABLE` fails permanently — its seal
-address is on the ed25519 curve, so a private key can exist for it, and its
-config is `admin_revoked` so only pump could ever fix that. No seal total is
-publishable for $CHARLIE, now or later. The opening-balance mechanism
+address is a vanity address rather than the program-derived one PROTOCOL.md
+sec.3 requires, and its config is `admin_revoked` so only pump could ever fix
+that. No seal total is publishable for $CHARLIE, now or later. The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
 vaults exist (phase 5) — every SEAL destination today is the grandfathered
 shared address, which the mechanism deliberately excludes (D-06/D-07).

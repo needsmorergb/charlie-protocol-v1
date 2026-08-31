@@ -75,7 +75,7 @@ def render(observation) -> str:
         for attribution in split.attributions:
             add("")
             add(f"    {attribution.bps:>5} bps  {attribution.leg.upper():<5} {attribution.address}")
-            add(f"              {'keyless' if attribution.keyless else 'a key can exist'}: {attribution.reason}")
+            add(f"              {'program-derived' if attribution.keyless else 'not program-derived'}: {attribution.reason}")
     except publish.Withheld as exc:
         name, status, detail = exc.reasons[0]
         add(f"    withheld -- {name} ({status})")

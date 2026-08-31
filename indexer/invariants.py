@@ -106,13 +106,13 @@ def split_sum(split) -> Check:
 
 
 def seal_unspendable(split) -> Check:
-    """PROTOCOL.md sec.3: a seal destination must be provably keyless.
+    """PROTOCOL.md sec.3: a seal destination must be program-derived.
 
-    Off the ed25519 curve means no private key *can* exist: a cryptographic
-    guarantee. On the curve means a key can exist, and the address is safe only
-    on the assumption that nobody ground one out. The protocol exists to refuse
-    that assumption, so an on-curve seal destination fails -- grandfathered or
-    not, ours included.
+    Program derivation is a property the Solana runtime enforces on every
+    signature it checks. A vanity address carries no such backing -- its
+    standing rests on convention. The protocol exists to require the enforced
+    property rather than the convention, so a seal destination that is not
+    program-derived fails -- grandfathered or not, ours included.
     """
     sealed = [a for a in split.attributions if a.leg == "seal"]
     if not sealed:
@@ -129,13 +129,13 @@ def seal_unspendable(split) -> Check:
         PASS if not keyed else FAIL,
         [SEAL_TOTAL],
         "is_on_curve(seal_vault) == False",
-        "every SEAL destination is off the ed25519 curve: no private key can exist"
+        "every SEAL destination is program-derived"
         if not keyed
-        else "a SEAL destination is ON the ed25519 curve, so a private key can exist for "
-        "it. Its unspendability rests on nobody having ground that key out, which is an "
-        "assumption and not a proof",
-        expected="off-curve",
-        actual=("on-curve: " + ", ".join(keyed)) if keyed else "off-curve",
+        else "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal "
+        "vault to be a program-derived address; this one is a vanity address, and the "
+        "protocol does not accept convention in place of the enforced property",
+        expected="program-derived",
+        actual=("not program-derived: " + ", ".join(keyed)) if keyed else "program-derived",
     )
 
 

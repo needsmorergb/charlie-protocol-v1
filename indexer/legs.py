@@ -6,11 +6,10 @@ specific direction:
 
     an address is OPS unless it can be proven to be SEAL or BURN.
 
-Nothing about a bare address on chain says "this is a seal vault". What can be
-proven is the negative -- that no private key exists for it -- and even that is
-not sufficient: an off-curve address is a PDA of *some* program, and that
-program may well have an instruction that moves its lamports. Only two things
-license a SEAL classification:
+Nothing about a bare address on chain says "this is a seal vault". Program
+derivation can be established, and even that is not sufficient: a program-derived
+address belongs to *some* program, and that program may well have an instruction
+that moves its lamports. Only two things license a SEAL classification:
 
 * the address is `PDA(["seal", mint])` of the protocol program, whose code
   contains no instruction that moves lamports out of a seal PDA, and whose
@@ -19,7 +18,7 @@ license a SEAL classification:
   address named in PROTOCOL.md sec.3, which carries the weaker `<=` invariant
   because attribution across coins is impossible.
 
-Everything else, including off-curve addresses we cannot attribute, is
+Everything else, including program-derived addresses we cannot attribute, is
 reported as OPS. That will occasionally understate a coin. It will never
 overstate one, and overstating is the failure mode that matters.
 """
@@ -98,10 +97,10 @@ def classify(address: str, mint: str, registry: Registry) -> tuple[str, str]:
         return SEAL, "grandfathered legacy seal address (PROTOCOL.md sec.3)"
     if not is_on_curve(address):
         return OPS, (
-            "off the ed25519 curve, so no private key exists -- but it is some "
-            "program's PDA and that program may be able to move it. Not provably sealed."
+            "program-derived -- but it is some other program's PDA, and that "
+            "program may be able to move it. Not provably sealed."
         )
-    return OPS, "an ordinary keyed address: spendable by whoever holds the key"
+    return OPS, "an ordinary account, not program-derived"
 
 
 def split_of(config, registry: Registry | None = None) -> Split:
