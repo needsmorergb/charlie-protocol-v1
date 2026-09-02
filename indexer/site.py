@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -51,6 +52,15 @@ def _artifact_name(mint: str, suffix: str) -> str:
 
 
 # -- QT-02: clean-URL composition for the landing page's outbound links ---
+# The phrase in an observation's error that means "the chain answered and this
+# coin has no fee split", as opposed to "the read failed". Duplicated from
+# `pump.NO_FEE_SPLIT_MARKER` rather than imported: this module imports only
+# `invariants` and `publish` by design, and a renderer that could import the
+# chain decoders would be free to decode rather than render.
+# `TestNoFeeSplitPage.test_marker_matches_the_message_pump_actually_raises`
+# fails the moment the two drift.
+NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
+
 LANDING_FILENAME = "index.html"
 LAMPORTS_PER_SOL = 1_000_000_000
 COIN_ROUTE_PREFIX = "/coin/"
@@ -1713,6 +1723,45 @@ def render(observation, *, now=None) -> str:
         f'<p class="raw-record-cta">{_raw_record_link(observation)}</p>'
         "</header>"
     )
+
+    if observation.error and observation.config is None and NO_FEE_SPLIT_MARKER in observation.error:
+        # NOT an error. The chain was read and it answered: this coin pays its
+        # creator fee to an ordinary wallet, so there is no split to verify.
+        # That is the majority of pump coins, so it is the page most visitors
+        # see, and it used to say "No observation" and "a tick that could not
+        # read the chain" -- telling them the tool had broken when it had
+        # worked and had an answer.
+        creator = ""
+        found = re.search(r"its creator ([1-9A-HJ-NP-Za-km-z]{32,44})", observation.error)
+        if found:
+            creator = (
+                "<p>pump pays this coin&#x27;s creator fee to "
+                f"<code>{esc(found.group(1))}</code>, an ordinary wallet.</p>"
+            )
+        body = (
+            header
+            + '<section class="error-state">'
+            + "<h2>This coin does not split its creator fees</h2>"
+            + creator
+            + "<p>There is no fee-sharing config for it, so there is no split "
+            "to verify and no destination to check. That is a fact about the "
+            "coin, not a failure here: the chain was read and this is what it "
+            "says.</p>"
+            + "<p>Charlie Protocol checks coins that route their fees through "
+            "a split. When a coin does, this page shows where every basis "
+            "point goes, what each destination actually is, and which checks "
+            "passed, failed, or were never run.</p>"
+            + '<form class="verify-form" method="get" action="/verify">'
+            '<label for="mint">Try another contract address (CA)</label>'
+            '<input id="mint" name="mint" type="text" inputmode="latin" '
+            'autocomplete="off" spellcheck="false" '
+            'placeholder="paste the CA here" '
+            'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
+            '<button type="submit">Verify</button>'
+            "</form>"
+            + "</section>"
+        )
+        return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
 
     if observation.error and observation.config is None:
         # Mirrors report.py's established voice (report.py:52-58), translated
