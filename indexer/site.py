@@ -74,6 +74,13 @@ CHARLIE_INTRINSIC = (383, 484)
 # paper ground: its background is a real transparent index, where the
 # monochrome one's is opaque near-black and would render as a box.
 CHARLIE_GIF_SRC = "/assets/charlie-found.gif"
+
+# Charlie watching the candles, from the project's own art. Its background is
+# opaque near-black, so it is presented inside a dark panel rather than keyed
+# to transparency -- a monitor Charlie is watching, which is what the image
+# actually depicts and what the verify page is doing while you wait.
+SCANNING_GIF_SRC = "/assets/charlie-scanning.gif"
+SCANNING_GIF_INTRINSIC = (320, 320)
 CHARLIE_GIF_INTRINSIC = (256, 256)
 
 # The Incinerator logo is Sol Incinerator's mark, not this project's -- the
@@ -1788,6 +1795,9 @@ def render_verify(*, now=None, example_mint=None) -> str:
         "failed, or was never run, beside the figure it backs.</p>"
         "</header>"
         "<main>"
+        '<div class="scanner"><img class="scanning" src="' + SCANNING_GIF_SRC + '"'
+        f' width="{SCANNING_GIF_INTRINSIC[0]}" height="{SCANNING_GIF_INTRINSIC[1]}"'
+        ' alt="Charlie watching the candles" decoding="async"></div>'
         '<form class="verify-form" method="get" action="/verify">'
         '<label for="mint">Contract address (CA)</label>'
         '<input id="mint" name="mint" type="text" inputmode="latin" '
@@ -1826,6 +1836,15 @@ INDEX_FILENAME_TEMPLATE = "coins-{page}.html"
 DEFAULT_INDEX_PAGE_SIZE = 500
 
 _INDEX_STYLE = _TOKENS + """
+.scanner {
+  display: inline-flex; background: #000; padding: var(--sp-sm);
+  margin: var(--sp-md) 0 0 0; line-height: 0;
+  border: 1px solid var(--unchecked);
+}
+.scanner .scanning {
+  image-rendering: pixelated; display: block;
+  width: clamp(132px, 20vw, 188px); height: auto;
+}
 .verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   align-items: center; margin: var(--sp-lg) 0; }
 .verify-form label { flex: 1 1 100%; font-size: 14px; }

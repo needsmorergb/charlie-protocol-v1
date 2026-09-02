@@ -80,10 +80,38 @@ def _load_rewrites():
     return json.loads(VERCEL_JSON_PATH.read_text(encoding="utf-8"))["rewrites"]
 
 
-def _first_match(rewrites, path: str):
-    """The rule Vercel would apply: first match in declared array order."""
+def _has_satisfied(rule, query: dict) -> bool:
+    """A `has` condition gates a rule on something other than the path.
+
+    Two rules may share a source and differ only here -- `/verify` is exactly
+    that: one rule fires when a `mint` query is present (the paste box's GET
+    form), the bare one otherwise. A translator that ignored `has` would call
+    that an ambiguous route when it is the mechanism making the form work
+    without JavaScript.
+    """
+    for cond in rule.get("has", []):
+        if cond.get("type") != "query":
+            return False  # only the form this project uses is modelled
+        value = query.get(cond["key"])
+        if value is None:
+            return False
+        pattern = cond.get("value")
+        if pattern is not None:
+            # Vercel uses JavaScript named-group syntax `(?<name>...)`;
+            # Python's re spells it `(?P<name>...)`. Translate rather than
+            # skip, so the character class is genuinely enforced here.
+            if not re.fullmatch(pattern.replace("(?<", "(?P<"), value):
+                return False
+    return True
+
+
+def _first_match(rewrites, path: str, query: dict | None = None):
+    """The rule Vercel would apply: first match in declared array order,
+    skipping any whose `has` conditions are unsatisfied.
+    """
+    query = query or {}
     for rule in rewrites:
-        if _source_to_regex(rule["source"]).match(path):
+        if _source_to_regex(rule["source"]).match(path) and _has_satisfied(rule, query):
             return rule
     return None
 
@@ -141,6 +169,7 @@ class TestEachPathResolvesToItsOwnRule(unittest.TestCase):
         """The route advertised without a mint after it. It 404'd once."""
         rule = _first_match(self.rewrites, "/verify")
         self.assertIsNotNone(rule)
+        self.assertIsNotNone(rule)
         self.assertEqual(rule["destination"], "/" + site.VERIFY_FILENAME)
 
     def test_bare_verify_does_not_swallow_a_mint_path(self):
@@ -184,7 +213,8 @@ class TestNoRuleStealsAnotherRulesPath(unittest.TestCase):
     def test_every_path_matches_exactly_one_rule(self):
         for path in ("/coin/" + MINT, "/coin/" + MINT + ".json", "/verify/" + MINT, "/coins", "/verify"):
             with self.subTest(path=path):
-                matched = [r for r in self.rewrites if _source_to_regex(r["source"]).match(path)]
+                matched = [r for r in self.rewrites
+                           if _source_to_regex(r["source"]).match(path) and _has_satisfied(r, {})]
                 self.assertEqual(
                     len(matched), 1,
                     f"{path} matched {len(matched)} rules: {[r['source'] for r in matched]}",
@@ -196,7 +226,14 @@ class TestNoRuleStealsAnotherRulesPath(unittest.TestCase):
         edit reorders them this fails, which is the point.
         """
         sources = [r["source"] for r in self.rewrites]
-        self.assertEqual(sources[0], "/coins")
+        # The has-guarded /verify must precede the bare one, or a pasted CA
+        # would land on the verify page instead of the coin it names.
+        guarded = next(i for i, r in enumerate(self.rewrites)
+                       if r["source"] == "/verify" and r.get("has"))
+        bare = next(i for i, r in enumerate(self.rewrites)
+                    if r["source"] == "/verify" and not r.get("has"))
+        self.assertLess(guarded, bare)
+        self.assertIn("/coins", sources)
 
     def test_no_planning_path_is_cited(self):
         raw = VERCEL_JSON_PATH.read_text(encoding="utf-8")
@@ -205,3 +242,33 @@ class TestNoRuleStealsAnotherRulesPath(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPastedCaRouting(unittest.TestCase):
+    """The paste box submits GET /verify?mint=<CA>. Without JavaScript that
+    is the only way a form can reach a path, so the has-guarded rewrite is
+    what makes the box work at all.
+    """
+
+    def setUp(self):
+        self.rewrites = _load_rewrites()
+
+    def test_a_pasted_ca_reaches_the_coin_page(self):
+        rule = _first_match(self.rewrites, "/verify", {"mint": MINT})
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule["destination"], "/" + site._artifact_name(":mint", ".html"))
+
+    def test_the_bare_page_still_wins_with_no_query(self):
+        rule = _first_match(self.rewrites, "/verify")
+        self.assertEqual(rule["destination"], "/" + site.VERIFY_FILENAME)
+
+    def test_a_non_base58_paste_falls_through_to_the_page(self):
+        """0, O, I and l are the characters base58 omits. A typo must not be
+        routed at a mint-shaped file that cannot exist.
+        """
+        rule = _first_match(self.rewrites, "/verify", {"mint": "not-a-real-CA-0OIl"})
+        self.assertEqual(rule["destination"], "/" + site.VERIFY_FILENAME)
+
+    def test_an_empty_paste_falls_through_to_the_page(self):
+        rule = _first_match(self.rewrites, "/verify", {"mint": ""})
+        self.assertEqual(rule["destination"], "/" + site.VERIFY_FILENAME)

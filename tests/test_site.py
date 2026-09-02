@@ -1510,3 +1510,31 @@ class TestVerifyPasteBox(unittest.TestCase):
         """
         h = site.render_verify(now=1)
         self.assertNotIn("Worked example", h)
+
+
+class TestScanningPanel(unittest.TestCase):
+    """The scanning gif on /verify.
+
+    Its background is opaque near-black, so it sits inside a dark panel
+    rather than being keyed to transparency: the art depicts a screen, and a
+    keyed version would have eaten the outlines the way it would have on the
+    hero sprite.
+    """
+
+    def test_present_and_sized_by_css_not_by_attribute(self):
+        h = site.render_verify(now=1)
+        self.assertIn(site.SCANNING_GIF_SRC, h)
+        self.assertIn('class="scanner"', h)
+        # intrinsic dimensions are declared so the box is reserved before the
+        # image lands and the form below it does not jump
+        w, hgt = site.SCANNING_GIF_INTRINSIC
+        self.assertIn(f'width="{w}"', h)
+        self.assertIn(f'height="{hgt}"', h)
+
+    def test_does_not_displace_the_paste_box(self):
+        h = site.render_verify(now=1)
+        self.assertLess(h.index('class="scanner"'), h.index("<form"))
+        self.assertIn('name="mint"', h)
+
+    def test_still_ships_no_script(self):
+        self.assertNotIn("<script", site.render_verify(now=1))

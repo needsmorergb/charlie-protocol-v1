@@ -5,6 +5,17 @@
   "outputDirectory": "web",
   "rewrites": [
     {
+      "source": "/verify",
+      "has": [
+        {
+          "type": "query",
+          "key": "mint",
+          "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
+        }
+      ],
+      "destination": "/:mint.html"
+    },
+    {
       "source": "/coins",
       "destination": "/coins-1.html"
     },
@@ -23,20 +34,6 @@
     {
       "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
       "destination": "/:mint.html"
-    }
-  ],
-  "redirects": [
-    {
-      "source": "/verify",
-      "has": [
-        {
-          "type": "query",
-          "key": "mint",
-          "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
-        }
-      ],
-      "destination": "/verify/:mint",
-      "permanent": false
     }
   ]
 }
