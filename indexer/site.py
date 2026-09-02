@@ -510,7 +510,7 @@ def _sol_burn_failure_banner(observation) -> str:
         return ""
     return (
         '<section class="sol-burn-failure-banner" data-banner="sol-burn-failure">'
-        '<h1 class="banner-headline">SOL_BURN_UNSPENDABLE — FAIL</h1>'
+        '<h1 class="banner-headline">SOL_BURN_UNSPENDABLE: FAIL</h1>'
         f'<p class="banner-body">{esc(check.detail)}</p>'
         f'<p class="banner-static">{esc(_sol_burn_failure_sentence(observation.config))}</p>'
         "</section>"
@@ -963,11 +963,11 @@ def _how_it_works() -> str:
         '<div class="table-scroll"><table class="legs">'
         "<tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr>"
         "<tr><td>SOL burn</td><td>SOL to a vault no key can spend</td>"
-        '<td>"burned", "deflationary" — only where '
+        '<td>"burned", "deflationary", only where '
         "SOL_BURN_UNSPENDABLE passes</td>"
         '<td>"burned" when the destination is spendable</td></tr>'
         "<tr><td>BURN</td><td>SOL buys the token, then an SPL burn</td>"
-        '<td>"burned", "permanently destroyed"</td><td>—</td></tr>'
+        '<td>"burned", "permanently destroyed"</td><td>none</td></tr>'
         "<tr><td>OPS</td><td>SOL to a spendable wallet</td>"
         '<td>"funds operations"</td><td>"burned"</td></tr>'
         "</table></div>"
@@ -1865,7 +1865,7 @@ def coverage_statement(counts: dict) -> str:
     **D-35.** This used to name an enumerated total, how many configs had
     more than one shareholder, and how many were still reconfigurable. The
     chain-wide sweep that produced those numbers was cut (D-33), so they are
-    no longer measured — and a total this project does not measure has no
+    no longer measured, and a total this project does not measure has no
     business appearing beside numbers it does. Intake is submission-driven:
     the honest statement is how many coins have been OBSERVED, and
     how many could not be.
@@ -1873,7 +1873,7 @@ def coverage_statement(counts: dict) -> str:
     It states **no denominator and no percentage**, deliberately. "N of M
     coins" and "X% covered" are the two shapes that would smuggle back the
     claim the sweep was cut from under. That is the same class of defect as
-    a figure with no passing check behind it — the difference being that
+    a figure with no passing check behind it. The difference is that
     here nothing would even flag it, which is why the refusal is enforced by
     `KEYS` below and by a test rather than left to whoever edits this next.
 
@@ -1881,7 +1881,7 @@ def coverage_statement(counts: dict) -> str:
     coverage sentence that stopped being true is exactly as wrong as a
     figure that was never checked.
 
-    Avoids every name in `invariants.FIGURES` — the sentence renders on the
+    Avoids every name in `invariants.FIGURES`, so the sentence renders on the
     landing page too, which asserts none of those five names appears
     anywhere in its document, stylesheet included.
     """

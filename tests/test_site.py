@@ -1601,6 +1601,21 @@ class TestLaunchModeAndResults(unittest.TestCase):
                 self.assertNotIn(name, h)
 
 
+class TestNoEmDashes(unittest.TestCase):
+    """No em dash anywhere in rendered copy.
+
+    It is the single most recognisable tell of machine-written text, and a
+    project whose whole claim is "we measured this ourselves" cannot afford
+    to read as generated. Colons, commas and full stops do the same work.
+    """
+
+    def test_no_em_dash_in_any_rendered_surface(self):
+        source = inspect.getsource(site)
+        for token in ("—", "&mdash;"):
+            with self.subTest(token=token):
+                self.assertNotIn(token, source)
+
+
 class TestDeflationCounterfactual(unittest.TestCase):
     """The SOL figure is a sum of burns already shown on the page, not a new
     measurement. It must agree with the "SOL spent buying them" counter by
