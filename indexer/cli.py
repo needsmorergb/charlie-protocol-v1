@@ -274,6 +274,11 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # points at and send a visitor to a 404.
     example = records[0].get("mint") if records else None
     written.append(site.write_verify(out_dir, example_mint=example))
+    # The other half of the same surface: verify.html is where a visitor
+    # starts, 404.html is where they land when the coin they pasted has no
+    # page. Written together so the two can never disagree about how a coin
+    # becomes measured.
+    written.append(site.write_not_found(out_dir))
     return written
 
 

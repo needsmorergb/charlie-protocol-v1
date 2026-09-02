@@ -1,0 +1,233 @@
+{
+  "attribution": [
+    {
+      "address": "FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu",
+      "bps": 5000,
+      "keyless": false,
+      "leg": "paid",
+      "reason": "an ordinary account, not program-derived"
+    },
+    {
+      "address": "5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij",
+      "bps": 2000,
+      "keyless": false,
+      "leg": "paid",
+      "reason": "an ordinary account, not program-derived"
+    },
+    {
+      "address": "3GcqSyYA3Bcik8o1fh78FnyADL4j4kxyyU3DvH9au26F",
+      "bps": 3000,
+      "keyless": true,
+      "leg": "paid",
+      "reason": "program-derived -- but it is some other program's PDA, and that program may be able to move it. Not provably burned."
+    }
+  ],
+  "backed_by": {
+    "split": [
+      "CONFIG_MINT",
+      "SPLIT_SUM"
+    ]
+  },
+  "blocked": {
+    "burn_total": [
+      {
+        "check": "BURN_SUPPLY",
+        "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
+        "status": "UNCHECKED"
+      },
+      {
+        "check": "BURN_SPEND",
+        "detail": "no BURN destination in this split -- the protocol program is not deployed, so a burn pool PDA cannot be derived yet, and this equation has nothing to check",
+        "status": "UNCHECKED"
+      }
+    ],
+    "ops_total": [
+      {
+        "check": "OPS_ROUTED",
+        "detail": "the walk of FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu is incomplete -- reached no signature yet; the walk of 5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij is incomplete -- reached no signature yet; the walk of 3GcqSyYA3Bcik8o1fh78FnyADL4j4kxyyU3DvH9au26F is incomplete -- reached no signature yet",
+        "status": "UNCHECKED"
+      }
+    ],
+    "sol_burn_total": [
+      {
+        "check": "SOL_BURN_UNSPENDABLE",
+        "detail": "no SOL burn destination in this split -- nothing to check",
+        "status": "UNCHECKED"
+      },
+      {
+        "check": "SOL_BURN_BALANCE",
+        "detail": "no SOL burn destination in this split -- nothing to check",
+        "status": "UNCHECKED"
+      }
+    ],
+    "supply_destroyed": [
+      {
+        "check": "BURN_SUPPLY",
+        "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
+        "status": "UNCHECKED"
+      },
+      {
+        "check": "BURN_ATOMIC",
+        "detail": "no burn recorded yet for this mint -- nothing to check",
+        "status": "UNCHECKED"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "actual": "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump",
+      "backs": [
+        "split",
+        "sol_burn_total",
+        "burn_total",
+        "ops_total",
+        "supply_destroyed"
+      ],
+      "detail": "the sharing config names this coin",
+      "equation": "sharing_config.mint == mint",
+      "expected": "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump",
+      "name": "CONFIG_MINT",
+      "status": "PASS"
+    },
+    {
+      "actual": "10000",
+      "backs": [
+        "split"
+      ],
+      "detail": "the split accounts for the whole fee stream",
+      "equation": "sol_burn_bps + burn_bps + paid_bps == 10000",
+      "expected": "10000",
+      "name": "SPLIT_SUM",
+      "status": "PASS"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "sol_burn_total"
+      ],
+      "detail": "no SOL burn destination in this split -- nothing to check",
+      "equation": "is_on_curve(sol_burn_vault) == False",
+      "expected": null,
+      "name": "SOL_BURN_UNSPENDABLE",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "sol_burn_total"
+      ],
+      "detail": "no SOL burn destination in this split -- nothing to check",
+      "equation": "sum(recorded_inflows) == getBalance(vault)",
+      "expected": null,
+      "name": "SOL_BURN_BALANCE",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": "1000000000000000",
+      "backs": [
+        "burn_total",
+        "supply_destroyed"
+      ],
+      "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
+      "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
+      "expected": null,
+      "name": "BURN_SUPPLY",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": "None",
+      "backs": [
+        "burn_total",
+        "supply_destroyed"
+      ],
+      "detail": "the mint authority is revoked: burned supply cannot be reissued",
+      "equation": "getMint(mint).mint_authority == None",
+      "expected": "None",
+      "name": "BURN_IRREVERSIBLE",
+      "status": "PASS"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "supply_destroyed"
+      ],
+      "detail": "no burn recorded yet for this mint -- nothing to check",
+      "equation": "swap_instruction.transaction == burn_instruction.transaction",
+      "expected": null,
+      "name": "BURN_ATOMIC",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "burn_total"
+      ],
+      "detail": "no BURN destination in this split -- the protocol program is not deployed, so a burn pool PDA cannot be derived yet, and this equation has nothing to check",
+      "equation": "sum(SOL_spent_on_BURN) <= sum(fees_claimed) * bps_BURN / 10000",
+      "expected": null,
+      "name": "BURN_SPEND",
+      "status": "UNCHECKED"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "ops_total"
+      ],
+      "detail": "the walk of FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu is incomplete -- reached no signature yet; the walk of 5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij is incomplete -- reached no signature yet; the walk of 3GcqSyYA3Bcik8o1fh78FnyADL4j4kxyyU3DvH9au26F is incomplete -- reached no signature yet",
+      "equation": "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
+      "expected": null,
+      "name": "OPS_ROUTED",
+      "status": "UNCHECKED"
+    }
+  ],
+  "config": {
+    "address": "1iBA2hAxHXamaz1UYenZvEyoeEu8MLPLqWXdN4ZRnEL",
+    "admin": "FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu",
+    "admin_revoked": true,
+    "mint": "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump",
+    "shareholders": [
+      {
+        "address": "FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu",
+        "bps": 5000
+      },
+      {
+        "address": "5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij",
+        "bps": 2000
+      },
+      {
+        "address": "3GcqSyYA3Bcik8o1fh78FnyADL4j4kxyyU3DvH9au26F",
+        "bps": 3000
+      }
+    ],
+    "status": 1,
+    "version": 2
+  },
+  "error": null,
+  "evidence": {
+    "initial_supply": null
+  },
+  "evidence_coverage": {
+    "3GcqSyYA3Bcik8o1fh78FnyADL4j4kxyyU3DvH9au26F": 0,
+    "5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij": 0,
+    "FHbCHYei88HWhZ4waBg42SLYPRzrPhjE2KVGBsxhzZnu": 0
+  },
+  "graduated": false,
+  "mint": "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump",
+  "mint_state": {
+    "decimals": 6,
+    "freeze_authority": null,
+    "mint_authority": null,
+    "supply": 1000000000000000,
+    "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+  },
+  "observed_at": 1788378570.8956213,
+  "publishable": [
+    "split"
+  ],
+  "schema": 3,
+  "split": {
+    "burn": 0,
+    "paid": 10000,
+    "sol_burn": 0
+  }
+}
