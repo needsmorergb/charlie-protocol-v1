@@ -896,15 +896,16 @@ def _deflation(observation) -> str:
     is an observed fact, not a member of `invariants.FIGURES`: it states what
     the recorded burns cost, and claims nothing about what was routed.
 
-    What the arithmetic means. That SOL bought tokens, and the TOKENS were
-    burned; the SOL itself went to whoever sold them and is still circulating.
-    Routed to a burn vault instead, the same SOL would have been burned
-    outright.
+    ONE SENTENCE, AND IT SAYS ONLY "DEFLATION". The figure is a counterfactual,
+    so `This did not happen` states that outright -- and then it stops. Every
+    further clause is an opportunity to imply something about the protocol's
+    modes that is not true.
 
-    Says nothing about the two being alternatives. Burning the coin's supply
-    and burning SOL are not a choice between them -- a coin can do both, and
-    the protocol will offer exactly that -- so the copy stops at what this
-    coin's recorded burns cost and does not frame it as a trade-off.
+    In particular it must never read as a trade-off between burning the coin's
+    supply and burning SOL. Those are not alternatives: PROTOCOL.md sec.2
+    mode 2 is `{SOL_BURN: n, BURN: 10000 - n}` -- both, in one split, already
+    specified. Copy pitting one against the other argues against a shipped
+    mode.
 
     Stated only when the burn walk is COMPLETE. A partial walk yields a
     smaller total that looks exactly like a finished one, and `ankr` and
@@ -939,11 +940,9 @@ def _deflation(observation) -> str:
         '<section id="deflation">'
         "<h2>SOL That Could Have Been Burned</h2>"
         f'<p class="deflation-value">{sol:,.9f} SOL</p>'
-        "<p><strong>This did not happen.</strong> That SOL bought tokens, and "
-        "the tokens were burned. The SOL itself went to whoever sold them and "
-        "is still circulating. Routed to a burn vault instead, the same SOL "
-        "would have been burned outright &mdash; permanent deflation, because "
-        "burned SOL never comes back.</p>"
+        "<p><strong>This did not happen.</strong> Burned SOL never comes back, "
+        "so routing this much to a SOL burn vault is that much permanent "
+        "deflation.</p>"
         f'<p class="meta">Summed from the {len(rows)} recorded burn '
         f"{'transaction' if len(rows) == 1 else 'transactions'} behind the "
         "figures above, over a completed walk of this mint.</p>"

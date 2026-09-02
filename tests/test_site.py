@@ -1639,9 +1639,19 @@ class TestDeflationCounterfactual(unittest.TestCase):
         self.assertNotIn("0.000000000 SOL", h)
 
     def test_says_it_did_not_happen(self):
+        """The heading says COULD have been. Without this the figure reads as
+        a measurement of something that occurred.
+        """
         h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
         self.assertIn("This did not happen", h)
-        self.assertIn("still circulating", h)
+
+    def test_the_statement_stays_one_sentence(self):
+        """Every clause past the first is a chance to imply something untrue
+        about the modes. Two <p> only: the figure's sentence and the meta line.
+        """
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
+        body = h[h.index("deflation-value"):]
+        self.assertEqual(body.count("<p"), 2)
 
     def test_uses_one_word_for_it(self):
         h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
@@ -1658,7 +1668,7 @@ class TestDeflationCounterfactual(unittest.TestCase):
         """
         h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
         for framing in ("both destroy", "the difference is whether",
-                        "instead of", "rather than burning"):
+                        "instead", "rather than", "either"):
             with self.subTest(phrase=framing):
                 self.assertNotIn(framing, h)
 
