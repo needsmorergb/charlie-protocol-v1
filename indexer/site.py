@@ -898,10 +898,13 @@ def _deflation(observation) -> str:
 
     What the arithmetic means. That SOL bought tokens, and the TOKENS were
     burned; the SOL itself went to whoever sold them and is still circulating.
-    Routed to a burn vault instead, the same SOL would have been destroyed
-    outright. Both destroy something -- the difference is whether the supply
-    that falls is the coin's or Solana's, and only the second is deflation for
-    the chain.
+    Routed to a burn vault instead, the same SOL would have been burned
+    outright.
+
+    Says nothing about the two being alternatives. Burning the coin's supply
+    and burning SOL are not a choice between them -- a coin can do both, and
+    the protocol will offer exactly that -- so the copy stops at what this
+    coin's recorded burns cost and does not frame it as a trade-off.
 
     Stated only when the burn walk is COMPLETE. A partial walk yields a
     smaller total that looks exactly like a finished one, and `ankr` and
@@ -941,8 +944,6 @@ def _deflation(observation) -> str:
         "is still circulating. Routed to a burn vault instead, the same SOL "
         "would have been burned outright &mdash; permanent deflation, because "
         "burned SOL never comes back.</p>"
-        "<p>Both destroy something. The difference is whether the supply that "
-        "falls is this coin's or Solana's.</p>"
         f'<p class="meta">Summed from the {len(rows)} recorded burn '
         f"{'transaction' if len(rows) == 1 else 'transactions'} behind the "
         "figures above, over a completed walk of this mint.</p>"

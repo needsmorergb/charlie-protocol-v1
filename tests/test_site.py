@@ -1650,6 +1650,18 @@ class TestDeflationCounterfactual(unittest.TestCase):
             with self.subTest(phrase=softer):
                 self.assertNotIn(softer, h)
 
+    def test_does_not_frame_the_two_burns_as_alternatives(self):
+        """Burning the coin's supply and burning SOL are not a choice between
+        them -- a coin can do both, and the protocol will offer that mode. Copy
+        that posed it as a trade-off would contradict a product we intend to
+        ship, so it stays out.
+        """
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
+        for framing in ("both destroy", "the difference is whether",
+                        "instead of", "rather than burning"):
+            with self.subTest(phrase=framing):
+                self.assertNotIn(framing, h)
+
     def test_is_not_a_gated_figure(self):
         h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
         for name in invariants.FIGURES:
