@@ -3,6 +3,12 @@
   "framework": null,
   "buildCommand": null,
   "outputDirectory": "web",
+  "functions": {
+    "api/verify.py": {
+      "includeFiles": "{indexer/**,web/**}",
+      "maxDuration": 20
+    }
+  },
   "rewrites": [
     {
       "source": "/verify",
@@ -13,7 +19,7 @@
           "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
         }
       ],
-      "destination": "/:mint.html"
+      "destination": "/api/verify?mint=:mint"
     },
     {
       "source": "/coins",
@@ -29,11 +35,11 @@
     },
     {
       "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
-      "destination": "/:mint.html"
+      "destination": "/api/verify?mint=:mint"
     },
     {
       "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
-      "destination": "/:mint.html"
+      "destination": "/api/verify?mint=:mint"
     }
   ]
 }

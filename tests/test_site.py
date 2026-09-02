@@ -42,6 +42,12 @@ from test_publication import (  # noqa: E402
 )
 from test_publication import FULL_DETAIL_SURFACES  # noqa: E402
 
+# The page route no longer points at a file. It points at the live function,
+# which serves the committed page when one exists and observes the chain when
+# it does not -- so a coin nobody has pre-generated still gets an answer.
+LIVE_ROUTE = "/api/verify"
+LIVE_ROUTE_SUFFIX = "?mint=:mint"
+
 
 class TestFigureRowOrder(unittest.TestCase):
     def test_figure_rows_render_in_invariants_figures_order(self):
@@ -1082,7 +1088,7 @@ class TestVercelJson(unittest.TestCase):
         rewrites = data["rewrites"]
         json_rewrite = _find_rule(rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=".json")
         html_rewrite = _find_rule(
-            rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=".html"
+            rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=LIVE_ROUTE_SUFFIX
         )
         verify_rewrite = _find_rule(rewrites, source_prefix="/verify/")
         coins_rewrite = _find_rule(rewrites, source_exact="/coins")
@@ -1114,12 +1120,17 @@ class TestVercelJson(unittest.TestCase):
         data = self._load()
         json_rewrite, html_rewrite, verify_rewrite, coins_rewrite = self._rules(data)
         self.assertEqual(json_rewrite["destination"], "/" + site._artifact_name(":mint", ".json"))
-        self.assertEqual(html_rewrite["destination"], "/" + site._artifact_name(":mint", ".html"))
+        # The page route goes to the live function, NOT straight at a file.
+        # A static destination 404s for every coin without a committed page,
+        # which is almost every coin under the submit model; the function
+        # serves the committed page when there is one and observes the chain
+        # when there is not.
+        self.assertEqual(html_rewrite["destination"], LIVE_ROUTE + "?mint=:mint")
         self.assertTrue(json_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
         self.assertTrue(html_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
         # D-22: /verify/:mint resolves to the SAME destination the coin-page
         # rule gives -- one artifact per coin, not two.
-        self.assertEqual(verify_rewrite["destination"], "/" + site._artifact_name(":mint", ".html"))
+        self.assertEqual(verify_rewrite["destination"], LIVE_ROUTE + "?mint=:mint")
         self.assertEqual(verify_rewrite["destination"], html_rewrite["destination"])
         self.assertTrue(verify_rewrite["source"].startswith("/verify/"))
         self.assertEqual(coins_rewrite["destination"], "/" + site.INDEX_FILENAME_TEMPLATE.format(page=1))

@@ -2065,6 +2065,39 @@ def render_not_found(*, now=None) -> str:
     return _document("No page for that coin yet -- Charlie Protocol", body, style=_INDEX_STYLE)
 
 
+def render_unavailable(mint: str, *, now=None) -> str:
+    """The live route could not read the chain.
+
+    An RPC that will not answer is a fact about the node, never a verdict
+    about the coin. Rendering a partial or empty observation here would put
+    a coin's name beside blanks that look like findings, which is the exact
+    failure the silence rule exists to prevent -- so this page carries no
+    figures at all and says which of the two happened.
+    """
+    stamp = _stamp(now() if callable(now) else (now if now is not None else time.time()))
+    body = (
+        "<header>"
+        "<h1>Could not read the chain just now</h1>"
+        f"<p><code>{esc(mint)}</code></p>"
+        "</header>"
+        "<main>"
+        "<p>This is a fact about the RPC node, not about the coin. Nothing "
+        "here failed a check and nothing here passed one, so this page shows "
+        "no figures rather than blanks that could be mistaken for findings.</p>"
+        "<p>Try again in a moment.</p>"
+        '<form class="verify-form" method="get" action="/verify">'
+        '<label for="mint">Contract address (CA)</label>'
+        '<input id="mint" name="mint" type="text" inputmode="latin" '
+        'autocomplete="off" spellcheck="false" value="' + esc(mint) + '" '
+        'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
+        '<button type="submit">Try again</button>'
+        "</form>"
+        "</main>"
+        f'<p class="meta">generated at {esc(stamp)}</p>'
+    )
+    return _document("Could not read the chain -- Charlie Protocol", body, style=_INDEX_STYLE)
+
+
 def write_not_found(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
     path = Path(out_dir) / NOT_FOUND_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
