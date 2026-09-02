@@ -20,7 +20,8 @@ import time
 from dataclasses import dataclass, field
 
 from . import invariants, publish
-from .legs import Registry, Split, recipient_kind, split_of
+from .legs import (Registry, Split, charity_recipients, donate_gg_fee_bps,
+                   recipient_kind, split_of)
 from .pump import DecodeError, MintState, SharingConfig, read_bonding_curve, read_mint, read_sharing_config
 from .rpc import RpcError, RpcUnavailable
 
@@ -86,7 +87,13 @@ class Observation:
     # never received a lamport), and claims nothing about how much reached
     # it. pump labels none of this, and "unproven is OPS" collapses all of
     # it into one bucket that tells a reader nothing.
-    recipient_kinds: dict = field(default_factory=dict)   # evidence.is_backfill_complete(mint, "burn") -- already computed for the checks; carried so a surface can state it instead of asserting it
+    recipient_kinds: dict = field(default_factory=dict)
+    # pump's launch modes, both observed facts about configuration rather than
+    # gated figures: they say what a coin IS, never how much moved.
+    # `cashback` is None when the curve predates the field -- unknown, not off.
+    cashback: bool | None = None
+    charity_recipients: tuple = ()
+    donate_gg_fee_bps: int | None = None   # evidence.is_backfill_complete(mint, "burn") -- already computed for the checks; carried so a surface can state it instead of asserting it
 
     @property
     def ok(self) -> bool:
@@ -133,6 +140,7 @@ def observe(
     try:
         curve = read_bonding_curve(rpc, mint)
         record.graduated = curve.graduated
+        record.cashback = curve.cashback
         if config is not None:
             if config.address != curve.creator:
                 record.error = (
@@ -168,6 +176,8 @@ def observe(
 
     split = split_of(config, registry)
     record.split = split
+    record.charity_recipients = charity_recipients(split)
+    record.donate_gg_fee_bps = donate_gg_fee_bps(split)
 
     # D-40: what each fee recipient IS, from one batched account read. This
     # is the only per-coin measurement available before the program exists

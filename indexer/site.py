@@ -779,6 +779,179 @@ def _cannot_enroll(observation) -> str:
     return f'<section id="cannot-enroll"><p>{body}</p></section>'
 
 
+def _launch_mode(observation) -> str:
+    """Which pump launch mode this coin is, from the chain.
+
+    Three observed facts, not gated figures -- each says what the coin IS,
+    never how much moved, so none is a member of `invariants.FIGURES`.
+    """
+    rows = []
+    cashback = getattr(observation, "cashback", None)
+    if cashback is None:
+        rows.append(
+            "<li><strong>Trader Cashback:</strong> unknown. This coin's bonding "
+            "curve predates the field, so the flag is absent rather than clear "
+            "-- absent is not the same as off, and this page will not read it "
+            "as one.</li>"
+        )
+    elif cashback:
+        rows.append(
+            "<li><strong>Trader Cashback: on.</strong> Chosen at launch and "
+            "locked on chain, it routes the whole creator fee to traders "
+            "instead of the deployer. Read from the bonding curve, not from "
+            "pump's API.</li>"
+        )
+    else:
+        rows.append(
+            "<li><strong>Trader Cashback: off.</strong> The creator fee goes "
+            "where the sharing config sends it.</li>"
+        )
+
+    charity = getattr(observation, "charity_recipients", ()) or ()
+    if charity:
+        bps = getattr(observation, "donate_gg_fee_bps", None)
+        cut = f"{bps / 100:g}%" if bps else "an unread share"
+        listed = ", ".join(f"<code>{esc(a)}</code>" for a in charity)
+        rows.append(
+            "<li><strong>Charity coin.</strong> The config pays donate.gg's fee "
+            f"wallet {cut} and sends the rest to {listed}. "
+            "<em>That is where the config points, and nothing more.</em> "
+            "pump takes no custody and donate.gg alone converts and forwards, "
+            "so the chain stops being evidence at that wallet: this page "
+            "cannot tell you a charity received anything, and does not "
+            "pretend to.</li>"
+        )
+
+    if not rows:
+        return ""
+    return (
+        '<section id="launch-mode">'
+        "<h2>Launch Mode</h2>"
+        "<p>What pump was configured to do with this coin's creator fees, read "
+        "from the chain.</p>"
+        f'<ul class="modes">{"".join(rows)}</ul>'
+        "</section>"
+    )
+
+
+def _results_chart(observation) -> str:
+    """A bar per check status, drawn from the checks themselves.
+
+    Inline SVG because the page ships no script and never will. Every bar is
+    labelled with its own count in text as well as length, so the figure is
+    readable without seeing the graphic at all -- a chart nobody can read is
+    decoration, and a chart that is the ONLY place a number appears is worse.
+    """
+    checks = getattr(observation, "checks", ()) or ()
+    if not checks:
+        return ""
+    order = [("PASS", invariants.PASS), ("FAIL", invariants.FAIL),
+             ("UNCHECKED", invariants.UNCHECKED)]
+    counts = [(label, sum(1 for c in checks if c.status == status)) for label, status in order]
+    total = len(checks)
+    widest = max((n for _l, n in counts), default=0) or 1
+
+    row_h, gap, label_w, bar_w = 26, 8, 96, 300
+    height = len(counts) * (row_h + gap)
+    bars = []
+    for i, (label, n) in enumerate(counts):
+        y = i * (row_h + gap)
+        w = int(bar_w * n / widest) if n else 0
+        bars.append(
+            f'<text x="0" y="{y + 17}" class="chart-label">{esc(label)}</text>'
+            f'<rect x="{label_w}" y="{y}" width="{w}" height="{row_h}" '
+            f'class="bar-{label.lower()}"></rect>'
+            f'<text x="{label_w + w + 8}" y="{y + 17}" class="chart-value">{n}</text>'
+        )
+    return (
+        '<section id="results">'
+        "<h2>Results</h2>"
+        f"<p>{total} checks ran: "
+        + ", ".join(f"{n} {label.lower()}" for label, n in counts)
+        + ". A failed check is not a footnote here -- it is why a figure above "
+        "is missing.</p>"
+        f'<svg class="chart" viewBox="0 0 {label_w + bar_w + 48} {height}" '
+        f'width="{label_w + bar_w + 48}" height="{height}" role="img" '
+        f'aria-label="{total} checks: '
+        + "; ".join(f"{n} {label.lower()}" for label, n in counts)
+        + '">'
+        + "".join(bars)
+        + "</svg>"
+        "</section>"
+    )
+
+
+def _deflation(observation) -> str:
+    """How much SOL this coin's fees would have taken out of circulation had
+    they been routed to a burn vault instead of a spendable wallet.
+
+    A COUNTERFACTUAL, and labelled as one everywhere it appears. It is not a
+    claim that anything was burned, and it must never be read as one.
+
+    It is gated harder than a normal figure, not softer, precisely because it
+    is speculative: it renders only when a PASSING check backs the inflow
+    total it is computed from. An unfinished walk produces a smaller number
+    that looks like a real one, and `ankr` and `shyft` were observed
+    answering signature queries with an empty array rather than an error --
+    so "we scanned and found little" and "we could not scan" are
+    indistinguishable downstream unless something upstream refuses to guess.
+
+    With no passing backing it says so and shows nothing. A zero here would
+    be a claim.
+    """
+    evidence = getattr(observation, "evidence", None) or {}
+    checks = {c.name: c for c in (getattr(observation, "checks", ()) or ())}
+    backing = [checks.get("SOL_BURN_BALANCE"), checks.get("OPS_ROUTED")]
+    backing = [c for c in backing if c is not None]
+    passing = [c for c in backing if c.status == invariants.PASS]
+
+    lamports = sum(v for k, v in evidence.items()
+                   if isinstance(v, int) and k not in ("burn_total", "initial_supply"))
+
+    if not passing or not lamports:
+        # State the ACTUAL reason. An earlier version listed check statuses
+        # whenever anything was missing, which produced "not shown, because
+        # SOL_BURN_BALANCE is PASS" -- a reason that is not a reason, on a
+        # page whose whole claim is that it says what is missing and why.
+        if not passing:
+            reasons = ("; ".join(f"{c.name} is {c.status}" for c in backing)
+                       or "no inflow check ran")
+        else:
+            reasons = ("no fee inflow has been recorded for this coin yet, so "
+                       "there is nothing to have burned")
+        return (
+            '<section id="deflation">'
+            "<h2>SOL That Could Have Been Burned</h2>"
+            "<p>Not shown. This figure would be the SOL these fees could have "
+            "taken out of circulation had they gone to a burn vault instead of "
+            "a spendable wallet &mdash; but it is only worth stating when the "
+            f"inflow total behind it is reconciled, and {esc(reasons)}. "
+            "An unfinished walk yields a smaller number that looks exactly "
+            "like a real one, so this page shows nothing rather than a figure "
+            "it cannot stand behind.</p>"
+            "</section>"
+        )
+
+    sol = lamports / LAMPORTS_PER_SOL
+    backed = ", ".join(c.name for c in passing)
+    return (
+        '<section id="deflation">'
+        "<h2>SOL That Could Have Been Burned</h2>"
+        f'<p class="deflation-value">{sol:,.9f} SOL</p>'
+        "<p><strong>This did not happen.</strong> It is what these recorded "
+        "fee inflows would have removed from circulation had they been routed "
+        "to a vault no key can spend, rather than to a spendable wallet. The "
+        "SOL is not burned, is not sealed, and is not gone: it went where the "
+        "config sent it.</p>"
+        f'<p class="meta">Computed from recorded inflows, backed by {esc(backed)}. '
+        "Solana has no instruction that reduces SOL supply, so a burn here "
+        "means SOL sent where no key can reach it &mdash; and the only reason "
+        "this number is shown at all is that the inflows behind it "
+        "reconcile.</p>"
+        "</section>"
+    )
+
+
 def _how_it_works() -> str:
     """Static prose: the three legs, adapted from PROTOCOL.md sec.1, with the
     permitted/forbidden claims table reproduced so a visitor does not have to
@@ -1024,6 +1197,9 @@ def _sections(observation) -> str:
 
     return "".join(
         (
+            _launch_mode(observation),
+            _results_chart(observation),
+            _deflation(observation),
             _how_it_works(),
             _the_burn(observation),
             _quiet(observation),
@@ -1056,6 +1232,19 @@ _TOKENS = """
 }"""
 
 _STYLE = _TOKENS + """
+.modes { padding-left: var(--sp-lg); }
+.modes li { margin-bottom: var(--sp-md); line-height: 1.6; }
+.chart { max-width: 100%; height: auto; margin: var(--sp-md) 0; }
+.chart-label { font-size: 13px; fill: var(--ink); font-family: inherit; }
+.chart-value { font-size: 13px; fill: var(--ink); font-family: inherit; font-weight: 700; }
+.bar-pass { fill: var(--pass-glyph); }
+.bar-fail { fill: var(--destructive); }
+.bar-unchecked { fill: none; stroke: var(--unchecked); stroke-width: 1; stroke-dasharray: 3 3; }
+.deflation-value {
+  font-size: clamp(22px, 4vw, 34px); font-weight: 700; margin: 0 0 var(--sp-md) 0;
+  overflow-wrap: anywhere;
+}
+
 * { box-sizing: border-box; }
 body {
   background: var(--paper);

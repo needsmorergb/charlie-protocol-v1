@@ -1538,3 +1538,112 @@ class TestScanningPanel(unittest.TestCase):
 
     def test_still_ships_no_script(self):
         self.assertNotIn("<script", site.render_verify(now=1))
+
+
+class TestLaunchModeAndResults(unittest.TestCase):
+    """The two pump launch modes on the page, and the results chart.
+
+    All three are observed facts about configuration -- what a coin IS, never
+    how much moved -- so none may be a member of `invariants.FIGURES`.
+    """
+
+    def _obs(self, **kw):
+        o = Observation(mint=CHARLIE, observed_at=1.0)
+        o.checks = (
+            invariants._check("A", invariants.PASS, [], "eq", "d"),
+            invariants._check("B", invariants.FAIL, [], "eq", "d"),
+            invariants._check("C", invariants.UNCHECKED, [], "eq", "d"),
+            invariants._check("D", invariants.PASS, [], "eq", "d"),
+        )
+        for k, v in kw.items():
+            setattr(o, k, v)
+        return o
+
+    def test_cashback_on_is_stated_plainly(self):
+        h = site._launch_mode(self._obs(cashback=True))
+        self.assertIn("Trader Cashback: on", h)
+
+    def test_cashback_absent_is_unknown_not_off(self):
+        """A curve predating the field has no byte to read. Absent is not
+        off, and saying "off" would be an unbacked claim about a coin.
+        """
+        h = site._launch_mode(self._obs(cashback=None))
+        self.assertIn("unknown", h)
+        self.assertNotIn("Cashback: off", h)
+
+    def test_charity_states_where_it_points_and_no_further(self):
+        h = site._launch_mode(self._obs(
+            cashback=False, charity_recipients=("Wallet1111",), donate_gg_fee_bps=1000))
+        self.assertIn("Charity coin", h)
+        self.assertIn("10%", h)
+        self.assertIn("Wallet1111", h)
+        self.assertIn("cannot tell you a charity received anything", h)
+
+    def test_chart_counts_match_the_checks(self):
+        h = site._results_chart(self._obs())
+        self.assertIn("4 checks ran", h)
+        self.assertIn("2 pass", h)
+        self.assertIn("1 fail", h)
+        self.assertIn("1 unchecked", h)
+
+    def test_chart_states_every_count_in_text_too(self):
+        """A chart nobody can read is decoration, and one that is the only
+        place a number appears is worse.
+        """
+        h = site._results_chart(self._obs())
+        self.assertIn("aria-label", h)
+        self.assertNotIn("<script", h)
+
+    def test_none_of_it_is_a_gated_figure(self):
+        h = site._launch_mode(self._obs(cashback=True)) + site._results_chart(self._obs())
+        for name in invariants.FIGURES:
+            with self.subTest(figure=name):
+                self.assertNotIn(name, h)
+
+
+class TestDeflationCounterfactual(unittest.TestCase):
+    """The "SOL that could have been burned" figure is speculative, so it is
+    gated HARDER than a normal figure rather than more loosely.
+    """
+
+    def _obs(self, checks, evidence):
+        o = Observation(mint=CHARLIE, observed_at=1.0)
+        o.checks = checks
+        o.evidence = evidence
+        return o
+
+    def test_withheld_without_a_passing_inflow_check(self):
+        o = self._obs((invariants._check("OPS_ROUTED", invariants.UNCHECKED, [], "eq", "d"),),
+                      {"addr": 5_000_000_000})
+        h = site._deflation(o)
+        self.assertIn("Not shown", h)
+        self.assertNotIn("5.000000000", h)
+
+    def test_shown_when_a_passing_check_backs_the_inflows(self):
+        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
+                      {"addr": 5_000_000_000})
+        h = site._deflation(o)
+        self.assertIn("5.000000000 SOL", h)
+
+    def test_says_it_did_not_happen(self):
+        """It must never read as a claim that SOL was burned."""
+        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
+                      {"addr": 5_000_000_000})
+        h = site._deflation(o)
+        self.assertIn("This did not happen", h)
+        self.assertIn("is not burned", h)
+
+    def test_no_zero_is_ever_rendered_as_a_figure(self):
+        """A zero would be a claim. With nothing recorded it says so."""
+        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),), {})
+        self.assertIn("Not shown", site._deflation(o))
+
+    def test_the_reason_given_is_the_actual_reason(self):
+        """It once said "not shown, because SOL_BURN_BALANCE is PASS" -- a
+        reason that is not a reason. With a passing check and no recorded
+        inflows, the cause is the absent inflows, and that is what it says.
+        """
+        o = self._obs((invariants._check("SOL_BURN_BALANCE", invariants.PASS, [], "eq", "d"),), {})
+        h = site._deflation(o)
+        self.assertIn("no fee inflow has been recorded", h)
+        self.assertNotIn("is PASS", h)

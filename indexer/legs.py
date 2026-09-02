@@ -64,6 +64,46 @@ RECIPIENT_KINDS = (
 )
 
 
+# -- pump's charity coins (D-41) --------------------------------------
+# donate.gg's fee wallet. Established structurally, not from a press release:
+# across all 17,646 multi-shareholder sharing configs, 568 name this address
+# and 565 have the exact shape (1000, 9000) -- 10% always to it, 90% to one of
+# 122 distinct counterparts. That is donate.gg's published 10% Charity-Coins
+# fee, taken before funds reach the charity's wallet, and the counterparts are
+# the charity-designated wallets (donate.gg-controlled, not the charities').
+DONATE_GG_FEE_WALLET = "98fYvtYvLt56PujTNugQcYf4JTAg85kZXvoWTuhhu7eu"
+DONATE_GG_FEE_BPS = 1000
+
+
+def charity_recipients(split) -> tuple:
+    """The charity-designated destinations of a charity coin, or ().
+
+    A coin is a charity coin when its config pays donate.gg's fee wallet.
+    Everything OTHER than that fee share is the charity side.
+
+    This says where the config points. It does NOT say a charity received
+    anything: pump's own disclaimer puts conversion and forwarding entirely
+    inside donate.gg, so the chain stops being evidence at that wallet.
+    """
+    attributions = getattr(split, "attributions", ()) or ()
+    if not any(a.address == DONATE_GG_FEE_WALLET for a in attributions):
+        return ()
+    return tuple(a.address for a in attributions if a.address != DONATE_GG_FEE_WALLET)
+
+
+def donate_gg_fee_bps(split) -> int | None:
+    """The bps donate.gg takes, read off the config rather than assumed.
+
+    565 of 568 charity coins use 1000 (10%) and three use 500. Reading it
+    means a coin on different terms is described correctly instead of being
+    told what it should have been.
+    """
+    for a in getattr(split, "attributions", ()) or ():
+        if a.address == DONATE_GG_FEE_WALLET:
+            return a.bps
+    return None
+
+
 def recipient_kind(account) -> str:
     """What a fee recipient is, from the account's owner program.
 

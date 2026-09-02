@@ -115,6 +115,11 @@ class BondingCurve:
     mint: str
     graduated: bool
     creator: str          # a wallet, OR the SharingConfig address for a fee-shared coin
+    # pump's Trader Cashback: chosen at launch and locked on chain, it routes
+    # 100% of the creator fee to traders instead of the deployer. `None` means
+    # the account predates the field, NOT that cashback is off -- an absent
+    # byte is an unknown, and the page must say so rather than assert "no".
+    cashback: bool | None = None
 
 
 def read_bonding_curve(rpc, mint: str) -> BondingCurve:
@@ -123,7 +128,29 @@ def read_bonding_curve(rpc, mint: str) -> BondingCurve:
         data = _raw(account, DISC_BONDING_CURVE, "bonding curve", (PUMP_PROGRAM,))
     except DecodeError as exc:
         raise DecodeError(f"{mint}: {exc}") from None
-    return BondingCurve(mint=mint, graduated=bool(data[48]), creator=encode(data[49:81]))
+    return BondingCurve(
+        mint=mint,
+        graduated=bool(data[48]),
+        creator=encode(data[49:81]),
+        cashback=_cashback_flag(data),
+    )
+
+
+# Byte 82. Verified 2026-09-02 against 200 coins labelled by pump's own
+# `is_cashback_enabled`: 32 cashback, 168 standard, 200/200 agreement.
+#
+# Bounds-checked rather than indexed blind, because bonding curve accounts are
+# VARIABLE LENGTH -- 83, 115 and 151 bytes were all observed live, pump having
+# grown the account over time. And byte 81 is a DIFFERENT flag which is set on
+# some standard coins, so an off-by-one here does not fail, it silently
+# inverts the answer on real data.
+CASHBACK_FLAG_OFFSET = 82
+
+
+def _cashback_flag(data: bytes) -> bool | None:
+    if len(data) <= CASHBACK_FLAG_OFFSET:
+        return None
+    return data[CASHBACK_FLAG_OFFSET] == 1
 
 
 # -- sharing config -------------------------------------------------------
