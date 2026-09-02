@@ -324,7 +324,7 @@ def scan_inflows(
                 # be the same conflation moved one layer down. Instead,
                 # record the failure against this destination's cursor for
                 # this endpoint, naming the signature, and leave the
-                # backfill NOT complete -- so SEAL_BALANCE/OPS_ROUTED read
+                # backfill NOT complete -- so SOL_BURN_BALANCE/OPS_ROUTED read
                 # UNCHECKED with a stated reason rather than quietly
                 # reconciling against history nobody could read.
                 backfill_complete = False
@@ -364,9 +364,9 @@ def scan_inflows_all_endpoints(
     """D-13: the recorded set must not depend on which endpoint answered.
 
     Measured against mainnet: one default endpoint exposed 2 signatures for
-    the seal address, another 77. `RpcClient._pick` always routes a call to
+    the SOL-burn address, another 77. `RpcClient._pick` always routes a call to
     whichever endpoint is currently healthiest, so a single-endpoint scan's
-    recorded set -- and therefore whether `SEAL_BALANCE` passes -- depends on
+    recorded set -- and therefore whether `SOL_BURN_BALANCE` passes -- depends on
     which endpoint happened to answer.
 
     This walks every configured endpoint **independently and deliberately**

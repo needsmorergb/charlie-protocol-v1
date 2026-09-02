@@ -28,6 +28,7 @@ from __future__ import annotations
 import html
 import json
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,279 @@ def _artifact_name(mint: str, suffix: str) -> str:
     that rejection would quietly come back.
     """
     return f"{mint}{suffix}"
+
+
+# -- QT-02: clean-URL composition for the landing page's outbound links ---
+LANDING_FILENAME = "index.html"
+LAMPORTS_PER_SOL = 1_000_000_000
+COIN_ROUTE_PREFIX = "/coin/"
+
+# -- artwork ----------------------------------------------------------
+# Charlie is NOT redrawn here. `web/assets/charlie.png` is the project's own
+# artwork, lifted from the $CHARLIE brand image and keyed to transparency by
+# flood-filling only the background-connected black -- his outlines are the
+# same #000 as the ground behind him, so a naive colour key would have eaten
+# them. Transparency is what lets one file serve both grounds: the near-black
+# hero and the paper counters section below it.
+#
+# The flame is likewise the real `pixel-fire.svg`, inlined rather than linked
+# so the guttering animation can be CSS on an element this module emits and
+# the page keeps its zero-script property.
+CHARLIE_SRC = "/assets/charlie.png"
+CHARLIE_INTRINSIC = (383, 484)
+
+# The counters band uses the site's own animated Charlie rather than the
+# still. It is the only GIF on charlie-incinerator.com that can sit on the
+# paper ground: its background is a real transparent index, where the
+# monochrome one's is opaque near-black and would render as a box.
+CHARLIE_GIF_SRC = "/assets/charlie-found.gif"
+CHARLIE_GIF_INTRINSIC = (256, 256)
+
+# The Incinerator logo is Sol Incinerator's mark, not this project's -- the
+# same asset charlie-incinerator.com already shows in its history section.
+# Charlie's lore starts there, which is the only reason it appears here.
+# Split into two layers at the one empty pixel row band in the source
+# (rows 130-135), so the smoke can drift without the building drifting with
+# it. The percentages below are the layers' own share of the original 333px
+# height, which is what keeps the two halves registered as the mark scales.
+INCINERATOR_SMOKE_SRC = "/assets/incinerator-smoke.png"
+INCINERATOR_STACK_SRC = "/assets/incinerator-stack.png"
+INCINERATOR_INTRINSIC = (241, 333)
+
+_INK = {
+    "g": "#8FE13F",   # brand green, chart bars
+    "d": "#3E6B1C",   # chart grid
+}
+
+_FLAME_RECTS = (
+    '<rect x="7" y="1" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="2" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="7" y="2" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="3" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="7" y="3" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="4" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="4" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="4" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="5" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="5" y="5" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="5" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="5" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="3" y="6" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="6" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="5" y="6" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="6" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="6" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="6" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="7" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="7" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="7" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="7" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="7" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="7" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="9" y="7" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="8" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="8" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="8" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="8" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="8" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="8" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="8" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="9" y="8" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="9" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="9" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="9" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="1" y="10" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="10" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="10" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="10" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="10" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="1" y="11" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="3" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="11" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="6" y="11" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="11" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="8" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="11" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="11" y="11" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="1" y="12" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="12" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="3" y="12" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="12" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="5" y="12" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="6" y="12" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="12" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="8" y="12" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="9" y="12" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="12" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="11" y="12" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="12" y="12" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="1" y="13" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="13" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="3" y="13" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="13" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="5" y="13" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="6" y="13" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="13" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="8" y="13" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="9" y="13" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="13" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="11" y="13" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="12" y="13" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="1" y="14" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="14" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="14" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="14" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="14" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="6" y="14" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="14" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="8" y="14" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="14" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="14" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="11" y="14" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="15" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="15" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="4" y="15" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="15" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="6" y="15" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="7" y="15" width="1" height="1" fill="#ffd84a"/>'
+    '<rect x="8" y="15" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="15" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="15" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="11" y="15" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="2" y="16" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="16" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="5" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="16" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="10" y="16" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="11" y="16" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="3" y="17" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="17" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="5" y="17" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="6" y="17" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="7" y="17" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="8" y="17" width="1" height="1" fill="#ff8a1f"/>'
+    '<rect x="9" y="17" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="10" y="17" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="4" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="5" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="7" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="8" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="9" y="18" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="5" y="19" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="6" y="19" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="7" y="19" width="1" height="1" fill="#ff4d2e"/>'
+    '<rect x="8" y="19" width="1" height="1" fill="#ff4d2e"/>'
+)
+
+
+def _charlie_img(cls: str = "charlie", label: str = "Charlie, the incinerator slug") -> str:
+    """The real artwork, as an <img>.
+
+    Width/height are the file's intrinsic pixels so the browser reserves the
+    box before the image lands and nothing below it shifts; the stylesheet
+    overrides both. `image-rendering: pixelated` there keeps the grid hard at
+    display sizes larger than 1:1.
+    """
+    w, h = CHARLIE_INTRINSIC
+    return (
+        f'<img class="{cls}" src="{CHARLIE_SRC}" width="{w}" height="{h}"'
+        f' alt="{esc(label)}" decoding="async">'
+    )
+
+
+def _charlie_gif(cls: str = "charlie-gif", label: str = "") -> str:
+    w, h = CHARLIE_GIF_INTRINSIC
+    return (
+        f'<img class="{cls}" src="{CHARLIE_GIF_SRC}" width="{w}" height="{h}"'
+        f' alt="{esc(label)}" decoding="async" loading="lazy">'
+    )
+
+
+def _flame_svg(cls: str = "flame-svg") -> str:
+    return (
+        f'<svg class="{cls}" viewBox="0 0 16 20" width="16" height="20"'
+        ' shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"'
+        ' aria-hidden="true">' + "".join(_FLAME_RECTS) + "</svg>"
+    )
+
+
+def _scene() -> str:
+    """Charlie crawling toward the incinerator, which is smoking.
+
+    Three nested elements around Charlie because each carries its own
+    `transform` and a second animation on the same element would simply
+    overwrite the first: `.walker` travels, `.facing` turns him to face the
+    way he is going, the `<img>` does the squash of a slug pulling itself
+    along. The smoke gets two elements for the same reason -- one sways, one
+    billows -- on deliberately non-harmonic periods so the drift does not
+    read as a short loop.
+    """
+    return (
+        '<div class="scene" aria-hidden="true">'
+        '<div class="scene-track">'
+        '<div class="walker"><div class="facing">'
+        + _charlie_img(cls="charlie walk", label="")
+        + "</div></div>"
+        "</div>"
+        '<div class="furnace">'
+        '<span class="smoke-drift">'
+        f'<img class="smoke" src="{INCINERATOR_SMOKE_SRC}" alt="" decoding="async">'
+        "</span>"
+        f'<img class="stack" src="{INCINERATOR_STACK_SRC}" alt="" decoding="async">'
+        "</div>"
+        "</div>"
+    )
+
+
+def _chart_svg(cls: str = "chart") -> str:
+    """A candlestick the slug is watching. Each bar is its own element so the
+    CSS can scale them on staggered delays -- the chart moves, which is the
+    only thing a chart has ever done.
+    """
+    bars = ((0, 14, 10), (1, 9, 16), (2, 18, 6), (3, 5, 20), (4, 12, 13), (5, 2, 23))
+    rects = []
+    for i, y, h in bars:
+        rects.append(
+            f'<rect class="bar b{i}" x="{4 + i * 8}" y="{y}" width="5" height="{h}"'
+            f' fill="{_INK["g"]}"/>'
+        )
+    grid = "".join(
+        f'<rect x="0" y="{y}" width="52" height="1" fill="{_INK["d"]}"/>'
+        for y in (8, 16, 24)
+    )
+    return (
+        f'<svg class="{cls}" viewBox="0 0 52 28" width="52" height="28"'
+        ' shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"'
+        ' role="img" aria-label="A chart, moving">'
+        + grid + "".join(rects) + "</svg>"
+    )
+
+
+def _coin_url(mint: str, suffix: str) -> str:
+    """A `/coin/` clean URL for a coin page or its record (D-A: routing by
+    rewrite, never by rename). Always composes `_artifact_name` rather than
+    building the filename a second way, so a clean-URL link and the flat
+    file `write()` produces can never disagree.
+    """
+    return COIN_ROUTE_PREFIX + _artifact_name(mint, suffix)
 
 
 # The committed deterministic evidence export directory (D-16's rejected
@@ -78,8 +352,8 @@ def _format_figure(name: str, value) -> str:
     if value is None:
         return "unknown"
     if name == invariants.SPLIT:
-        return f"SEAL {value['seal']} bps / BURN {value['burn']} bps / OPS {value['paid']} bps"
-    if name in (invariants.SEAL_TOTAL, invariants.OPS_TOTAL, invariants.BURN_TOTAL):
+        return f"SOL burn {value['sol_burn']} bps / BURN {value['burn']} bps / OPS {value['paid']} bps"
+    if name in (invariants.SOL_BURN_TOTAL, invariants.OPS_TOTAL, invariants.BURN_TOTAL):
         return f"{value} lamports"
     if name == invariants.SUPPLY_DESTROYED:
         return f"{value} raw units"
@@ -203,24 +477,35 @@ def _freshness(observation, now) -> str:
     )
 
 
-# -- PUB-03: the Seal Failure Banner ---------------------------------------
-_SEAL_FAILURE_STATIC_SENTENCE = "No seal total is publishable for $CHARLIE — permanently, not pending."
+# -- PUB-03: the SOL burn Failure Banner ---------------------------------------
+def _sol_burn_failure_sentence(config) -> str:
+    """The permanence claim, computed from THIS coin's own `admin_revoked` --
+    replaces a static sentence that asserted a permanence established only
+    for one coin's revoked config. When `admin_revoked` is true the config
+    cannot be changed by anyone but pump, which is what makes "not pending"
+    a claim this coin's own state actually supports; when it is not revoked,
+    the config can still be changed by its admin, and nothing here may claim
+    otherwise.
+    """
+    if config is not None and config.admin_revoked:
+        return "No SOL burn total is publishable for this coin -- permanently, not pending: its configuration is admin_revoked, and cannot be changed by anyone but pump."
+    return "No SOL burn total is publishable for this coin. Its configuration is not admin_revoked, so it can still be changed by its own admin."
 
 
-def _seal_failure_banner(observation) -> str:
-    """Unconditional, full-bleed banner when `SEAL_UNSPENDABLE` reads FAIL --
+def _sol_burn_failure_banner(observation) -> str:
+    """Unconditional, full-bleed banner when `SOL_BURN_UNSPENDABLE` reads FAIL --
     never dismissible, never collapsible, never conditionally hidden beyond
     that one test. Renders the check's own `detail` verbatim and in full;
     never a hardcoded restatement of it.
     """
-    check = next((c for c in observation.checks if c.name == "SEAL_UNSPENDABLE"), None)
+    check = next((c for c in observation.checks if c.name == "SOL_BURN_UNSPENDABLE"), None)
     if check is None or check.status != invariants.FAIL:
         return ""
     return (
-        '<section class="seal-failure-banner" data-banner="seal-failure">'
-        '<h1 class="banner-headline">SEAL_UNSPENDABLE — FAIL</h1>'
+        '<section class="sol-burn-failure-banner" data-banner="sol-burn-failure">'
+        '<h1 class="banner-headline">SOL_BURN_UNSPENDABLE — FAIL</h1>'
         f'<p class="banner-body">{esc(check.detail)}</p>'
-        f'<p class="banner-static">{esc(_SEAL_FAILURE_STATIC_SENTENCE)}</p>'
+        f'<p class="banner-static">{esc(_sol_burn_failure_sentence(observation.config))}</p>'
         "</section>"
     )
 
@@ -282,17 +567,49 @@ def _boost_sentence(summary: dict, decimals: int) -> str:
     """
     if summary["count"] == 0:
         return (
-            "No burns are recorded against $CHARLIE yet. The moment the evidence store "
-            "records one, it is attributed here."
+            "No burns are recorded against this coin yet. The moment the evidence "
+            "store records one, it is attributed here."
         )
     tokens_ui = summary["tokens"] / (10 ** decimals)
     tx_word = "transaction" if summary["count"] == 1 else "transactions"
     return (
-        "Every token $CHARLIE has ever lost was destroyed by pump's boost, at migration "
-        "-- not by any keeper of ours, and this protocol's own watcher could not see it "
-        f"happen. Boost burned {tokens_ui:,.{decimals}f} tokens across {summary['count']} "
-        f"{tx_word} in a {summary['window_seconds']}-second window. The protocol's own "
-        "crank has never run for this coin -- no program is deployed yet."
+        f"Boost burned {tokens_ui:,.{decimals}f} tokens across {summary['count']} "
+        f"{tx_word} in a {summary['window_seconds']}-second window, at migration -- not "
+        "by any keeper of ours, and this protocol's own watcher could not see it happen. "
+        "The protocol's own crank has never run for this coin -- no program is deployed "
+        "yet."
+    )
+
+
+def _non_boost_sentence(burn_events, decimals: int) -> str:
+    """Recorded burns that are NOT boost, stated separately and computed.
+
+    This sentence exists because the boost block used to open "every token
+    $CHARLIE has ever lost was destroyed by pump's boost", which was true when
+    the only recorded burns were boost's and became FALSE the first time the
+    walk recorded an `spl_burn`. A superlative about all burns cannot be a
+    template constant on a page whose evidence store keeps growing; it has to
+    be recomputed or not said. This says the narrower, checkable thing.
+    """
+    rows = [r for r in (burn_events or []) if r.get("source") != BOOST_SOURCE]
+    if not rows:
+        return (
+            "No burn from any other source is recorded against this coin. If one is "
+            "ever recorded, it is attributed here rather than folded into the total "
+            "above."
+        )
+    tokens_ui = sum(int(r.get("tokens_burned", 0)) for r in rows) / (10 ** decimals)
+    word = "burn" if len(rows) == 1 else "burns"
+    return (
+        f"Separately, {len(rows)} recorded {word} came from somewhere else: "
+        f"{tokens_ui:,.{decimals}f} tokens destroyed directly, by holders burning their "
+        "own, with no mechanism running and nobody asking. Boost did not do these and "
+        "neither did we. They are counted anyway, and that is deliberate (D-09): the "
+        "figure they back asks how much of this token is gone, not how much of it we "
+        "destroyed. A protocol that counted only its own burns would be flattering "
+        "itself -- it would report the burns it caused and quietly drop everyone "
+        "else's. So the walk records every burn against this mint, by anyone, whether "
+        "or not it ever touched our crank."
     )
 
 
@@ -397,26 +714,62 @@ _RISKS = (
     "No program is deployed.",
     "There is no funding, and Phase 5 is gated on SOL that does not exist yet.",
     "Revoking upgrade authority is a one-way door.",
-    "SEAL_UNSPENDABLE fails permanently for this coin, not pending.",
+    "SOL_BURN_UNSPENDABLE fails permanently for this coin, not pending.",
     "The opening-balance mechanism is dormant on live data (D-07).",
-    "The mint-wide burn walk is incomplete, so the residual is not a settled figure -- "
-    "see the committed reconciliation artifact (state/RECONCILIATION.md), never a number "
-    "on this page.",
 )
 
 
-def _cannot_enroll() -> str:
+def _walk_risk(observation) -> str:
+    """The burn-walk risk, stated from the recorded cursor rather than pinned.
+
+    This was a template constant reading "the mint-wide burn walk is
+    incomplete". It stayed on the page after the walk completed, which made it
+    a claim about the evidence that the evidence contradicted -- the precise
+    failure this page exists to refuse, committed by the page itself. Both
+    branches are worth saying, and which one is true is not this module's to
+    decide.
+    """
+    if getattr(observation, "burn_walk_complete", False):
+        return (
+            "The mint-wide burn walk is complete and the residual survives it: tokens "
+            "are missing from the supply that a full walk of the burn history does not "
+            "account for. The residual is a recorded open discrepancy, not a settled "
+            "figure, and never a number on this page -- see the committed reconciliation "
+            "artifact (state/RECONCILIATION.md)."
+        )
+    return (
+        "The mint-wide burn walk is incomplete, so the residual is not a settled figure "
+        "-- see the committed reconciliation artifact (state/RECONCILIATION.md), never a "
+        "number on this page."
+    )
+
+
+def _cannot_enroll(observation) -> str:
     """UI-SPEC's mandatory copy block (domain context #2), rendered as plain
     prose with no card/border treatment -- it is context, not a figure.
+
+    D-27: the index and every page in it are the top of the enrollment
+    funnel, not a leaderboard. Computed from THIS coin's own
+    `config.admin_revoked` -- a revoked config gets the explanation a
+    revoked config actually supports; a config that is not revoked gets the
+    other half, phrased as an open door rather than a verdict, and promising
+    no date, mechanism or outcome (phase 5 owns enrollment).
     """
-    return (
-        '<section id="cannot-enroll">'
-        "<p>$CHARLIE is the reference implementation -- the coin this protocol helps "
-        "least. Its sharing config is <code>admin_revoked</code>: permanent, single "
-        "shareholder, and only pump could ever reset it. $CHARLIE cannot enroll in its "
-        "own protocol.</p>"
-        "</section>"
-    )
+    config = observation.config
+    if config is not None and config.admin_revoked:
+        body = (
+            "This coin's sharing config is <code>admin_revoked</code>: permanent, "
+            "and only pump could ever reset it. It cannot enroll in its own "
+            "protocol."
+        )
+    else:
+        body = (
+            "This coin's sharing config is not <code>admin_revoked</code> -- its "
+            "split can still be changed by its own admin. That makes it a coin "
+            "that could enroll once the protocol program exists; nothing here "
+            "promises when or how."
+        )
+    return f'<section id="cannot-enroll"><p>{body}</p></section>'
 
 
 def _how_it_works() -> str:
@@ -427,16 +780,18 @@ def _how_it_works() -> str:
     return (
         '<section id="how-it-works">'
         "<h2>How It Works</h2>"
-        "<p>Three destinations for creator fees. They are not the same kind of object, "
-        "and the protocol never calls them by the same word.</p>"
+        "<p>Three destinations for creator fees. Two of them burn; what they "
+        "destroy is different, and the third destroys nothing.</p>"
         '<div class="table-scroll"><table class="legs">'
         "<tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr>"
-        "<tr><td>SEAL</td><td>SOL to an unspendable vault</td>"
-        '<td>"removed from circulation"</td><td>"burned"</td></tr>'
+        "<tr><td>SOL burn</td><td>SOL to a vault no key can spend</td>"
+        '<td>"burned", "removed from circulation" — only where '
+        "SOL_BURN_UNSPENDABLE passes</td>"
+        '<td>"burned" when the destination is spendable</td></tr>'
         "<tr><td>BURN</td><td>SOL buys the token, then an SPL burn</td>"
-        '<td>"permanently destroyed"</td><td>—</td></tr>'
+        '<td>"burned", "permanently destroyed"</td><td>—</td></tr>'
         "<tr><td>OPS</td><td>SOL to a spendable wallet</td>"
-        '<td>"funds operations"</td><td>"burned", "sealed"</td></tr>'
+        '<td>"funds operations"</td><td>"burned"</td></tr>'
         "</table></div>"
         "</section>"
     )
@@ -450,6 +805,7 @@ def _the_burn(observation) -> str:
     decimals = observation.mint_state.decimals if observation.mint_state is not None else 6
     summary = _boost_summary(observation.burn_events)
     sentence = _boost_sentence(summary, decimals)
+    non_boost = _non_boost_sentence(observation.burn_events, decimals)
     tx_links = _tx_links(observation.burn_events)
     atomic_check = next((c for c in observation.checks if c.name == "BURN_ATOMIC"), None)
     atomic_paragraph = (
@@ -459,6 +815,7 @@ def _the_burn(observation) -> str:
         '<section id="the-burn">'
         "<h2>The Burn</h2>"
         f"<p>{esc(sentence)}</p>"
+        f'<p class="non-boost">{esc(non_boost)}</p>'
         f"{tx_links}"
         f"{atomic_paragraph}"
         "</section>"
@@ -466,34 +823,69 @@ def _the_burn(observation) -> str:
 
 
 def _quiet(observation) -> str:
-    """Honest about what does not apply -- the window figure is computed
-    from the same `_boost_summary`, never a second, independently hardcoded
-    copy of the number `_the_burn` already computed.
+    """Honest about what does not apply -- true of every coin, and asserts
+    no coin's split.
+
+    This used to assert a specific split as a template constant ("its split
+    is 100% SOL burn"), the exact failure this project has shipped twice. The
+    claim that is actually true of every coin today is checkable in the
+    code, not in any one coin's bps: `legs.PROGRAM_ID` is `None`, so no
+    address can be derived as a burn pool, so no coin has a recognised BURN
+    destination and nothing cranks for anyone. The split itself is already
+    rendered, with its own backing check, in the figures block above --
+    saying it again here in prose would be a second place it could drift.
+    The window figure is computed from the same `_boost_summary`, never a
+    second, independently hardcoded copy of the number `_the_burn` already
+    computed; it depends on burn history, not on the split, so this section's
+    text is identical for two coins that differ only in their bps.
     """
     summary = _boost_summary(observation.burn_events)
+    if summary["count"]:
+        boost_note = (
+            "The one burn event in this coin's history was pump's boost, a "
+            f"single {esc(summary['window_seconds'])}-second window at migration, "
+            "not a recurring mechanism."
+        )
+    else:
+        boost_note = "No burn is recorded against this coin's history."
     return (
         '<section id="quiet">'
         "<h2>Quiet</h2>"
-        "<p>$CHARLIE has no BURN leg -- its split is 100% SEAL. There is no crank to "
-        "pause or resume, because none has ever run. The one burn event in this coin's "
-        f"history was pump's boost, a single {esc(summary['window_seconds'])}-second "
-        "window at migration, not a recurring mechanism.</p>"
+        "<p>No protocol program is deployed, so no address can be derived as a burn "
+        "pool -- no coin has a recognised BURN destination today, and nothing cranks "
+        "for anyone. There is no crank to pause or resume for this coin, because none "
+        f"has ever run. {boost_note}</p>"
         "</section>"
     )
 
 
-def _log() -> str:
-    """Today's expected empty state -- no protocol crank has ever run,
-    against any coin, until phase 5 deploys a program.
+def _log(observation) -> str:
+    """Today's expected empty state -- no protocol crank has ever run, for
+    any coin, until phase 5 deploys a program. That fact is universal and
+    named as such; the burn-composition sentence beside it is computed from
+    THIS coin's own `burn_events`, never assumed to match the reference
+    coin's shape (all-boost).
     """
+    burn_events = observation.burn_events or []
+    non_boost = [r for r in burn_events if r.get("source") != BOOST_SOURCE]
+    if not burn_events:
+        burn_note = "No burn is recorded against this mint yet."
+    elif not non_boost:
+        burn_note = (
+            "Every burn recorded against this mint so far was pump's boost, not "
+            'any keeper of ours -- see <a href="#the-burn">The Burn</a>.'
+        )
+    else:
+        burn_note = (
+            "Not every burn recorded against this mint was pump's boost -- see "
+            '<a href="#the-burn">The Burn</a> for the full breakdown.'
+        )
     return (
         '<section id="log">'
         "<h2>Log</h2>"
         "<h3>No cranks yet</h3>"
-        "<p>The protocol's crank has never run for $CHARLIE -- no program is deployed "
-        '(see <a href="#risks">Risks</a>). Every burn recorded against this mint so far '
-        "was pump's boost, not any keeper of ours -- see "
-        '<a href="#the-burn">The Burn</a>.</p>'
+        "<p>The protocol's crank has never run, for any coin, because no program is "
+        f'deployed (see <a href="#risks">Risks</a>). {burn_note}</p>'
         "</section>"
     )
 
@@ -584,7 +976,12 @@ def _raw_record_section(observation) -> str:
     alternative).
     """
     link = _raw_record_link(observation)
-    evidence_href = esc(f"../{EVIDENCE_EXPORT_PATH}/")
+    # Absolute, into the repository, NOT relative. `../state/evidence/`
+    # resolves correctly while the page is read inside the repo and 404s the
+    # moment it is served, because vercel.json's outputDirectory is `web/`
+    # and the export lives outside it. This is the "verify it yourself" link;
+    # a 404 here costs more than a 404 anywhere else on the page.
+    evidence_href = esc(f"{REPO_URL}/tree/main/{EVIDENCE_EXPORT_PATH}")
     return (
         '<section id="raw-record">'
         "<h2>Raw Observation JSON</h2>"
@@ -603,7 +1000,7 @@ def _raw_record_section(observation) -> str:
 def _sections(observation) -> str:
     """How It Works, The Burn, Quiet, Log and Risks, in UI-SPEC's Page
     Structure order (items 5-9) -- everything after the checks list and
-    before the footer. The cannot-enroll statement (item 2) and the Seal
+    before the footer. The cannot-enroll statement (item 2) and the SOL burn
     Failure Banner (item 3) are rendered earlier in `render()`, ahead of the
     Figures section (item 4), matching UI-SPEC's approved structural order
     exactly.
@@ -614,6 +1011,7 @@ def _sections(observation) -> str:
     own source, never re-typed apart from it.
     """
     risk_items = [f"<li>{esc(text)}</li>" for text in _RISKS]
+    risk_items.append(f"<li>{esc(_walk_risk(observation))}</li>")
     risk_items.append(f'<li id="{RISK_GENERATOR_ANCHOR}">{esc(_GENERATOR_UNVERIFIED)}</li>')
     risks = '<section id="risks"><h2>Risks</h2><ol class="risks">' + "".join(risk_items) + "</ol></section>"
 
@@ -622,13 +1020,17 @@ def _sections(observation) -> str:
             _how_it_works(),
             _the_burn(observation),
             _quiet(observation),
-            _log(),
+            _log(observation),
             risks,
         )
     )
 
 
-_STYLE = """
+# 02-03 Task 2: the `:root` custom-property block, extracted so the coin
+# page and the landing page share one palette and one spacing scale rather
+# than two that could drift -- `_STYLE` and `_LANDING_STYLE` both begin with
+# this same string, asserted (not asserted-by-eye) in tests/test_site.py.
+_TOKENS = """
 :root {
   --paper: #FAF7F0;
   --panel: #EFEAE0;
@@ -644,7 +1046,9 @@ _STYLE = """
   --sp-xl: 32px;
   --sp-2xl: 48px;
   --sp-3xl: 64px;
-}
+}"""
+
+_STYLE = _TOKENS + """
 * { box-sizing: border-box; }
 body {
   background: var(--paper);
@@ -711,7 +1115,7 @@ section { margin-bottom: var(--sp-xl); }
 a { color: var(--accent); }
 .freshness { margin-bottom: var(--sp-md); }
 .freshness .meta { margin: 0 0 var(--sp-xs) 0; }
-.seal-failure-banner {
+.sol-burn-failure-banner {
   background: var(--destructive);
   color: #fff;
   padding: var(--sp-lg);
@@ -779,18 +1183,316 @@ footer a { word-break: break-all; overflow-wrap: anywhere; }
 """
 
 
-def _document(mint: str, body: str) -> str:
+# 02-03 Task 2: the landing page's own stylesheet -- shares `_TOKENS` (one
+# palette, one spacing scale) and diverges only in density: fewer, larger
+# blocks, the hero counters at display size, its own room to breathe. No
+# `_STYLE` rule is imported wholesale -- the landing page is its own HTML
+# document via `_document(..., style=_LANDING_STYLE)`, so every rule it
+# needs (including the ones the reused `_check_row()` markup depends on --
+# `.check-row`/`.badge`/the three status classes) is declared here too.
+_LANDING_STYLE = _TOKENS + """
+:root {
+  /* Palette taken from the live $CHARLIE site (charlie-incinerator.com):
+     near-black ground with the brand green as the single accent. Matching it
+     is the point -- two surfaces for one project should not disagree about
+     what colour the project is. */
+  --ash: #0D0F0C;
+  --ash-raised: #161A14;
+  --ash-ink: #EAF3E3;
+  --ash-muted: #8B9585;
+  --ember: #8FE13F;
+  --hair: #D3D8CD;
+  --measure: 62ch;
+  --shell: 1120px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.55;
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+/* -- entrance motion -------------------------------------------------
+   Entrance only. Nothing here animates a VALUE: a count-up would render
+   figures that are not the observed ones for the length of the tween, and
+   a page whose whole claim is that every number is backed by a check must
+   not display numbers no check backs, not even for a second. Motion is
+   restricted to opacity and position, which carry no data. The landing
+   page also ships zero scripts, so this is CSS only and degrades to the
+   final state when animation is unavailable. */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.rise { animation: rise 620ms cubic-bezier(.16,.84,.44,1) both; }
+.d1 { animation-delay: 60ms; } .d2 { animation-delay: 130ms; } .d3 { animation-delay: 200ms; }
+.d4 { animation-delay: 270ms; } .d5 { animation-delay: 340ms; } .d6 { animation-delay: 410ms; }
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation: none; opacity: 1; transform: none; }
+  .hero-rule { animation: none; transform: none; }
+}
+
+/* -- hero ------------------------------------------------------------ */
+.hero {
+  background: var(--ash);
+  color: var(--ash-ink);
+  padding: clamp(var(--sp-2xl), 9vw, 104px) var(--sp-lg) clamp(var(--sp-xl), 6vw, 72px);
+}
+.hero-inner { max-width: var(--shell); margin: 0 auto; }
+.eyebrow {
+  font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ember); margin: 0 0 var(--sp-lg) 0;
+  display: flex; align-items: center; gap: var(--sp-sm);
+}
+.flame { display: inline-flex; line-height: 0; flex: 0 0 auto; }
+.hero h1 {
+  font-size: clamp(34px, 6.6vw, 72px);
+  font-weight: 700; line-height: 1.02; letter-spacing: -.03em;
+  margin: 0 0 var(--sp-lg) 0; overflow-wrap: anywhere;
+}
+.hero .tagline {
+  font-size: clamp(16px, 2.1vw, 21px); line-height: 1.45;
+  color: var(--ash-ink); max-width: var(--measure); margin: 0 0 var(--sp-xl) 0;
+}
+.hero-rule {
+  height: 1px; background: var(--ember); transform-origin: left center;
+  animation: draw 900ms cubic-bezier(.16,.84,.44,1) 120ms both;
+  margin: 0 0 var(--sp-lg) 0;
+}
+.hero .meta { color: var(--ash-muted); }
+
+/* -- shell ----------------------------------------------------------- */
+main { max-width: var(--shell); margin: 0 auto; padding: clamp(var(--sp-xl), 5vw, 64px) var(--sp-lg) var(--sp-3xl); }
+section { margin-bottom: clamp(var(--sp-2xl), 5vw, 72px); }
+.meta { font-size: 13px; font-weight: 400; line-height: 1.5; }
+.freshness .meta { margin: 0 0 var(--sp-xs) 0; }
+a { color: var(--accent); }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.section-label {
+  font-size: 11.5px; letter-spacing: .17em; text-transform: uppercase;
+  color: var(--unchecked); margin: 0 0 var(--sp-lg) 0;
+}
+/* The label rides the art band's baseline, to the right of Charlie and the
+   chart, rather than wrapping in a narrow column of its own. */
+#counters .section-art .section-label { margin-bottom: 0; flex: 1 1 auto; align-self: flex-end; }
+
+/* -- counters --------------------------------------------------------
+   Column minimum is set by the widest value, not by taste: the supply
+   counters run to 18 monospace characters, which at ~0.6em per character
+   needs ~260px at 24px type. A narrower column does not wrap them -- they
+   cannot wrap, by the rule below -- it makes them overflow the next cell. */
+#counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--sp-xl) var(--sp-2xl);
+}
+.counter-cell { min-width: 0; border-top: 1px solid var(--hair); padding-top: var(--sp-md); }
+.counter-value {
+  font-size: clamp(19px, 2.7vw, 27px);
+  font-weight: 700; line-height: 1.2; letter-spacing: -.015em;
+  margin: 0 0 var(--sp-sm) 0;
+  overflow-wrap: normal; word-break: keep-all;
+  font-variant-numeric: tabular-nums;
+}
+.counter-label { font-size: 15px; font-weight: 400; margin: 0 0 var(--sp-xs) 0; }
+.counter-source { margin: 0; color: var(--unchecked); }
+
+/* -- artwork ---------------------------------------------------------
+   Original inline sprites. All motion is CSS on elements this module emits,
+   so the landing page keeps zero scripts: nothing here can alter a figure,
+   and there is no frame loop to get out of step with the record. */
+.hero-art { display: flex; align-items: flex-end; gap: var(--sp-xl); flex-wrap: wrap; }
+.hero-copy { flex: 1 1 24rem; min-width: 0; }
+.charlie { image-rendering: pixelated; display: block; }
+
+/* -- the scene: Charlie crawls, the incinerator burns -----------------
+   `.walker` travels the full width of `.scene-track` using the left/
+   translateX pair, which resolves against the track at any width without
+   the stylesheet needing to know that width. `.facing` flips him at the
+   turn; the <img> squashes. Three elements because they each animate
+   `transform`, and one element can only hold one. */
+.scene { display: flex; align-items: flex-end; gap: var(--sp-lg);
+  margin: var(--sp-xl) 0 var(--sp-lg); }
+/* Both sizes are driven by HEIGHT, not width, because that is the axis the
+   proportion lives on: the track's height IS Charlie's height, and the
+   furnace box is sized so its building half -- 59.16% of the box, the rest
+   being plume -- lands at roughly three times it. Sizing these by width
+   instead had him rendering 131px tall against a 95px building, a slug
+   taller than the incinerator he is walking to. */
+.scene-track { position: relative; flex: 1 1 auto;
+  height: clamp(38px, 5vw, 64px); }
+/* Both carry height:100% so the <img>'s own height:100% has something to
+   resolve against -- an auto-height ancestor leaves it indeterminate and the
+   image falls back to its intrinsic 484px. */
+.walker { position: absolute; bottom: 0; left: 0; height: 100%;
+  animation: crawl 21s ease-in-out infinite alternate; }
+.facing { height: 100%; animation: face 42s steps(1, end) infinite; }
+.scene .charlie.walk { height: 100%; width: auto;
+  transform-origin: 50% 100%; animation: lurch 1.9s ease-in-out infinite; }
+
+@keyframes crawl { from { left: 0; transform: translateX(0); }
+                   to   { left: 100%; transform: translateX(-100%); } }
+/* The source art faces LEFT -- his eyes sit left of his body's centre. So
+   the mirrored half is the one where he travels RIGHT, which is the first
+   half of the crawl's alternate cycle. Getting this backwards makes him
+   moonwalk. Stepped, so the turn is a flip and not a smear. */
+@keyframes face { 0%, 49.99% { transform: scaleX(-1); }
+                  50%, 100%  { transform: scaleX(1); } }
+@keyframes lurch { 0%, 100% { transform: scaleY(1) scaleX(1); }
+                   45% { transform: scaleY(.93) scaleX(1.05); }
+                   70% { transform: scaleY(1.03) scaleX(.98); } }
+
+/* The mark's own aspect ratio, so the two layers stay registered to each
+   other at every width: smoke pinned to the top, building to the bottom,
+   each keeping its share of the original 333px height. */
+.furnace { position: relative; flex: 0 0 auto; line-height: 0;
+  height: clamp(190px, 26vw, 325px); width: auto; aspect-ratio: 241 / 333; }
+.furnace img { image-rendering: pixelated; display: block;
+  position: absolute; left: 0; width: 100%; height: auto; }
+.furnace .stack { bottom: 0; }
+.smoke-drift { position: absolute; left: 0; top: 0; width: 100%;
+  transform-origin: 50% 100%;
+  animation: sway 11.9s ease-in-out infinite; }
+.furnace .smoke { top: 0; transform-origin: 50% 100%;
+  animation: billow 7.3s ease-in-out infinite; }
+
+/* Two periods that do not divide into each other, so the combined drift
+   takes a long time to repeat itself and never reads as a short loop. */
+@keyframes sway {
+  0%   { transform: translateX(0)     skewX(0deg); }
+  28%  { transform: translateX(3.5%)  skewX(-2.6deg); }
+  54%  { transform: translateX(-2.2%) skewX(1.6deg); }
+  79%  { transform: translateX(4.4%)  skewX(-3.1deg); }
+  100% { transform: translateX(0)     skewX(0deg); }
+}
+@keyframes billow {
+  0%   { transform: translateY(0)     scale(1);     opacity: .95; }
+  38%  { transform: translateY(-3.2%) scale(1.05);  opacity: .74; }
+  71%  { transform: translateY(-1.4%) scale(1.018); opacity: .89; }
+  100% { transform: translateY(0)     scale(1);     opacity: .95; }
+}
+.hero-art .charlie { width: clamp(128px, 18vw, 200px); height: auto; flex: 0 0 auto; }
+/* Spans every column: the art band introduces the counters, it is not a
+   counter itself. Without this it takes the first grid cell and shoves the
+   first figure into column two. */
+.section-art { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: var(--sp-lg);
+  margin-bottom: var(--sp-xl); flex-wrap: wrap; }
+.section-art .charlie-gif { image-rendering: pixelated; display: block;
+  width: clamp(88px, 11vw, 124px); height: auto; }
+.section-art .chart { width: clamp(104px, 13vw, 148px); height: auto; }
+.refusal-art { display: flex; gap: var(--sp-lg); align-items: flex-start; flex-wrap: wrap; }
+.refusal-copy { flex: 1 1 24rem; min-width: 0; }
+
+/* Blink: the eyes squash to a line and back. Long pause, quick close --
+   a steady metronome reads as a machine, not a slug. */
+
+
+/* The flame gutters: two-frame pixel animation, stepped so it stays crisp
+   rather than smearing between states. */
+@keyframes gutter {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  25%      { transform: scaleY(1.14) translateY(-1px); }
+  50%      { transform: scaleY(.92) translateY(1px); }
+  75%      { transform: scaleY(1.06) translateY(0); }
+}
+.flame-svg { width: clamp(16px, 2vw, 22px); height: auto; transform-origin: 50% 100%;
+  animation: gutter 640ms steps(2, end) infinite; }
+
+/* The chart moves, because that is what a chart does. Each bar scales from
+   its own baseline on a staggered delay. */
+@keyframes tick { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.55); } }
+.chart .bar { transform-box: fill-box; transform-origin: 50% 100%; animation: tick 2.6s ease-in-out infinite; }
+.chart .b0 { animation-delay: 0ms; }   .chart .b1 { animation-delay: 180ms; }
+.chart .b2 { animation-delay: 360ms; } .chart .b3 { animation-delay: 540ms; }
+.chart .b4 { animation-delay: 720ms; } .chart .b5 { animation-delay: 900ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flame-svg, .chart .bar, .walker, .facing,
+  .scene .charlie.walk, .smoke-drift, .furnace .smoke { animation: none; }
+}
+
+/* -- status + refusal ------------------------------------------------- */
+.badge { display: inline-flex; align-items: center; gap: var(--sp-xs); padding: 2px 8px; }
+.status-pass { color: var(--pass-glyph); background: none; font-size: 14px; font-weight: 400; }
+.status-fail { background: var(--destructive); color: #fff; font-size: 20px; font-weight: 700; }
+.status-unchecked { border: 1px dashed var(--unchecked); color: var(--unchecked); font-size: 14px; font-weight: 400; }
+.supply-refusal {
+  padding: var(--sp-lg); margin: 0 0 clamp(var(--sp-2xl), 5vw, 72px) 0;
+  background: var(--panel);
+}
+.supply-refusal p { font-size: 16px; font-weight: 400; margin: 0 0 var(--sp-md) 0; max-width: var(--measure); }
+/* The row's spans are separate inline elements with no whitespace between
+   them in the markup, so without a flex gap they render as
+   BURN_SUPPLYFAILinitial_supply -- three fields read as one string. */
+.check-row {
+  padding: var(--sp-md) 0 0 0; border-top: 1px solid var(--hair);
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: var(--sp-xs) var(--sp-md);
+}
+.check-row .check-detail, .check-row .check-expected-actual { flex-basis: 100%; }
+.check-name { font-size: 14px; font-weight: 400; }
+.check-equation { font-size: 14px; font-weight: 400; }
+.check-detail { font-size: 16px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.check-expected-actual { font-size: 14px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+
+/* -- prose + links ---------------------------------------------------- */
+#what-this-is p { font-size: clamp(16px, 1.9vw, 18px); line-height: 1.6; max-width: var(--measure); }
+/* Bordered like the refusal block above it, because it is the same kind of
+   statement: a thing this page will not claim yet. */
+#launch-soon {
+  border: 1px dashed var(--unchecked); padding: var(--sp-lg);
+  max-width: var(--measure);
+}
+.soon-head { display: flex; align-items: center; gap: var(--sp-md);
+  flex-wrap: wrap; margin-bottom: var(--sp-md); }
+.soon-head h2 { margin: 0; font-size: clamp(19px, 2.4vw, 24px); }
+#launch-soon p { font-size: clamp(15px, 1.8vw, 17px); line-height: 1.6;
+  margin: 0 0 var(--sp-md) 0; }
+#launch-soon p:last-child { margin-bottom: 0; }
+
+#why-counted { max-width: var(--measure); }
+#why-counted p { font-size: clamp(15px, 1.8vw, 17px); line-height: 1.6;
+  margin: 0 0 var(--sp-md) 0; }
+#why-counted p:last-child { margin-bottom: 0; color: var(--unchecked); }
+
+#two-ways-in { display: flex; flex-wrap: wrap; gap: var(--sp-md); }
+#two-ways-in p { margin: 0; }
+#two-ways-in a {
+  display: inline-block; padding: var(--sp-md) var(--sp-lg);
+  background: var(--ash); color: var(--ash-ink); text-decoration: none;
+  font-size: 15px; border: 1px solid var(--ash);
+}
+#two-ways-in a:hover, #two-ways-in a:focus-visible { background: var(--ember); border-color: var(--ember); color: var(--ash); }
+footer { border-top: 1px solid var(--hair); padding-top: var(--sp-lg); margin-top: var(--sp-2xl); }
+footer p { font-size: 13px; font-weight: 400; margin: 0 0 var(--sp-sm) 0; color: var(--unchecked); max-width: var(--measure); }
+footer a { word-break: break-all; overflow-wrap: anywhere; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+"""
+
+
+def _document(title: str, body: str, *, style: str = _STYLE) -> str:
     """Wraps `body` (already-built HTML) in the page shell -- the one place
-    `<!doctype html>`/`<head>`/`<style>` are assembled, shared by both the
-    normal render path and the page-level error branch.
+    `<!doctype html>`/`<head>`/`<style>` are assembled, shared by the coin
+    page's normal render path, its page-level error branch, and the landing
+    page (02-03). `title` is the fully-formed `<title>` text (a caller builds
+    it, e.g. `f"{mint} -- Charlie Protocol"`); `style` defaults to the coin
+    page's own `_STYLE` so every existing call site is unaffected.
     """
     return (
         "<!doctype html>"
         '<html lang="en">'
         "<head>"
         '<meta charset="utf-8">'
-        f"<title>{mint} -- Charlie Protocol</title>"
-        f"<style>{_STYLE}</style>"
+        f"<title>{title}</title>"
+        f"<style>{style}</style>"
         "</head>"
         f"<body>{body}</body>"
         "</html>"
@@ -833,21 +1535,21 @@ def render(observation, *, now=None) -> str:
             + "<p>See the observation history: <code>python -m indexer log</code>.</p>"
             + "</section>"
         )
-        return _document(mint, body + f"<script>{_COPY_SCRIPT}</script>")
+        return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
 
     publisher = publish.Publisher(observation)
-    banner = _seal_failure_banner(observation)
+    banner = _sol_burn_failure_banner(observation)
     figure_rows = "".join(_figure_row(publisher, name) for name in invariants.FIGURES)
     checks_rows = "".join(_check_row(check) for check in observation.checks)
 
     # Structural order follows UI-SPEC's Page Structure & Component Inventory
-    # exactly: header (1) -> cannot-enroll (2) -> Seal Failure Banner (3) ->
+    # exactly: header (1) -> cannot-enroll (2) -> SOL burn Failure Banner (3) ->
     # Figures (4) -> [checks list, not separately numbered there] -> How It
     # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> Raw Observation
     # JSON (10, `_raw_record_section()`) -> footer (11).
     body = (
         header
-        + _cannot_enroll()
+        + _cannot_enroll(observation)
         + banner
         + '<section id="figures">'
         + "<h2>Figures</h2>"
@@ -863,7 +1565,7 @@ def render(observation, *, now=None) -> str:
         + f"<script>{_COPY_SCRIPT}</script>"
     )
 
-    return _document(mint, body)
+    return _document(f"{mint} -- Charlie Protocol", body)
 
 
 def record_json(observation) -> str:
@@ -890,3 +1592,701 @@ def write(observation, out_dir=DEFAULT_OUTPUT_DIR) -> tuple[Path, Path]:
     html_path.write_text(render(observation), encoding="utf-8", newline="\n")
     json_path.write_text(record_json(observation) + "\n", encoding="utf-8", newline="\n")
     return html_path, json_path
+
+
+# -- 03-01 Task 3: the coin index -- D-27's funnel, not a leaderboard -------
+def write_record(observation, out_dir=DEFAULT_OUTPUT_DIR) -> Path:
+    """Writes only the record -- `record_json(observation)` at
+    `_artifact_name(mint, ".json")`. Does not modify `write()`. D-31 makes
+    the record the artifact that must exist for every observed coin; the
+    page is generated only where there is a reader.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / _artifact_name(observation.mint, ".json")
+    json_path.write_text(record_json(observation) + "\n", encoding="utf-8", newline="\n")
+    return json_path
+
+
+def index_rows(records, known_pages=frozenset()) -> list[str]:
+    """One row string per stored record (the shape `Store.read()`-style JSON
+    gives), each routed through `publish.gate_stored_record` first -- a
+    committed record already carries its own `publishable`/`blocked`
+    fields, and gating on those at read time is the mechanism `cli._log_lines`
+    already uses to replay a record safely. Registered in `publish.SURFACES`
+    (`stored_records` input) and deliberately excluded from
+    `tests/test_publication.py`'s `FULL_DETAIL_SURFACES`: an index row shows
+    one figure by design, not all five.
+
+    `known_pages` is an optional set of mints known to have a committed
+    page; a mint in that set gets a link to its page as well as its record,
+    one that is not gets only the record link.
+    """
+    rows = []
+    for record in records:
+        gated = publish.gate_stored_record(record)
+        mint = gated.get("mint")
+        split = gated.get("split")
+        blocked = gated.get("blocked") or {}
+        record_href = esc(_artifact_name(mint, ".json"))
+
+        if split:
+            label = publish.classification(split)
+            backing = (gated.get("backed_by") or {}).get(invariants.SPLIT) or []
+            backing_text = ", ".join(backing) if backing else "(no check named)"
+            figure_html = (
+                f'<span class="index-split">SOL burn {esc(split.get("sol_burn"))} bps / '
+                f'BURN {esc(split.get("burn"))} bps / OPS {esc(split.get("paid"))} bps '
+                f"-- {esc(label)}</span>"
+                f'<span class="index-backs">backed by: {esc(backing_text)}</span>'
+            )
+        else:
+            reasons = blocked.get(invariants.SPLIT) or [
+                {"check": "NO_CHECK", "status": invariants.UNCHECKED}
+            ]
+            withholding = ", ".join(f'{r["check"]} ({r["status"]})' for r in reasons)
+            figure_html = (
+                '<span class="index-withheld">withheld</span>'
+                f'<span class="index-backs">withheld by: {esc(withholding)}</span>'
+            )
+
+        links = [f'<a href="{record_href}">record</a>']
+        if mint in known_pages:
+            page_href = esc(_coin_url(mint, ""))
+            links.insert(0, f'<a href="{page_href}">page</a>')
+
+        rows.append(
+            f'<div class="index-row" data-mint="{esc(mint)}">'
+            f'<span class="index-mint">{esc(mint)}</span>'
+            f"{figure_html}"
+            f'<span class="index-links">{" ".join(links)}</span>'
+            "</div>"
+        )
+    return rows
+
+
+def coverage_statement(counts: dict) -> str:
+    """What this index covers, stated in counts it can actually back.
+
+    **D-35.** This used to name an enumerated total, how many configs had
+    more than one shareholder, and how many were still reconfigurable. The
+    chain-wide sweep that produced those numbers was cut (D-33), so they are
+    no longer measured — and a total this project does not measure has no
+    business appearing beside numbers it does. Intake is submission-driven:
+    the honest statement is how many coins have been OBSERVED, and
+    how many could not be.
+
+    It states **no denominator and no percentage**, deliberately. "N of M
+    coins" and "X% covered" are the two shapes that would smuggle back the
+    claim the sweep was cut from under. That is the same class of defect as
+    a figure with no passing check behind it — the difference being that
+    here nothing would even flag it, which is why the refusal is enforced by
+    `KEYS` below and by a test rather than left to whoever edits this next.
+
+    Computed, never a constant, for `_non_boost_sentence`'s reason: a
+    coverage sentence that stopped being true is exactly as wrong as a
+    figure that was never checked.
+
+    Avoids every name in `invariants.FIGURES` — the sentence renders on the
+    landing page too, which asserts none of those five names appears
+    anywhere in its document, stylesheet included.
+    """
+    # The only counts this sentence may state. Anything else a caller hands
+    # in is ignored rather than rendered: an enumerated total arriving here
+    # by a future edit must produce silence, not a sentence.
+    observed = int(counts.get("observed", 0) or 0)
+    failed = int(counts.get("failed", 0) or 0)
+
+    coin_word = "coin" if observed == 1 else "coins"
+    # "observed", never "submitted and observed". The count is len(records)
+    # -- coins with a committed record -- and the reference coin has one
+    # without anyone having submitted it. Saying "submitted" asserted a
+    # request that never happened, on a page whose whole claim is that a
+    # figure names what backs it. Corrected 2026-09-02 before it could
+    # describe a stranger's coin.
+    sentence = f"{observed:,} {coin_word} observed"
+    if failed:
+        attempt = "attempt" if failed == 1 else "attempts"
+        sentence += f", {failed:,} {attempt} recorded as failed"
+    return sentence + ". Coins are measured when someone submits them, so this is not a census."
+
+
+# Not mint-derived, so routing it through `_artifact_name` would be a second
+# naming scheme entering by the back door -- the same reasoning
+# `LANDING_FILENAME` already carries. Page one is `coins-1.html`; there is
+# no unnumbered file, and `/coins` reaches page one by rewrite
+# (`vercel.json`) rather than by a duplicate file.
+# Not mint-derived, so it does not route through `_artifact_name`, for the
+# reason `LANDING_FILENAME` already carries. `/verify` reaches it by rewrite.
+VERIFY_FILENAME = "verify.html"
+
+# The pre-filled submission issue (D-23/D-34). A plain link -- the page ships
+# no script, and the deployment holds no secret, so the queue is GitHub's and
+# every request in it is public.
+SUBMIT_REPO = "needsmorergb/charlie-protocol-site"
+
+# Duplicated from `intake`, NOT imported: `intake` imports this module, so the
+# import would be circular. Kept as plain strings the same way
+# `EVIDENCE_EXPORT_PATH` mirrors `export.DEFAULT_EXPORT_DIR`, and pinned by
+# `tests/test_site.py::TestSubmitIssueUrl` -- if these ever drift from
+# `intake`'s, the pre-filled issue this page links to stops being recognised
+# as a submission and every request through it is silently dropped.
+_SUBMISSION_MARKER = "<!-- charlie-protocol:submission -->"
+_SUBMISSION_TITLE_PREFIX = "[coverage]"
+
+
+def submit_issue_url(repo: str = SUBMIT_REPO) -> str:
+    """The pre-filled issue a submitter lands on.
+
+    Carries `intake.SUBMISSION_MARKER` in the body and
+    `intake.SUBMISSION_TITLE_PREFIX` in the title so `intake.is_submission`
+    recognises it. The label is deliberately NOT set here: GitHub drops a
+    `labels` parameter for anyone without triage permission, which is every
+    stranger this queue exists for, so relying on it would silently lose the
+    submissions that matter most.
+    """
+    title = f"{_SUBMISSION_TITLE_PREFIX} <paste your mint address>"
+    body = "\n\n".join((
+        _SUBMISSION_MARKER,
+        "Mint address:",
+        "(paste the mint address on the line above, nothing else)",
+    )) + "\n"
+    query = urllib.parse.urlencode({"title": title, "body": body})
+    return f"https://github.com/{repo}/issues/new?{query}"
+
+
+def render_verify(*, now=None) -> str:
+    """`/verify` with no mint after it.
+
+    This page exists because the route was advertised without one. It states
+    what the route does, what it cannot do, and the one action that changes
+    that -- rather than a 404, which tells a visitor nothing and reads as a
+    broken site.
+    """
+    stamp = _stamp(now() if callable(now) else (now if now is not None else time.time()))
+    href = esc(submit_issue_url())
+    coins = esc(INDEX_FILENAME_TEMPLATE.format(page=1))
+    body = (
+        "<header>"
+        "<h1>Verify a coin</h1>"
+        '<p class="meta">Put a mint address after this URL: '
+        "<code>/verify/&lt;mint&gt;</code></p>"
+        "</header>"
+        "<main>"
+        "<p>That address resolves to the coin's page: its fee split, what that "
+        "split does, and every check that passed, failed, or was never run "
+        "beside the figure it backs.</p>"
+        "<p><strong>It only answers for coins that have been measured.</strong> "
+        "Nothing here crawls the chain looking for coins to grade -- a coin is "
+        "measured because someone asked for it to be. A mint nobody has "
+        "submitted has no page, and this route will not invent one.</p>"
+        f'<p><a href="{href}">Submit a mint to be measured</a> -- it opens a '
+        "public issue, so the request and the answer are both on the record. "
+        "No account here, no approval from us.</p>"
+        f'<p><a href="{coins}">Every coin measured so far</a>.</p>'
+        "</main>"
+        f'<p class="meta">generated at {esc(stamp)}</p>'
+        f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
+    )
+    return _document("Verify a coin -- Charlie Protocol", body, style=_INDEX_STYLE)
+
+
+def write_verify(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
+    path = Path(out_dir) / VERIFY_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_verify(now=now), encoding="utf-8")
+    return path
+
+
+INDEX_FILENAME_TEMPLATE = "coins-{page}.html"
+
+DEFAULT_INDEX_PAGE_SIZE = 500
+
+_INDEX_STYLE = _TOKENS + """
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  padding: var(--sp-xl) var(--sp-lg);
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 28px; font-weight: 700; margin: 0 0 var(--sp-md) 0; }
+.meta { font-size: 14px; font-weight: 400; margin: 0 0 var(--sp-xs) 0; }
+a { color: var(--accent); }
+.index-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-xs) var(--sp-md);
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-md);
+  border-left: 1px dashed var(--unchecked);
+}
+.index-mint {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.index-split, .index-withheld { font-size: 14px; flex: 2 1 260px; min-width: 0; }
+.index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
+.index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
+.index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
+"""
+
+
+def render_index(records, *, counts, page, pages, now=None, pages_present=None, known_pages=None) -> str:
+    """One page of the coin index -- D-27's funnel, not a leaderboard: rows
+    are ordered by mint and the page says the order ranks nothing. Contains
+    no figure formatting of its own -- `index_rows` owns every
+    figure-bearing cell, which is what keeps the sweep over `index_rows`
+    sufficient.
+    """
+    now = now if now is not None else time.time()
+    stamp = _stamp(now)
+    known_pages = known_pages or frozenset()
+    ordered = sorted(records, key=lambda r: r.get("mint") or "")
+    rows_html = "".join(index_rows(ordered, known_pages))
+    pages_present = pages_present if pages_present is not None else {page}
+
+    nav_links = []
+    if (page - 1) in pages_present:
+        nav_links.append(
+            f'<a href="{esc(INDEX_FILENAME_TEMPLATE.format(page=page - 1))}">previous</a>'
+        )
+    if (page + 1) in pages_present:
+        nav_links.append(
+            f'<a href="{esc(INDEX_FILENAME_TEMPLATE.format(page=page + 1))}">next</a>'
+        )
+    nav_html = f'<nav class="index-nav">{"".join(nav_links)}</nav>' if nav_links else ""
+
+    body = (
+        "<header>"
+        "<h1>Coins</h1>"
+        f'<p class="meta">{esc(coverage_statement(counts))}</p>'
+        f'<p class="meta">generated at {esc(stamp)}</p>'
+        f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
+        f'<p class="meta">page {page} of {pages} -- this order ranks nothing; rows are '
+        "sorted by mint.</p>"
+        "</header>"
+        f"<main>{rows_html}</main>"
+        f"{nav_html}"
+    )
+    return _document("Coins -- Charlie Protocol", body, style=_INDEX_STYLE)
+
+
+def write_index(
+    records,
+    out_dir=DEFAULT_OUTPUT_DIR,
+    *,
+    counts,
+    now=None,
+    known_pages=None,
+    page_size=DEFAULT_INDEX_PAGE_SIZE,
+) -> list[Path]:
+    """Writes one file per page of `records` (ordered by mint) under
+    `out_dir`, and returns the written paths in page order. Page one is
+    always `coins-1.html` -- there is no unnumbered file; `/coins` reaches
+    it by rewrite.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(records, key=lambda r: r.get("mint") or "")
+    chunks = [ordered[i : i + page_size] for i in range(0, len(ordered), page_size)] or [[]]
+    pages = len(chunks)
+    pages_present = set(range(1, pages + 1))
+    known_pages = known_pages or frozenset()
+
+    written = []
+    for index, chunk in enumerate(chunks, start=1):
+        html = render_index(
+            chunk,
+            counts=counts,
+            page=index,
+            pages=pages,
+            now=now,
+            pages_present=pages_present,
+            known_pages=known_pages,
+        )
+        path = out_dir / INDEX_FILENAME_TEMPLATE.format(page=index)
+        path.write_text(html, encoding="utf-8", newline="\n")
+        written.append(path)
+    return written
+
+
+# -- 02-03 QT-01/QT-02/QT-03: the landing page --------------------------
+# `charlieprotocol.fun`'s `/` -- live counters computed at render time from
+# one Observation, the BURN_SUPPLY refusal (D-C), and two links into the
+# coin page beside it (D-A). Never a second, parallel silence-rule
+# implementation: `_counters()` reads exactly four Observation fields, never
+# `evidence["burn_total"]` (that key is
+# `publish.FIGURE_SOURCES[invariants.SUPPLY_DESTROYED]`'s own path), and
+# `render_landing()` never constructs a `publish.Publisher` at all.
+def _counters(observation) -> tuple:
+    """The six landing-page counters (QT-01), each `{label, value, source,
+    raw}`, in the fixed order the plan's observed-values table gives:
+    supply remaining, initial supply, recorded burn transactions, tokens in
+    those burns, SOL spent buying them, burned by hand (not by boost).
+
+    Reads exactly four Observation fields -- `mint_state.supply`,
+    `mint_state.decimals`, `evidence["initial_supply"]`, `burn_events` --
+    and never the evidence store's own gated running total (the key
+    `publish.FIGURE_SOURCES[invariants.SUPPLY_DESTROYED]` reads), because
+    reading that key here would be the PUB-01 bypass class on this new
+    surface. A cell whose source data is absent renders `value` "unknown"
+    and `raw` `None` -- never `0`, never blank.
+    """
+    mint_state = observation.mint_state
+    evidence = observation.evidence or {}
+    initial_supply_row = evidence.get("initial_supply")
+    burn_events = observation.burn_events or []
+
+    if mint_state is not None:
+        decimals = mint_state.decimals
+    elif initial_supply_row is not None and initial_supply_row.get("decimals") is not None:
+        decimals = initial_supply_row["decimals"]
+    else:
+        decimals = 6
+
+    def tokens_ui(raw) -> str:
+        return f"{raw / (10 ** decimals):,.{decimals}f}"
+
+    def sol_ui(raw) -> str:
+        # Matches report._lamports's own convention -- .9f, no thousands
+        # separator (a SOL amount this small never needs one).
+        return f"{raw / LAMPORTS_PER_SOL:.9f}"
+
+    cells = []
+
+    if mint_state is not None:
+        cells.append({
+            "label": "Supply remaining",
+            "value": tokens_ui(mint_state.supply),
+            "source": "mint_state.supply",
+            "raw": mint_state.supply,
+        })
+    else:
+        cells.append({"label": "Supply remaining", "value": "unknown", "source": "mint_state.supply", "raw": None})
+
+    initial_raw = initial_supply_row.get("raw_supply") if initial_supply_row is not None else None
+    initial_supply_source = "evidence.initial_supply.raw_supply"
+    if initial_raw is not None:
+        cells.append({
+            "label": "Initial supply",
+            "value": tokens_ui(initial_raw),
+            "source": initial_supply_source,
+            "raw": initial_raw,
+        })
+    else:
+        cells.append({"label": "Initial supply", "value": "unknown", "source": initial_supply_source, "raw": None})
+
+    if burn_events:
+        cells.append({
+            "label": "Recorded burn transactions",
+            "value": str(len(burn_events)),
+            "source": "len(burn_events)",
+            "raw": len(burn_events),
+        })
+    else:
+        cells.append({"label": "Recorded burn transactions", "value": "unknown", "source": "len(burn_events)", "raw": None})
+
+    tokens_source = "sum(tokens_burned across burn_events)"
+    if burn_events:
+        tokens_raw = sum(int(row.get("tokens_burned", 0)) for row in burn_events)
+        cells.append({
+            "label": "Tokens in those burns",
+            "value": tokens_ui(tokens_raw),
+            "source": tokens_source,
+            "raw": tokens_raw,
+        })
+    else:
+        cells.append({"label": "Tokens in those burns", "value": "unknown", "source": tokens_source, "raw": None})
+
+    lamports_source = "sum(sol_spent across burn_events)"
+    if burn_events:
+        lamports_raw = sum(int(row.get("sol_spent") or 0) for row in burn_events)
+        cells.append({
+            "label": "SOL spent buying them",
+            "value": sol_ui(lamports_raw),
+            "source": lamports_source,
+            "raw": lamports_raw,
+        })
+    else:
+        cells.append({"label": "SOL spent buying them", "value": "unknown", "source": lamports_source, "raw": None})
+
+    non_boost_source = f"burn_events where source != {BOOST_SOURCE}"
+    if burn_events:
+        non_boost_rows = [row for row in burn_events if row.get("source") != BOOST_SOURCE]
+        non_boost_tokens = sum(int(row.get("tokens_burned", 0)) for row in non_boost_rows)
+        count = len(non_boost_rows)
+        word = "transaction" if count == 1 else "transactions"
+        cells.append({
+            "label": "Burned by hand, not by boost",
+            "value": f"{count} {word} -- {tokens_ui(non_boost_tokens)} tokens",
+            "source": non_boost_source,
+            "raw": non_boost_tokens,
+        })
+    else:
+        cells.append({"label": "Burned by hand, not by boost", "value": "unknown", "source": non_boost_source, "raw": None})
+
+    return tuple(cells)
+
+
+def _hand_burn_note(observation) -> str:
+    """Why a stranger's burn is counted at all.
+
+    Computed, not a constant, for the same reason `_non_boost_sentence()` is:
+    the sentence changes shape the moment the walk records another one, and a
+    claim about "the" hand burn would go stale silently. Says nothing about
+    the residual -- the arithmetic gap is unattributed, and guessing that
+    holders caused it is precisely the unbacked claim this page exists to
+    refuse.
+    """
+    rows = [r for r in (observation.burn_events or [])
+            if r.get("source") != BOOST_SOURCE]
+    if not rows:
+        return ""
+    word = "one of them" if len(rows) == 1 else f"{len(rows)} of them"
+    return (
+        '<section id="why-counted">'
+        f"<p>The last counter is people destroying their own tokens. No mechanism "
+        f"ran, nothing asked them to, and no reward was paid for it -- {word} so far. "
+        "They are counted anyway, on purpose. The figure they feed asks how much of "
+        "this token is gone, not how much of it this protocol destroyed; a protocol "
+        "that counted only its own burns would report the ones it caused and quietly "
+        "drop everyone else's. So the walk records every burn against the mint, by "
+        "anyone.</p>"
+        "<p>It does not follow that the shortfall below is more of the same. That gap "
+        "is unattributed. Naming a cause for it here is exactly the claim this page "
+        "will not make.</p>"
+        "</section>"
+    )
+
+
+def _counter_cell(cell: dict) -> str:
+    """One counter -- value at display size, label beneath, and the
+    Observation field it came from beneath that (the `.meta` class the coin
+    page already uses for `observed at`) -- so the source line is never a
+    footnote.
+    """
+    return (
+        '<div class="counter-cell">'
+        f'<p class="counter-value">{esc(cell["value"])}</p>'
+        f'<p class="counter-label">{esc(cell["label"])}</p>'
+        f'<p class="counter-source meta">{esc(cell["source"])}</p>'
+        "</div>"
+    )
+
+
+_SUPPLY_REFUSAL_INTRO = (
+    "Both supply endpoints render above. This page declines to subtract them -- "
+    "the difference would be a checked figure, and the check that backs it is "
+    "shown below, exactly as it reads right now."
+)
+
+
+def _supply_refusal(observation) -> str:
+    """D-C/QT-03: states the refusal and renders BURN_SUPPLY's own live
+    fields via `_check_row()` -- never a hardcoded restatement of `detail`.
+    The outer wrapper carries the withheld (UNCHECKED, dashed-ochre)
+    treatment: a declined number is withheld, not failed, which is a
+    property of THIS page's choice not to publish the subtraction, distinct
+    from the check's own true status (rendered inline, unmodified, by the
+    reused `_check_row()`). If no BURN_SUPPLY check exists in the
+    observation, the refusal still renders -- prose without the check block,
+    never omitted entirely.
+    """
+    check = next((c for c in observation.checks if c.name == "BURN_SUPPLY"), None)
+    pieces = [
+        '<section class="supply-refusal status-unchecked" data-refusal="supply">',
+        f"<p>{esc(_SUPPLY_REFUSAL_INTRO)}</p>",
+    ]
+    if check is not None:
+        pieces.append(_check_row(check))
+    pieces.append("</section>")
+    return "".join(pieces)
+
+
+# Two sentences, adapted from PROJECT.md's own Project section rather than
+# invented marketing copy. The second states the claims rule in the summary
+# and not only in the full spec: a burn claim requires a destination that
+# passes `SOL_BURN_UNSPENDABLE`, and $CHARLIE's does not. Keeping that
+# admission here is what shows the standard is not graded by its author.
+_LANDING_DESCRIPTION = (
+    "Charlie Protocol is a fee-routing and verification standard for pump.fun "
+    "coins, naming three destinations for creator fees -- BURN (SOL), BURN (token), OPS -- "
+    "and specifying the part nobody else does: what a coin is permitted to "
+    "claim about them in public. Both burn: a SOL burn sends SOL where no key can "
+    "spend it, a BURN destroys token supply. The word is only permitted where "
+    "the destination is provably unspendable -- and $CHARLIE's is not."
+)
+
+
+def _landing_description() -> str:
+    return f'<section id="what-this-is"><p>{esc(_LANDING_DESCRIPTION)}</p></section>'
+
+
+_LANDING_SOON_HEADING = "Launch with Charlie Protocol"
+
+# Deliberately avoids the word for how fees divide: it is a name in
+# `invariants.FIGURES`, and the no-figure-names test covers the whole
+# rendered document, prose included.
+_LANDING_SOON = (
+    "When it ships, a coin will name its three fee destinations when it is "
+    "created -- SOL_BURN, BURN and OPS -- and its SOL burn vault will be derived by "
+    "the program rather than chosen by whoever deploys it. The coin then gets "
+    "a page like this one, on which no figure renders unless a passing check "
+    "backs it.",
+    "None of that is built yet. What produced every number above exists: the "
+    "checks, the verifier, and the committed record they read from. The "
+    "on-chain program that does the enrolling does not, so no coin can enroll "
+    "today. That includes $CHARLIE, which revoked its own admin and can no "
+    "longer be reconfigured by anyone but pump.",
+    "It will land in the repository linked below. There is nothing to sign up "
+    "for and nothing to buy in order to be ready for it.",
+)
+
+
+def _landing_soon() -> str:
+    """The enrollment path, and the fact that it does not exist yet.
+
+    Carries the same `status-unchecked` badge the checks use, because that is
+    exactly what this is: nothing here has been verified, because there is
+    nothing here to verify. A "coming soon" that implied availability would
+    contradict the only claim the rest of the page makes.
+    """
+    paras = "".join(f"<p>{esc(t)}</p>" for t in _LANDING_SOON)
+    return (
+        '<section id="launch-soon">'
+        '<div class="soon-head">'
+        f"<h2>{esc(_LANDING_SOON_HEADING)}</h2>"
+        '<span class="badge status-unchecked">Coming soon</span>'
+        "</div>"
+        + paras
+        + "</section>"
+    )
+
+
+def _landing_links(observation) -> str:
+    """QT-02: the two ways in, both hrefs composed by `_coin_url` so they
+    can never disagree with `vercel.json`'s rewrites or `write()`'s own
+    filenames. The page link carries no suffix at all -- `vercel.json`'s
+    page rewrite is deliberately suffix-free (only the record rewrite
+    carries a literal `.json`), so `/coin/<mint>` with nothing after it is
+    the page's actual clean URL; the record keeps its `.json`.
+    """
+    page_href = esc(_coin_url(observation.mint, ""))
+    json_href = esc(_coin_url(observation.mint, ".json"))
+    return (
+        '<section id="two-ways-in">'
+        f'<p><a href="{page_href}">View $CHARLIE, checked'
+        '<span class="visually-hidden"> (opens the checked coin page)</span></a></p>'
+        f'<p><a href="{json_href}">View its raw observation record'
+        '<span class="visually-hidden"> (opens the raw JSON record)</span></a></p>'
+        "</section>"
+    )
+
+
+def _landing_footer(observation) -> str:
+    """Links the repo (via the existing `REPO_URL`) and the coin page's
+    record as what the counters above are recomputable from, plus D-20's
+    generator-unverified admission verbatim -- deliberately NOT `_footer()`,
+    whose closing sentence promises a record published beside *this* page,
+    which is true of the coin page and false of the landing page.
+    """
+    json_href = esc(_coin_url(observation.mint, ".json"))
+    return (
+        "<footer>"
+        f'<p>Spec, code and committed evidence: <a href="{esc(REPO_URL)}">{esc(REPO_URL)}</a></p>'
+        f'<p>Every counter above is recomputable from the record published at '
+        f'<a href="{json_href}">{json_href}</a>.</p>'
+        f"<p>{esc(_GENERATOR_UNVERIFIED)}</p>"
+        "</footer>"
+    )
+
+
+_LANDING_TAGLINE = "Every number on this page names the check that could falsify it."
+
+
+def render_landing(observation, *, now=None) -> str:
+    """A complete HTML5 document: the six live counters (QT-01), the
+    BURN_SUPPLY refusal (QT-03/D-C), what this is, and two links into the
+    coin page beside it (QT-02/D-A). Single required positional parameter --
+    `publish.render_surface()` calls `target(subject)` with exactly one
+    positional argument for an `"observation"`-input `SURFACES` entry; `now`
+    is keyword-only with the same injectable-clock default `render()` uses.
+    """
+    now = now if now is not None else time.time()
+    freshness = _freshness(observation, now)
+    header = (
+        '<header class="hero">'
+        '<div class="hero-inner">'
+        '<div class="hero-art">'
+        '<div class="hero-copy">'
+        '<p class="eyebrow rise"><span class="flame">'
+        + _flame_svg()
+        + '</span>Fee routing, and what may be claimed about it</p>'
+        '<h1 class="rise d1">Charlie Protocol</h1>'
+        f'<p class="tagline rise d2">{esc(_LANDING_TAGLINE)}</p>'
+        "</div>"
+        "</div>"
+        + _scene()
+        + '<div class="hero-rule"></div>'
+        f'<div class="rise d3">{freshness}</div>'
+        "</div>"
+        "</header>"
+    )
+    # Each cell carries its own stagger class so the grid resolves in reading
+    # order rather than arriving all at once. Capped at the six `.d1`-`.d6`
+    # steps the stylesheet declares: a seventh counter arrives un-delayed
+    # rather than referencing a class that does not exist.
+    counters_section = (
+        '<section id="counters" aria-label="live counters">'
+        '<div class="section-art">'
+        + _charlie_gif(label="Charlie, throwing out the drafts that did not check out")
+        + _chart_svg()
+        + '<p class="section-label">Observed, and where each one comes from</p>'
+        + "</div>"
+        + "".join(
+            _counter_cell(cell).replace(
+                '<div class="counter-cell"',
+                f'<div class="counter-cell rise{f" d{i}" if i <= 6 else ""}"',
+                1,
+            )
+            for i, cell in enumerate(_counters(observation), start=1)
+        )
+        + "</section>"
+    )
+    body = (
+        header
+        + "<main>"
+        + counters_section
+        + _hand_burn_note(observation)
+        + _supply_refusal(observation)
+        + _landing_description()
+        + _landing_soon()
+        + _landing_links(observation)
+        + _landing_footer(observation)
+        + "</main>"
+    )
+    return _document("Charlie Protocol", body, style=_LANDING_STYLE)
+
+
+def write_landing(observation, out_dir=DEFAULT_OUTPUT_DIR) -> Path:
+    """Writes `render_landing(observation)` to `<out_dir>/index.html` --
+    never through the coin-page filename constructor D-19 defines:
+    `index.html` is not mint-derived, and routing it through that helper
+    would be a second naming scheme entering by the back door. Does not
+    modify `write()`.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / LANDING_FILENAME
+    path.write_text(render_landing(observation), encoding="utf-8", newline="\n")
+    return path

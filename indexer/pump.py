@@ -28,12 +28,60 @@ SYSTEM_PROGRAM = "11111111111111111111111111111111"
 
 DISC_BONDING_CURVE = bytes.fromhex("17b7f83760d8ac60")
 DISC_SHARING_CONFIG = bytes.fromhex("d84a0900388c5d4b")
+# Computed, not pasted: a literal here would be a second copy of the
+# discriminator that could silently drift from DISC_SHARING_CONFIG. This is
+# the exact `bytes` value getProgramAccounts' memcmp filter needs.
+SHARING_CONFIG_DISCRIMINATOR_B58 = encode(DISC_SHARING_CONFIG)
 
 MAX_SHAREHOLDERS = 64
+
+# Measured live against mainnet (03-RESEARCH.md): every SharingConfig
+# account has `space: 1024`, fixed, regardless of shareholder count -- single-
+# and multi-shareholder alike. That is why a full-data enumeration sweep is
+# not affordable (it would be a ~965 MB response at today's scale) and why
+# `coverage.sweep` requests a `dataSlice` instead.
+SHARING_CONFIG_ACCOUNT_BYTES = 1024
+# disc 8 | bump 1 | version 1 | status 1 | mint 32 | admin 32 |
+# admin_revoked 1 | shareholder vec_len u32 = 80 bytes before the first
+# shareholder record.
+SHARING_CONFIG_HEADER_BYTES = 80
+# pubkey 32 | bps u16 = 34 bytes per shareholder.
+SHAREHOLDER_RECORD_BYTES = 34
+# The complete account for the 97.0% of configs that have exactly one
+# shareholder -- header plus one shareholder record. A deliberate truncation
+# for every config with more than one.
+SINGLE_SHAREHOLDER_SLICE = SHARING_CONFIG_HEADER_BYTES + SHAREHOLDER_RECORD_BYTES
 
 
 class DecodeError(ValueError):
     """The chain does not hold what we expected to find at this address."""
+
+
+class TruncatedConfig(DecodeError):
+    """A partial `dataSlice` read truncated a real multi-shareholder config --
+    not a layout violation.
+
+    Raised by `decode_sharing_config` when, and only when, the declared
+    shareholder count does not fit the bytes in hand AND the account's own
+    `space` field says the real account is larger than the bytes in hand.
+    That second condition is what tells "we asked for 114 bytes of a 1024
+    byte account" apart from "pump changed the layout" -- the two must not
+    raise the same exception, or a truncated read could be silently recorded
+    as a coin with fewer shareholders than it actually has.
+
+    Carries the address, the mint and the declared count so a caller (the
+    enumeration sweep) can queue the account for a full fetch without
+    re-decoding it.
+    """
+
+    def __init__(self, address: str, mint: str, declared_count: int):
+        super().__init__(
+            f"{address}: sharing config declares {declared_count} shareholders -- "
+            "truncated by a partial dataSlice read, not a layout violation"
+        )
+        self.address = address
+        self.mint = mint
+        self.declared_count = declared_count
 
 
 def bonding_curve(mint: str) -> str:
@@ -103,26 +151,39 @@ class SharingConfig:
         return sum(bps for who, bps in self.shareholders if who == address)
 
 
-def read_sharing_config(rpc, curve: BondingCurve) -> SharingConfig:
-    """Resolve the config named by the bonding curve.
+def decode_sharing_config(address: str, account: dict | None) -> SharingConfig:
+    """The one sharing-config byte decoder (RESEARCH.md Pattern 2).
 
-    Not derivable: `bonding_curve.creator` names it. For a fee-shared coin that
-    address is a SharingConfig owned by the fee-share program; for an ordinary
-    coin it is just the creator's wallet, and there is no split to read.
+    Both `read_sharing_config`'s RPC-fetching wrapper and `coverage.sweep`'s
+    enumeration path route every account through this function, over the
+    same field offsets, so a pump layout change fails a decode instead of
+    publishing a wrong number.
+
+    `account` is the `{owner, data, ...}` shape both `getMultipleAccounts`
+    and `getProgramAccounts` nest a result under -- the same dict `_raw()`
+    already expects. Routes through `_raw()`'s owner-and-discriminator guard
+    first: a memcmp filter match is a byte comparison at an offset, never
+    proof the account is a valid `SharingConfig`.
+
+    Raises `TruncatedConfig`, not the ordinary `DecodeError`, when the
+    declared shareholder count does not fit the bytes in hand AND the
+    account's own `space` field says the real account is larger than the
+    bytes in hand -- see `TruncatedConfig`'s docstring. When `space` is
+    absent or equal to the data length, raises the existing `DecodeError`
+    exactly as before this function existed.
     """
-    account = rpc.accounts([curve.creator])[0]
-    if not account or account.get("owner") != PUMP_FEE_SHARE_PROGRAM:
-        raise DecodeError(
-            f"{curve.mint}: its creator {curve.creator} is not a fee-sharing config "
-            "(it is an ordinary creator address). There is no split to report."
-        )
     data = _raw(account, DISC_SHARING_CONFIG, "sharing config", (PUMP_FEE_SHARE_PROGRAM,))
 
+    mint = encode(data[11:43])
     count = int.from_bytes(data[76:80], "little")
-    cursor = 80
-    if count > MAX_SHAREHOLDERS or cursor + count * 34 > len(data):
+    cursor = SHARING_CONFIG_HEADER_BYTES
+    space = account.get("space") if account else None
+    truncated_by_slice = space is not None and space > len(data)
+    if count > MAX_SHAREHOLDERS or cursor + count * SHAREHOLDER_RECORD_BYTES > len(data):
+        if truncated_by_slice:
+            raise TruncatedConfig(address, mint, count)
         raise DecodeError(
-            f"{curve.mint}: sharing config declares {count} shareholders, "
+            f"{address}: sharing config declares {count} shareholders, "
             "which its data cannot hold"
         )
     holders = []
@@ -133,17 +194,37 @@ def read_sharing_config(rpc, curve: BondingCurve) -> SharingConfig:
                 int.from_bytes(data[cursor + 32 : cursor + 34], "little"),
             )
         )
-        cursor += 34
+        cursor += SHAREHOLDER_RECORD_BYTES
 
     return SharingConfig(
-        address=curve.creator,
-        mint=encode(data[11:43]),
+        address=address,
+        mint=mint,
         version=data[9],
         status=data[10],
         admin=encode(data[43:75]),
         admin_revoked=bool(data[75]),
         shareholders=tuple(holders),
     )
+
+
+def read_sharing_config(rpc, curve: BondingCurve) -> SharingConfig:
+    """Resolve the config named by the bonding curve.
+
+    Not derivable: `bonding_curve.creator` names it. For a fee-shared coin that
+    address is a SharingConfig owned by the fee-share program; for an ordinary
+    coin it is just the creator's wallet, and there is no split to read.
+
+    Keeps the bonding-curve lookup and the "ordinary creator address" error
+    verbatim, then delegates the byte decode entirely -- there is exactly
+    one decoder.
+    """
+    account = rpc.accounts([curve.creator])[0]
+    if not account or account.get("owner") != PUMP_FEE_SHARE_PROGRAM:
+        raise DecodeError(
+            f"{curve.mint}: its creator {curve.creator} is not a fee-sharing config "
+            "(it is an ordinary creator address). There is no split to report."
+        )
+    return decode_sharing_config(curve.creator, account)
 
 
 # -- SPL mint -------------------------------------------------------------

@@ -24,17 +24,18 @@ import importlib
 import json
 
 from . import invariants
+from . import legs
 
 
 def _split_value(observation):
     split = observation.split
     if split is None:
         return None
-    return {"seal": split.seal, "burn": split.burn, "paid": split.paid}
+    return {"sol_burn": split.sol_burn, "burn": split.burn, "paid": split.paid}
 
 
 def _leg_total(observation, leg: str):
-    """Sum of recorded lamports across every destination of `leg` (`seal` or
+    """Sum of recorded lamports across every destination of `leg` (`sol_burn` or
     `paid`) in this observation's split -- `None` when there is nothing to
     sum (no evidence handle was consulted, or no destination of this leg
     exists in the split).
@@ -55,8 +56,8 @@ def _leg_total(observation, leg: str):
     return total if seen else None
 
 
-def _seal_total(observation):
-    return _leg_total(observation, "seal")
+def _sol_burn_total(observation):
+    return _leg_total(observation, "sol_burn")
 
 
 def _ops_total(observation):
@@ -86,7 +87,7 @@ def _supply_destroyed(observation):
 
 FIGURE_SOURCES = {
     invariants.SPLIT: _split_value,
-    invariants.SEAL_TOTAL: _seal_total,
+    invariants.SOL_BURN_TOTAL: _sol_burn_total,
     invariants.BURN_TOTAL: _burn_total,
     invariants.OPS_TOTAL: _ops_total,
     invariants.SUPPLY_DESTROYED: _supply_destroyed,
@@ -99,10 +100,10 @@ FIGURE_SOURCES = {
 # loop in `durable_record()` never writes a figure's value except through
 # this map, so an unlisted figure simply never reaches the record.
 #
-# SEAL_TOTAL and OPS_TOTAL are deliberately absent: neither occupies one
+# SOL_BURN_TOTAL and OPS_TOTAL are deliberately absent: neither occupies one
 # field. Each is the aggregate of a *per-destination* breakdown living under
 # `evidence`, and `durable_record()` gates that breakdown separately, one
-# destination at a time, keyed by which leg (`seal`/`paid`) it belongs to --
+# destination at a time, keyed by which leg (`sol_burn`/`paid`) it belongs to --
 # see the dedicated section below. BURN_TOTAL is also absent: `_burn_total()`
 # always resolves to `None` (no BURN destination exists this phase), so it
 # never has a value to place.
@@ -110,6 +111,19 @@ DURABLE_FIGURE_FIELDS = {
     invariants.SPLIT: ("split",),
     invariants.SUPPLY_DESTROYED: ("evidence", "burn_total"),
 }
+
+
+def classification(value):
+    """D-26's five-bucket label, computed from the SPLIT figure's already-
+    gated `{sol_burn, burn, paid}` value -- never from an `Observation`. This
+    signature is what makes it structurally impossible to label a withheld
+    split: there is no observation here to reach past the gate for, only
+    the value a caller already obtained through `Publisher.figure()`.
+    `None` in, `None` out -- a withheld split cannot produce a label.
+    """
+    if value is None:
+        return None
+    return legs.classify_split(value)
 
 
 class Withheld(Exception):
@@ -232,7 +246,7 @@ def durable_record(observation) -> dict:
     --json` replay (PUB-01/PUB-02, `01-VERIFICATION.md`'s reproduced gap).
 
     Builds the same non-figure facts `as_dict()` always built -- schema,
-    mint, observed_at, error, config, graduated, mint_state, seal_balances,
+    mint, observed_at, error, config, graduated, mint_state, sol_burn_balances,
     evidence_coverage, checks, publishable, blocked -- untouched by the
     silence rule, because none of them is a name in `invariants.FIGURES`.
 
@@ -250,11 +264,11 @@ def durable_record(observation) -> dict:
     `split` must not leak, so it is gated on the same figure rather than
     treated as a separate non-figure fact.
 
-    `SEAL_TOTAL`/`OPS_TOTAL` have no single field of their own: each is the
+    `SOL_BURN_TOTAL`/`OPS_TOTAL` have no single field of their own: each is the
     aggregate of a per-destination breakdown under `evidence`. A destination
     is gated by the leg it belongs to (looked up from the observation's own
-    split attributions) -- a seal destination's recorded lamports appear only
-    when `SEAL_TOTAL` is publishable, a paid destination's only when
+    split attributions) -- a SOL burn destination's recorded lamports appear only
+    when `SOL_BURN_TOTAL` is publishable, a paid destination's only when
     `OPS_TOTAL` is publishable. With one destination on a leg (`$CHARLIE`'s
     shape today) the per-destination entry IS the aggregate, so this is not
     an optional refinement -- leaving it ungated would be the exact bypass
@@ -294,8 +308,8 @@ def durable_record(observation) -> dict:
             "freeze_authority": observation.mint_state.freeze_authority,
             "token_program": observation.mint_state.program,
         }
-    if observation.seal_balances:
-        record["seal_balances"] = observation.seal_balances
+    if observation.sol_burn_balances:
+        record["sol_burn_balances"] = observation.sol_burn_balances
     if observation.evidence_coverage is not None:
         record["evidence_coverage"] = observation.evidence_coverage
 
@@ -339,7 +353,7 @@ def durable_record(observation) -> dict:
     if observation.evidence is not None and observation.split is not None:
         leg_by_address = {a.address: a.leg for a in observation.split.attributions}
         evidence_out: dict = {}
-        for figure_name, leg in ((invariants.SEAL_TOTAL, "seal"), (invariants.OPS_TOTAL, "paid")):
+        for figure_name, leg in ((invariants.SOL_BURN_TOTAL, "sol_burn"), (invariants.OPS_TOTAL, "paid")):
             try:
                 _value, backs = publisher.figure(figure_name)
             except Withheld:
@@ -402,21 +416,21 @@ def gate_stored_record(record: dict) -> dict:
             if _pop_path(gated, path):
                 redacted.append(figure)
 
-    # SEAL_TOTAL/OPS_TOTAL: a stored record's `evidence` dict has no leg label
+    # SOL_BURN_TOTAL/OPS_TOTAL: a stored record's `evidence` dict has no leg label
     # of its own (that lives in `split.attributions`, which may itself be
     # absent from a redacted record) -- so redaction here is conservative:
     # either leg being withheld strips every per-destination entry except
     # `burn_total`/`initial_supply`, rather than guessing which entries
     # belonged to which leg.
     if isinstance(gated.get("evidence"), dict) and (
-        invariants.SEAL_TOTAL in blocked or invariants.OPS_TOTAL in blocked
+        invariants.SOL_BURN_TOTAL in blocked or invariants.OPS_TOTAL in blocked
     ):
         evidence = gated["evidence"]
         trimmed = {k: v for k, v in evidence.items() if k in ("burn_total", "initial_supply")}
         if trimmed != evidence:
             gated["evidence"] = trimmed
             redacted.append(
-                invariants.SEAL_TOTAL if invariants.SEAL_TOTAL in blocked else invariants.OPS_TOTAL
+                invariants.SOL_BURN_TOTAL if invariants.SOL_BURN_TOTAL in blocked else invariants.OPS_TOTAL
             )
 
     if redacted:
@@ -461,6 +475,21 @@ SURFACES = {
     "log_json": {"target": "indexer.cli:_log_json_lines", "input": "stored_records"},
     "web_page": {"target": "indexer.site:render", "input": "observation"},
     "web_json": {"target": "indexer.site:record_json", "input": "observation"},
+    # QT-01/QT-03 (02-03 quick task): registering this puts the landing page
+    # inside TestSilenceRuleSweep.test_no_blocked_figures_sentinel_leaks_into_any_registered_surface's
+    # automatic sweep the moment it is added -- exactly the gap
+    # 01-VERIFICATION.md found once (a surface enumerated by hand instead of
+    # by this registry). Deliberately absent from
+    # tests/test_publication.py's FULL_DETAIL_SURFACES: those surfaces are
+    # required to show every publishable figure, and the landing page is
+    # required to show none at all -- a decision, not an oversight.
+    "landing_page": {"target": "indexer.site:render_landing", "input": "observation"},
+    # 03-01 Task 3: the coin index row. Registered so the generic sweep
+    # covers it automatically the moment it exists (the same mechanism that
+    # closed 01-VERIFICATION.md's gap), deliberately absent from
+    # tests/test_publication.py's FULL_DETAIL_SURFACES the way the landing
+    # page is -- an index row shows one figure by design, not all five.
+    "index_rows": {"target": "indexer.site:index_rows", "input": "stored_records"},
 }
 
 # Every other function under `indexer/` whose body calls `print` or
@@ -502,10 +531,11 @@ NON_FIGURE_EMITTERS = {
         "prints protocol PDAs derived from a program id -- addresses, not figures"
     ),
     "indexer.cli:_site": (
-        "dispatches to indexer.site:render and indexer.site:record_json, both already "
-        "registered SURFACES targets; this wrapper's own print calls emit only the file "
-        "paths site.write() wrote (mirroring _export's entry above) or the already-gated "
-        "HTML string those targets already produced, never a figure read directly"
+        "dispatches to indexer.site:render, indexer.site:record_json and "
+        "indexer.site:render_landing, all already registered SURFACES targets; this "
+        "wrapper's own print calls emit only the file paths site.write()/site.write_landing() "
+        "wrote (mirroring _export's entry above) or the already-gated HTML string those "
+        "targets already produced, never a figure read directly"
     ),
     "indexer.store:Store.append": (
         "persists whatever durable_record()/Observation.as_dict() already produced "
@@ -517,9 +547,34 @@ NON_FIGURE_EMITTERS = {
         "TestExportIncludesEveryPhaseTable asserts equal the table's own columns, "
         "not a classified or checked figure"
     ),
+    "indexer.cli:_enumerate": (
+        "prints coverage.sweep()'s progress and returned/decoded/truncated/refused "
+        "counts -- population counts, not a member of invariants.FIGURES"
+    ),
+    "indexer.cli:_index": (
+        "prints the file paths site.write_index() wrote -- filenames, not figures, "
+        "mirroring _export's entry above"
+    ),
+    "indexer.cli:_intake": (
+        "prints issue numbers, mints and outcome/reason names from intake.run()'s "
+        "in-memory outcomes, plus the file paths _write_index() wrote -- none of it a "
+        "name in invariants.FIGURES; every figure a written page carries already passed "
+        "through site.write(), an already-classified SURFACES target"
+    ),
     "indexer.rpc:RpcClient.call": (
         "builds the outbound JSON-RPC request body sent to the node -- a request, "
         "not a display of anything to a human"
+    ),
+    "indexer.evidence:Evidence._config_hash": (
+        "hashes the canonical decoded config tuple via json.dumps to build a stable, "
+        "order-independent cache key for the sharing_config table's primary key -- the "
+        "hash is opaque and internal, never displayed and never returned to a caller "
+        "as a value"
+    ),
+    "indexer.evidence:Evidence.record_sharing_config": (
+        "serialises the raw shareholder list to JSON for storage in the sharing_config "
+        "table's shareholders column -- raw chain-derived fact data (address/bps pairs), "
+        "not a derived figure, and never printed or returned to a caller"
     ),
     "indexer.publish:render_surface": (
         "resolves and stringifies whichever SURFACES target it is given, for this "

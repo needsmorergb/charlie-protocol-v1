@@ -25,14 +25,14 @@ UNCHECKED = "UNCHECKED"
 
 # The figures a publisher might want to put in a post.
 SPLIT = "split"
-SEAL_TOTAL = "seal_total"
+SOL_BURN_TOTAL = "sol_burn_total"
 BURN_TOTAL = "burn_total"
 OPS_TOTAL = "ops_total"
 # D-09: the one published burn figure -- every burn against the mint, by
 # anyone, whether or not it invoked our crank. Distinct from BURN_TOTAL,
 # which plan 03 gives its own named check.
 SUPPLY_DESTROYED = "supply_destroyed"
-FIGURES = (SPLIT, SEAL_TOTAL, BURN_TOTAL, OPS_TOTAL, SUPPLY_DESTROYED)
+FIGURES = (SPLIT, SOL_BURN_TOTAL, BURN_TOTAL, OPS_TOTAL, SUPPLY_DESTROYED)
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ def split_sum(split) -> Check:
         "SPLIT_SUM",
         PASS if ok else FAIL,
         [SPLIT],
-        "seal_bps + burn_bps + paid_bps == 10000",
+        "sol_burn_bps + burn_bps + paid_bps == 10000",
         "the split accounts for the whole fee stream"
         if ok
         else "the shareholder list does not sum to 10000 bps -- either pump changed the "
@@ -105,33 +105,33 @@ def split_sum(split) -> Check:
     )
 
 
-def seal_unspendable(split) -> Check:
-    """PROTOCOL.md sec.3: a seal destination must be program-derived.
+def sol_burn_unspendable(split) -> Check:
+    """PROTOCOL.md sec.3: a SOL burn destination must be program-derived.
 
     Program derivation is a property the Solana runtime enforces on every
     signature it checks. A vanity address carries no such backing -- its
     standing rests on convention. The protocol exists to require the enforced
-    property rather than the convention, so a seal destination that is not
+    property rather than the convention, so a SOL burn destination that is not
     program-derived fails -- grandfathered or not, ours included.
     """
-    sealed = [a for a in split.attributions if a.leg == "seal"]
-    if not sealed:
+    burned = [a for a in split.attributions if a.leg == "sol_burn"]
+    if not burned:
         return _check(
-            "SEAL_UNSPENDABLE",
+            "SOL_BURN_UNSPENDABLE",
             UNCHECKED,
-            [SEAL_TOTAL],
-            "is_on_curve(seal_vault) == False",
-            "no SEAL destination in this split -- nothing to check",
+            [SOL_BURN_TOTAL],
+            "is_on_curve(sol_burn_vault) == False",
+            "no SOL burn destination in this split -- nothing to check",
         )
-    keyed = [a.address for a in sealed if not a.keyless]
+    keyed = [a.address for a in burned if not a.keyless]
     return _check(
-        "SEAL_UNSPENDABLE",
+        "SOL_BURN_UNSPENDABLE",
         PASS if not keyed else FAIL,
-        [SEAL_TOTAL],
-        "is_on_curve(seal_vault) == False",
-        "every SEAL destination is program-derived"
+        [SOL_BURN_TOTAL],
+        "is_on_curve(sol_burn_vault) == False",
+        "every SOL burn destination is program-derived"
         if not keyed
-        else "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal "
+        else "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn "
         "vault to be a program-derived address; this one is a vanity address, and the "
         "protocol does not accept convention in place of the enforced property",
         expected="program-derived",
@@ -139,7 +139,7 @@ def seal_unspendable(split) -> Check:
     )
 
 
-def seal_balance(
+def sol_burn_balance(
     destination=None,
     recorded=None,
     vault_balance=None,
@@ -161,21 +161,21 @@ def seal_balance(
       `UNCHECKED` and today's wording; old callers are not broken by this
       becoming computable.
     * **Aggregate** (`split`/`evidence`/`balances`/`registry`) -- task 2: every
-      SEAL destination of a split, each evaluated on its own comparator
+      SOL burn destination of a split, each evaluated on its own comparator
       chosen from the registry (EVID-04) -- `==` for a destination equal to
-      `registry.seal_vault(mint)`, `<=` for the grandfathered shared address
+      `registry.sol_burn_vault(mint)`, `<=` for the grandfathered shared address
       (PROTOCOL.md sec.3, D-06) -- folded into one Check. A destination whose
       walk is incomplete contributes `UNCHECKED` and the whole check is
       `UNCHECKED`, never `FAIL`, for an unfinished scan.
     """
     if split is not None and evidence is not None:
-        return _seal_balance_aggregate(split, evidence, balances or {}, registry)
+        return _sol_burn_balance_aggregate(split, evidence, balances or {}, registry)
 
     if recorded is None or vault_balance is None:
         return _check(
-            "SEAL_BALANCE",
+            "SOL_BURN_BALANCE",
             UNCHECKED,
-            [SEAL_TOTAL],
+            [SOL_BURN_TOTAL],
             "sum(recorded_inflows) == getBalance(vault)",
             reason
             or "inflow recording is not built. Until it is, a vault balance is a number "
@@ -194,9 +194,9 @@ def seal_balance(
         detail_ok += f" ({destination})"
         detail_fail += f" ({destination})"
     return _check(
-        "SEAL_BALANCE",
+        "SOL_BURN_BALANCE",
         PASS if ok else FAIL,
-        [SEAL_TOTAL],
+        [SOL_BURN_TOTAL],
         equation,
         detail_ok if ok else detail_fail,
         expected=str(recorded),
@@ -234,21 +234,21 @@ def _incomplete_walk_detail(evidence, destination: str) -> str:
     return f"the walk of {destination} is incomplete -- " + "; ".join(parts)
 
 
-def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
+def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     registry = registry or Registry()
-    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
-    if not seal_destinations:
+    sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
+    if not sol_burn_destinations:
         return _check(
-            "SEAL_BALANCE",
+            "SOL_BURN_BALANCE",
             UNCHECKED,
-            [SEAL_TOTAL],
+            [SOL_BURN_TOTAL],
             "sum(recorded_inflows) == getBalance(vault)",
-            "no SEAL destination in this split -- nothing to check",
+            "no SOL burn destination in this split -- nothing to check",
         )
 
     per_destination = []
-    for destination in seal_destinations:
-        comparator = "<=" if destination in registry.grandfathered_seal else "=="
+    for destination in sol_burn_destinations:
+        comparator = "<=" if destination in registry.grandfathered_sol_burn else "=="
         if not evidence.is_backfill_complete(destination, "inflow"):
             per_destination.append(
                 {
@@ -277,7 +277,7 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
             continue
         recorded = evidence.recorded_lamports(destination)
         vault_balance = balances.get(destination)
-        check = seal_balance(
+        check = sol_burn_balance(
             destination=destination,
             recorded=recorded,
             vault_balance=vault_balance,
@@ -308,9 +308,9 @@ def _seal_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
         overall = PASS
 
     return _check(
-        "SEAL_BALANCE",
+        "SOL_BURN_BALANCE",
         overall,
-        [SEAL_TOTAL],
+        [SOL_BURN_TOTAL],
         "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, "
         "<= for the grandfathered address",
         "; ".join(p["detail"] for p in per_destination),
@@ -599,13 +599,38 @@ def ops_routed(split, evidence=None, balances=None) -> Check:
             )
             continue
         recorded = evidence.recorded_lamports(destination)
-        ok = recorded > 0
+        if recorded == 0:
+            # A COMPLETED walk that found nothing is not a failure. It is the
+            # normal, correct state of a coin whose creator fees have never
+            # been claimed -- most coins, most of the time. Returning FAIL
+            # here brands a stranger's coin with the loudest state on the
+            # page for the crime of not having traded yet, and FAIL is
+            # supposed to mean "this contradicts", not "nothing happened".
+            #
+            # It cannot be PASS either: nothing was reconciled, so claiming
+            # the routing is verified would be the overclaim the silence rule
+            # exists to stop. UNCHECKED is the honest state and withholds
+            # `ops_total` exactly as hard -- the same shape BURN_ATOMIC uses
+            # for "no burn recorded yet for this mint".
+            #
+            # This only ever surfaced on third-party coins: $CHARLIE has no
+            # OPS destination, so it returns UNCHECKED before reaching here.
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": UNCHECKED,
+                    "detail": f"{destination}: no protocol inflow recorded yet -- "
+                    "the walk finished and found none, so there is nothing to "
+                    "reconcile. This is what a coin whose creator fees have "
+                    "never been claimed looks like, not a discrepancy",
+                }
+            )
+            continue
         per_destination.append(
             {
                 "destination": destination,
-                "status": PASS if ok else FAIL,
-                "detail": f"{destination}: recorded inflows {'observed' if ok else 'NOT observed'} "
-                f"({recorded} lamports)",
+                "status": PASS,
+                "detail": f"{destination}: recorded inflows observed ({recorded} lamports)",
                 "expected": "> 0",
                 "actual": str(recorded),
             }

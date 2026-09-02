@@ -13,7 +13,7 @@ to speak, not about a number.
 PUB-01/PUB-02: every number that is a *figure* (a name in `invariants.FIGURES`)
 reaches this text through `publish.Publisher`, never through a direct read of
 an `Observation` field -- that direct read is the bypass PUB-01 forbids.
-Observed facts that are not figures (a mint's decimals, a raw seal balance
+Observed facts that are not figures (a mint's decimals, a raw SOL burn balance
 before reconciliation, a check's own `expected`/`actual`) are unaffected; the
 rule is about the names in `invariants.FIGURES`, nothing else.
 """
@@ -35,8 +35,8 @@ def _format_figure(name: str, value) -> str:
     if value is None:
         return "unknown"
     if name == invariants.SPLIT:
-        return f"SEAL {value['seal']:>5}    BURN {value['burn']:>5}    OPS {value['paid']:>5}"
-    if name in (invariants.SEAL_TOTAL, invariants.OPS_TOTAL, invariants.BURN_TOTAL):
+        return f"SOL burn {value['sol_burn']:>5}    BURN {value['burn']:>5}    OPS {value['paid']:>5}"
+    if name in (invariants.SOL_BURN_TOTAL, invariants.OPS_TOTAL, invariants.BURN_TOTAL):
         return _lamports(value)
     if name == invariants.SUPPLY_DESTROYED:
         return f"{value} raw units"
@@ -80,11 +80,11 @@ def render(observation) -> str:
         name, status, detail = exc.reasons[0]
         add(f"    withheld -- {name} ({status})")
         add(f"    {detail}")
-    if observation.seal_balances:
+    if observation.sol_burn_balances:
         add("")
-        for address, lamports in observation.seal_balances.items():
+        for address, lamports in observation.sol_burn_balances.items():
             add(f"    balance   {address}")
-            add(f"              {_lamports(lamports)}  (observed, NOT reconciled -- see SEAL_BALANCE)")
+            add(f"              {_lamports(lamports)}  (observed, NOT reconciled -- see SOL_BURN_BALANCE)")
 
     state = observation.mint_state
     add("")

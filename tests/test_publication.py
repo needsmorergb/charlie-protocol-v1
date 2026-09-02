@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from indexer import export, invariants, legs, publish, report
+from indexer import export, invariants, legs, publish, report, site
 from indexer.evidence import Evidence
 from indexer.legs import Registry, Split, split_of
 from indexer.observe import Observation, observe
@@ -303,8 +303,8 @@ class TestBurnAtomicProtocolScope(unittest.TestCase):
         record.checks = (
             invariants.config_mint(CHARLIE, record.config),
             invariants.split_sum(split),
-            invariants.seal_unspendable(split),
-            invariants.seal_balance(),
+            invariants.sol_burn_unspendable(split),
+            invariants.sol_burn_balance(),
             burn_check,
             invariants.burn_irreversible(record.mint_state),
             atomic_check,
@@ -349,14 +349,14 @@ class TestBurnAtomicProtocolScope(unittest.TestCase):
 # -- invariants.burn_spend ------------------------------------------------------
 class TestBurnSpendCheck(unittest.TestCase):
     def test_unchecked_with_no_burn_destination(self):
-        split = Split(seal=10_000, burn=0, paid=0, attributions=())
+        split = Split(sol_burn=10_000, burn=0, paid=0, attributions=())
         check = invariants.burn_spend(split)
         self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertIn(invariants.BURN_TOTAL, check.backs)
 
     def test_unchecked_even_with_a_burn_destination(self):
         attribution = legs.Attribution(address="burn-pda", bps=100, leg="burn", reason="x", keyless=True)
-        split = Split(seal=9_900, burn=100, paid=0, attributions=(attribution,))
+        split = Split(sol_burn=9_900, burn=100, paid=0, attributions=(attribution,))
         check = invariants.burn_spend(split)
         self.assertEqual(check.status, invariants.UNCHECKED)
 
@@ -367,17 +367,17 @@ def mint_state(supply=900) -> MintState:
 
 
 def make_registry() -> Registry:
-    return Registry(program_id=None, grandfathered_seal=frozenset({GRANDFATHERED}))
+    return Registry(program_id=None, grandfathered_sol_burn=frozenset({GRANDFATHERED}))
 
 
-def make_split(seal_address=GRANDFATHERED) -> Split:
+def make_split(sol_burn_address=GRANDFATHERED) -> Split:
     return split_of(
-        type("Cfg", (), {"mint": CHARLIE, "shareholders": ((seal_address, 10_000),)})(),
+        type("Cfg", (), {"mint": CHARLIE, "shareholders": ((sol_burn_address, 10_000),)})(),
         make_registry(),
     )
 
 
-def build_observation(*, evidence=None, seal_balance=0, mint_supply=900, config_mismatch=False) -> Observation:
+def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, config_mismatch=False) -> Observation:
     class FakeRpc:
         def __init__(self, balance):
             self._balance = balance
@@ -400,20 +400,20 @@ def build_observation(*, evidence=None, seal_balance=0, mint_supply=900, config_
     record.split = split
     record.mint_state = mint_state(mint_supply)
     for attribution in split.attributions:
-        if attribution.leg == "seal":
-            record.seal_balances[attribution.address] = seal_balance
+        if attribution.leg == "sol_burn":
+            record.sol_burn_balances[attribution.address] = sol_burn_balance
 
-    seal_check = invariants.seal_balance()
+    sol_burn_check = invariants.sol_burn_balance()
     ops_check = invariants.ops_routed(split)
     burn_check = invariants.burn_supply(record.mint_state)
     atomic_check = invariants.burn_atomic(CHARLIE, [], False)
     spend_check = invariants.burn_spend(split)
 
     if evidence is not None:
-        seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
-        record.evidence = {address: evidence.recorded_lamports(address) for address in seal_destinations}
-        balances = {address: seal_balance for address in seal_destinations}
-        seal_check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=make_registry())
+        sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
+        record.evidence = {address: evidence.recorded_lamports(address) for address in sol_burn_destinations}
+        balances = {address: sol_burn_balance for address in sol_burn_destinations}
+        sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=make_registry())
         burn_rows = evidence.burns_for(CHARLIE)
         walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
         initial_supply_row = evidence.initial_supply_for(CHARLIE)
@@ -425,8 +425,8 @@ def build_observation(*, evidence=None, seal_balance=0, mint_supply=900, config_
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),
         invariants.split_sum(split),
-        invariants.seal_unspendable(split),
-        seal_check,
+        invariants.sol_burn_unspendable(split),
+        sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),
         atomic_check,
@@ -448,7 +448,7 @@ class TestPublisher(unittest.TestCase):
         observation = build_observation()
         publisher = publish.Publisher(observation)
         value, backs = publisher.figure(invariants.SPLIT)
-        self.assertEqual(value, {"seal": 10_000, "burn": 0, "paid": 0})
+        self.assertEqual(value, {"sol_burn": 10_000, "burn": 0, "paid": 0})
         self.assertIn("CONFIG_MINT", backs)
         self.assertIn("SPLIT_SUM", backs)
 
@@ -467,24 +467,24 @@ class TestPublisher(unittest.TestCase):
 
 SENTINEL_PROGRAM = "Charr1eProtoco11111111111111111111111111111"
 SENTINEL_OPS_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-SEAL_RECORDED_SENTINEL = 24_680_135
+SOL_BURN_RECORDED_SENTINEL = 24_680_135
 OPS_RECORDED_SENTINEL = 13_579_246
 BURN_SENTINEL_TOKENS = 98_765_432_100
-SPLIT_SEAL_BPS = 4_242
+SPLIT_SOL_BURN_BPS = 4_242
 SPLIT_PAID_BPS = 5_758
 INITIAL_SUPPLY_SENTINEL = 1_000_000_000_000
-# Deliberately different from SEAL_RECORDED_SENTINEL -- 01-04's plan calls
+# Deliberately different from SOL_BURN_RECORDED_SENTINEL -- 01-04's plan calls
 # this out by name: a naive sweep that never distinguishes the live vault
 # balance (a non-figure fact report.py always prints) from the recorded
-# inflow total (SEAL_TOTAL's actual figure source) could pass even when the
+# inflow total (SOL_BURN_TOTAL's actual figure source) could pass even when the
 # two happen to collide. Two DIFFERENT sentinels is what forces a real test.
-LIVE_SEAL_BALANCE_SENTINEL_BLOCKED = 777_000_111
+LIVE_SOL_BURN_BALANCE_SENTINEL_BLOCKED = 777_000_111
 
 FULL_DETAIL_SURFACES = ("report_text", "observe_json", "durable_record", "web_page")
 
 
 def _sentinel_registry() -> Registry:
-    return Registry(program_id=SENTINEL_PROGRAM, grandfathered_seal=frozenset({GRANDFATHERED}))
+    return Registry(program_id=SENTINEL_PROGRAM, grandfathered_sol_burn=frozenset({GRANDFATHERED}))
 
 
 def _build_sentinel_split():
@@ -492,16 +492,16 @@ def _build_sentinel_split():
     simulated separately, on `record.config.mint` only, exactly like
     `build_observation(config_mismatch=True)` does above: `split_of()` must
     keep classifying the real split, or a mismatched mint would derive a
-    different PDA and silently reclassify the seal address as OPS instead of
+    different PDA and silently reclassify the SOL-burn address as OPS instead of
     exercising the CONFIG_MINT gate this fixture exists to test.
     """
     registry = _sentinel_registry()
-    seal_address = registry.seal_vault(CHARLIE)
+    sol_burn_address = registry.sol_burn_vault(CHARLIE)
     config = type("Cfg", (), {
         "mint": CHARLIE,
-        "shareholders": ((seal_address, SPLIT_SEAL_BPS), (SENTINEL_OPS_ADDRESS, SPLIT_PAID_BPS)),
+        "shareholders": ((sol_burn_address, SPLIT_SOL_BURN_BPS), (SENTINEL_OPS_ADDRESS, SPLIT_PAID_BPS)),
     })()
-    return split_of(config, registry), seal_address, registry, config.shareholders
+    return split_of(config, registry), sol_burn_address, registry, config.shareholders
 
 
 def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observation:
@@ -509,11 +509,11 @@ def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observatio
     enough that only a real gate -- not a `str(value) in text` coincidence --
     could make this sweep pass.
     """
-    split, seal_address, registry, shareholders = _build_sentinel_split()
+    split, sol_burn_address, registry, shareholders = _build_sentinel_split()
 
-    evidence.record_inflow(signature="sig-seal", destination=seal_address, mint=CHARLIE, leg="seal",
-                            lamports=SEAL_RECORDED_SENTINEL, block_time=1, slot=1)
-    evidence.set_cursor(seal_address, "inflow", backfill_complete=1)
+    evidence.record_inflow(signature="sig-sol-burn", destination=sol_burn_address, mint=CHARLIE, leg="sol_burn",
+                            lamports=SOL_BURN_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.set_cursor(sol_burn_address, "inflow", backfill_complete=1)
     evidence.record_inflow(signature="sig-ops", destination=SENTINEL_OPS_ADDRESS, mint=CHARLIE, leg="paid",
                             lamports=OPS_RECORDED_SENTINEL, block_time=1, slot=1)
     evidence.set_cursor(SENTINEL_OPS_ADDRESS, "inflow", backfill_complete=1)
@@ -531,20 +531,20 @@ def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observatio
     record.graduated = True
     record.split = split
     record.mint_state = mint_state(INITIAL_SUPPLY_SENTINEL - BURN_SENTINEL_TOKENS)
-    record.seal_balances[seal_address] = SEAL_RECORDED_SENTINEL  # "==" comparator: must match exactly
+    record.sol_burn_balances[sol_burn_address] = SOL_BURN_RECORDED_SENTINEL  # "==" comparator: must match exactly
 
-    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+    sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
     ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
-    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in seal_destinations + ops_destinations}
+    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in sol_burn_destinations + ops_destinations}
     record.evidence_coverage = {
-        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in seal_destinations + ops_destinations
+        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in sol_burn_destinations + ops_destinations
     }
 
-    balances = dict(record.seal_balances)
+    balances = dict(record.sol_burn_balances)
     for addr in ops_destinations:
         balances[addr] = 0  # OPS_ROUTED only requires recorded > 0, not a balance match
 
-    seal_check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+    sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=registry)
     ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
     burn_rows = evidence.burns_for(CHARLIE)
     walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
@@ -559,8 +559,8 @@ def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observatio
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),
         invariants.split_sum(split),
-        invariants.seal_unspendable(split),
-        seal_check,
+        invariants.sol_burn_unspendable(split),
+        sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),
         atomic_check,
@@ -577,7 +577,7 @@ def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
     (recorded independently of any check's status), so a leak here is a real
     bypass, not an artifact of the fixture never having the data at all.
 
-    The inflow/burn walks are deliberately left incomplete: `SEAL_BALANCE`/
+    The inflow/burn walks are deliberately left incomplete: `SOL_BURN_BALANCE`/
     `OPS_ROUTED`/`BURN_SUPPLY`/`BURN_ATOMIC` all resolve to their natural
     UNCHECKED "walk incomplete" branch, which -- unlike their PASS/FAIL
     branches -- never populates `expected`/`actual` with the recorded
@@ -585,10 +585,10 @@ def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
     could appear on a surface is through the actual bypass this plan closes,
     not through the check's own legitimate, always-shown diagnostic fields.
     """
-    split, seal_address, registry, shareholders = _build_sentinel_split()
+    split, sol_burn_address, registry, shareholders = _build_sentinel_split()
 
-    evidence.record_inflow(signature="sig-seal", destination=seal_address, mint=CHARLIE, leg="seal",
-                            lamports=SEAL_RECORDED_SENTINEL, block_time=1, slot=1)
+    evidence.record_inflow(signature="sig-sol-burn", destination=sol_burn_address, mint=CHARLIE, leg="sol_burn",
+                            lamports=SOL_BURN_RECORDED_SENTINEL, block_time=1, slot=1)
     evidence.record_inflow(signature="sig-ops", destination=SENTINEL_OPS_ADDRESS, mint=CHARLIE, leg="paid",
                             lamports=OPS_RECORDED_SENTINEL, block_time=1, slot=1)
     evidence.record_burn_event(signature="sig-burn", mint=CHARLIE, instruction_index=0,
@@ -604,20 +604,20 @@ def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
     record.graduated = True
     record.split = split
     record.mint_state = mint_state(INITIAL_SUPPLY_SENTINEL - BURN_SENTINEL_TOKENS)
-    record.seal_balances[seal_address] = LIVE_SEAL_BALANCE_SENTINEL_BLOCKED
+    record.sol_burn_balances[sol_burn_address] = LIVE_SOL_BURN_BALANCE_SENTINEL_BLOCKED
 
-    seal_destinations = [a.address for a in split.attributions if a.leg == "seal"]
+    sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
     ops_destinations = [a.address for a in split.attributions if a.leg == "paid"]
-    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in seal_destinations + ops_destinations}
+    record.evidence = {addr: evidence.recorded_lamports(addr) for addr in sol_burn_destinations + ops_destinations}
     record.evidence_coverage = {
-        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in seal_destinations + ops_destinations
+        addr: len(evidence.cursor_endpoints(addr, "inflow")) for addr in sol_burn_destinations + ops_destinations
     }
 
-    balances = dict(record.seal_balances)
+    balances = dict(record.sol_burn_balances)
     for addr in ops_destinations:
         balances[addr] = 0
 
-    seal_check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+    sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=registry)
     ops_check = invariants.ops_routed(split, evidence=evidence, balances=balances)
     burn_rows = evidence.burns_for(CHARLIE)
     walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")  # False -- never marked complete
@@ -632,8 +632,8 @@ def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),  # FAILS -- backs every FIGURE
         invariants.split_sum(split),
-        invariants.seal_unspendable(split),
-        seal_check,
+        invariants.sol_burn_unspendable(split),
+        sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),
         atomic_check,
@@ -700,15 +700,15 @@ class TestSilenceRuleSweep(unittest.TestCase):
             evidence.close()
 
         self.assertEqual(observation.verdict.publishable, frozenset())
-        # SPLIT's sentinel is the composed {"seal":..,"burn":..,"paid":..}
+        # SPLIT's sentinel is the composed {"sol_burn":..,"burn":..,"paid":..}
         # shape, not a bare bps number: `config.shareholders` legitimately
         # carries the same raw bps unconditionally (it is chain-read input,
         # not the classified/checked SPLIT figure -- report.py never prints
         # it either), so a bare-number containment check would false-fail on
         # that always-visible, correctly-unguarded field.
         sentinels = {
-            invariants.SPLIT: json.dumps({"seal": SPLIT_SEAL_BPS, "burn": 0, "paid": SPLIT_PAID_BPS}, sort_keys=True),
-            invariants.SEAL_TOTAL: str(SEAL_RECORDED_SENTINEL),
+            invariants.SPLIT: json.dumps({"sol_burn": SPLIT_SOL_BURN_BPS, "burn": 0, "paid": SPLIT_PAID_BPS}, sort_keys=True),
+            invariants.SOL_BURN_TOTAL: str(SOL_BURN_RECORDED_SENTINEL),
             invariants.OPS_TOTAL: str(OPS_RECORDED_SENTINEL),
             invariants.SUPPLY_DESTROYED: str(BURN_SENTINEL_TOKENS),
         }
@@ -728,8 +728,8 @@ class TestSilenceRuleSweep(unittest.TestCase):
 
         publisher = publish.Publisher(observation)
         needles = {
-            invariants.SPLIT: (str(SPLIT_SEAL_BPS), str(SPLIT_PAID_BPS)),
-            invariants.SEAL_TOTAL: (str(SEAL_RECORDED_SENTINEL),),
+            invariants.SPLIT: (str(SPLIT_SOL_BURN_BPS), str(SPLIT_PAID_BPS)),
+            invariants.SOL_BURN_TOTAL: (str(SOL_BURN_RECORDED_SENTINEL),),
             invariants.OPS_TOTAL: (str(OPS_RECORDED_SENTINEL),),
             invariants.SUPPLY_DESTROYED: (str(BURN_SENTINEL_TOKENS),),
         }
@@ -748,14 +748,30 @@ class TestSilenceRuleSweep(unittest.TestCase):
         # log_text keeps its pre-existing, deliberately compact design: only
         # SPLIT appears in the one-line summary.
         log_text = publish.render_surface("log_text", stored_records)
-        self.assertIn(str(SPLIT_SEAL_BPS), log_text)
+        self.assertIn(str(SPLIT_SOL_BURN_BPS), log_text)
 
         # log_json passes the already-gated stored record through verbatim --
         # every publishable figure's value survives replay.
         log_json = publish.render_surface("log_json", stored_records)
-        self.assertIn(str(SEAL_RECORDED_SENTINEL), log_json)
+        self.assertIn(str(SOL_BURN_RECORDED_SENTINEL), log_json)
         self.assertIn(str(OPS_RECORDED_SENTINEL), log_json)
         self.assertIn(str(BURN_SENTINEL_TOKENS), log_json)
+
+
+# -- QT-01/QT-03 (02-03 quick task): landing_page is swept but shows nothing -
+class TestLandingPageExcludedFromFullDetailSurfaces(unittest.TestCase):
+    """`landing_page` is registered in `publish.SURFACES` (so
+    `TestSilenceRuleSweep`'s sweep covers it automatically the moment it is
+    added) but is deliberately absent from `FULL_DETAIL_SURFACES`: those
+    surfaces are required to show every publishable figure, and the landing
+    page is required to show none at all -- a decision, not an oversight.
+    """
+
+    def test_landing_page_registered_in_surfaces(self):
+        self.assertIn("landing_page", publish.SURFACES)
+
+    def test_landing_page_not_in_full_detail_surfaces(self):
+        self.assertNotIn("landing_page", FULL_DETAIL_SURFACES)
 
 
 # -- the durable record: the blocking gap 01-VERIFICATION.md reproduced -----
@@ -805,7 +821,7 @@ class TestDurableRecordSilence(unittest.TestCase):
         observation = build_observation()
         record = observation.as_dict()
 
-        self.assertEqual(record["split"], {"seal": 10_000, "burn": 0, "paid": 0})
+        self.assertEqual(record["split"], {"sol_burn": 10_000, "burn": 0, "paid": 0})
         self.assertIn("CONFIG_MINT", record["backed_by"][invariants.SPLIT])
         self.assertIn("SPLIT_SUM", record["backed_by"][invariants.SPLIT])
 
@@ -824,9 +840,9 @@ class TestLogSurfaceRedaction(unittest.TestCase):
             "mint": CHARLIE,
             "observed_at": 1.0,
             "error": None,
-            "split": {"seal": 10_000, "burn": 0, "paid": 0},
+            "split": {"sol_burn": 10_000, "burn": 0, "paid": 0},
             "attribution": [
-                {"address": GRANDFATHERED, "bps": 10_000, "leg": "seal", "keyless": False, "reason": "x"}
+                {"address": GRANDFATHERED, "bps": 10_000, "leg": "sol_burn", "keyless": False, "reason": "x"}
             ],
             "checks": [],
             "publishable": [],
@@ -862,11 +878,11 @@ class TestLogSurfaceRedaction(unittest.TestCase):
     def test_a_record_with_nothing_blocked_passes_through_unredacted(self):
         record = {
             "schema": 3, "mint": CHARLIE, "observed_at": 1.0, "error": None,
-            "split": {"seal": 10_000, "burn": 0, "paid": 0}, "checks": [],
+            "split": {"sol_burn": 10_000, "burn": 0, "paid": 0}, "checks": [],
             "publishable": [invariants.SPLIT], "blocked": {},
         }
         gated = publish.gate_stored_record(record)
-        self.assertEqual(gated["split"], {"seal": 10_000, "burn": 0, "paid": 0})
+        self.assertEqual(gated["split"], {"sol_burn": 10_000, "burn": 0, "paid": 0})
         self.assertNotIn("_redacted", gated)
 
 
@@ -991,9 +1007,30 @@ class TestExportIncludesEveryPhaseTable(unittest.TestCase):
             evidence.close()
 
 
+# -- 03-02 Task 2: the coverage sentence and the index it sits on agree -----
+class TestIndexObservedCountMatchesRenderedRows(unittest.TestCase):
+    """D-35 feeds `coverage_statement` the number of coins whose records are
+    actually committed under the output directory -- the same set
+    `site.index_rows` renders. A test asserts the two agree so the sentence
+    and the page can never drift apart.
+    """
+
+    def test_observed_count_equals_index_rows_count_for_the_same_record_set(self):
+        records = [
+            {"mint": "MINT-A", "split": {"sol_burn": 10_000, "burn": 0, "paid": 0}, "backed_by": {"split": ["CONFIG_MINT"]}},
+            {"mint": "MINT-B", "split": {"sol_burn": 0, "burn": 0, "paid": 10_000}, "backed_by": {"split": ["CONFIG_MINT"]}},
+        ]
+        observed_count = len(records)
+        rows = site.index_rows(records)
+        self.assertEqual(observed_count, len(rows))
+
+        sentence = site.coverage_statement({"observed": observed_count})
+        self.assertIn(str(observed_count), sentence)
+
+
 # -- discipline-style check: every figure-formatting module imports publish --
 class TestFigureFormattingModulesImportPublish(unittest.TestCase):
-    FIGURE_ATTRS = {"SPLIT", "SEAL_TOTAL", "BURN_TOTAL", "OPS_TOTAL", "SUPPLY_DESTROYED"}
+    FIGURE_ATTRS = {"SPLIT", "SOL_BURN_TOTAL", "BURN_TOTAL", "OPS_TOTAL", "SUPPLY_DESTROYED"}
 
     def test_every_module_referencing_a_figure_imports_publish(self):
         indexer_dir = Path(__file__).resolve().parents[1] / "indexer"

@@ -12,7 +12,7 @@ theatre. The split:
 | Concern | Where | Why |
 |---|---|---|
 | Routing fees to destinations | **pump** | `update_fee_shares_v2` already does it |
-| SEAL vault unspendability | **our program** | needs a PDA no key can sign for |
+| SOL burn vault unspendability | **our program** | needs a PDA no key can sign for |
 | Atomic buy-and-burn | **our program** | swap + burn must share one transaction |
 | OPS payout | **nowhere** | it is an ordinary address in pump's config |
 | Classification / index | **off-chain** | derived from public state, no trust needed |
@@ -28,28 +28,28 @@ Two instructions. The design story is that the guarantee comes from the
 *absence* of code.
 
 ```
-init_vault(mint)      -> creates the SEAL vault PDA for a coin
+init_vault(mint)      -> creates the SOL burn vault PDA for a coin
 crank_burn(mint)      -> atomic: pull -> swap -> SPL burn
 ```
 
 **Vault PDAs**
 
 ```
-seal_vault = PDA(["seal", mint])     receives the SEAL leg
+SOL burn_vault = PDA(["SOL burn", mint])     receives the SOL burn leg
 burn_pool  = PDA(["burn", mint])     receives the BURN leg
 ```
 
 Both are pump `update_fee_shares_v2` shareholders — pump pays native SOL
 straight into them.
 
-**Why SEAL is unspendable.** Not a promise, an absence. `seal_vault` is a PDA
+**Why SOL burn is unspendable.** Not a promise, an absence. `SOL burn_vault` is a PDA
 of this program, so only this program could ever sign for it. There is **no
-instruction in this program that moves lamports out of a `seal` PDA.** Anyone
+instruction in this program that moves lamports out of a `SOL burn` PDA.** Anyone
 can verify that by reading the program.
 
 **This only holds if the program is immutable.** Upgrade authority MUST be
 revoked before any coin enrols. An upgradeable program could add a withdraw
-instruction tomorrow, which reduces SEAL from a proof back to a promise. This
+instruction tomorrow, which reduces SOL burn from a proof back to a promise. This
 is the single load-bearing assumption in the entire protocol.
 
 **`crank_burn` is permissionless** and must survive being called by an
@@ -77,8 +77,8 @@ decodes pump sharing configs, and the reconciliation logic already exists.
 Per coin, per tick:
 
 ```
-read sharing config      -> { seal_bps, burn_bps, paid_bps }, admin_revoked
-read seal vault balance  -> SEAL invariant
+read sharing config      -> { SOL burn_bps, burn_bps, paid_bps }, admin_revoked
+read SOL burn vault balance  -> SOL burn invariant
 read mint supply         -> BURN invariant
 read ops inflows         -> OPS routed total
 recompute all invariants -> pass / fail
@@ -123,7 +123,7 @@ no account required.
 
 ```
 coin        mint, config, admin_revoked, first_seen
-split       mint, seal_bps, burn_bps, paid_bps, observed_at   (append-only)
+split       mint, SOL burn_bps, burn_bps, paid_bps, observed_at   (append-only)
 inflow      mint, leg, signature, lamports, block_time
 burn_event  mint, signature, sol_spent, tokens_burned, supply_after
 check       mint, invariant, passed, expected, actual, observed_at

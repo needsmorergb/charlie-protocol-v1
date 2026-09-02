@@ -4,8 +4,8 @@
       "address": "burn111111111111111111111111111111111111111",
       "bps": 10000,
       "keyless": false,
-      "leg": "seal",
-      "reason": "grandfathered legacy seal address (PROTOCOL.md sec.3)"
+      "leg": "sol_burn",
+      "reason": "grandfathered legacy SOL-burn address (PROTOCOL.md sec.3)"
     }
   ],
   "backed_by": {
@@ -18,8 +18,8 @@
     "burn_total": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
-        "status": "UNCHECKED"
+        "detail": "claimed burns do not reconcile against the mint supply",
+        "status": "FAIL"
       },
       {
         "check": "BURN_SPEND",
@@ -34,28 +34,18 @@
         "status": "UNCHECKED"
       }
     ],
-    "seal_total": [
+    "sol_burn_total": [
       {
-        "check": "SEAL_UNSPENDABLE",
-        "detail": "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
+        "check": "SOL_BURN_UNSPENDABLE",
+        "detail": "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
         "status": "FAIL"
-      },
-      {
-        "check": "SEAL_BALANCE",
-        "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
-        "status": "UNCHECKED"
       }
     ],
     "supply_destroyed": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
-        "status": "UNCHECKED"
-      },
-      {
-        "check": "BURN_ATOMIC",
-        "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so an atomicity verdict now would be premature, not wrong",
-        "status": "UNCHECKED"
+        "detail": "claimed burns do not reconcile against the mint supply",
+        "status": "FAIL"
       }
     ]
   },
@@ -64,7 +54,7 @@
       "actual": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
       "backs": [
         "split",
-        "seal_total",
+        "sol_burn_total",
         "burn_total",
         "ops_total",
         "supply_destroyed"
@@ -81,7 +71,7 @@
         "split"
       ],
       "detail": "the split accounts for the whole fee stream",
-      "equation": "seal_bps + burn_bps + paid_bps == 10000",
+      "equation": "sol_burn_bps + burn_bps + paid_bps == 10000",
       "expected": "10000",
       "name": "SPLIT_SUM",
       "status": "PASS"
@@ -89,36 +79,36 @@
     {
       "actual": "not program-derived: burn111111111111111111111111111111111111111",
       "backs": [
-        "seal_total"
+        "sol_burn_total"
       ],
-      "detail": "a SEAL destination is not program-derived. PROTOCOL.md sec.3 requires a seal vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
-      "equation": "is_on_curve(seal_vault) == False",
+      "detail": "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
+      "equation": "is_on_curve(sol_burn_vault) == False",
       "expected": "program-derived",
-      "name": "SEAL_UNSPENDABLE",
+      "name": "SOL_BURN_UNSPENDABLE",
       "status": "FAIL"
     },
     {
-      "actual": null,
+      "actual": "burn111111111111111111111111111111111111111: 179668087718",
       "backs": [
-        "seal_total"
+        "sol_burn_total"
       ],
-      "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+      "detail": "recorded inflows reconcile against the vault balance (burn111111111111111111111111111111111111111)",
       "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
-      "expected": null,
-      "name": "SEAL_BALANCE",
-      "status": "UNCHECKED"
+      "expected": "burn111111111111111111111111111111111111111: 0",
+      "name": "SOL_BURN_BALANCE",
+      "status": "PASS"
     },
     {
-      "actual": "956383374035955",
+      "actual": "956382187958914",
       "backs": [
         "burn_total",
         "supply_destroyed"
       ],
-      "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so a supply reconciliation now would be premature, not wrong",
+      "detail": "claimed burns do not reconcile against the mint supply",
       "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
-      "expected": null,
+      "expected": "956423419572100",
       "name": "BURN_SUPPLY",
-      "status": "UNCHECKED"
+      "status": "FAIL"
     },
     {
       "actual": "None",
@@ -134,10 +124,8 @@
     },
     {
       "actual": null,
-      "backs": [
-        "supply_destroyed"
-      ],
-      "detail": "the burn walk for this mint is incomplete -- not every burn against it has been recorded yet, so an atomicity verdict now would be premature, not wrong",
+      "backs": [],
+      "detail": "no protocol-attributed burn exists for this mint (D-10) -- PROTOCOL.md sec.4's atomicity requirement is about the protocol's own BURN leg, not third-party burns, so this check does not apply here. It reads not-applicable for every coin until phase 5, because no protocol burns exist yet (D-14) -- the correct answer, not an awkward one",
       "equation": "swap_instruction.transaction == burn_instruction.transaction",
       "expected": null,
       "name": "BURN_ATOMIC",
@@ -192,7 +180,7 @@
     }
   },
   "evidence_coverage": {
-    "burn111111111111111111111111111111111111111": 0
+    "burn111111111111111111111111111111111111111": 1
   },
   "graduated": true,
   "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
@@ -200,20 +188,20 @@
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956383374035955,
+    "supply": 956382187958914,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1788205406.6467996,
+  "observed_at": 1788361684.346464,
   "publishable": [
     "split"
   ],
   "schema": 3,
-  "seal_balances": {
-    "burn111111111111111111111111111111111111111": 178734302038
+  "sol_burn_balances": {
+    "burn111111111111111111111111111111111111111": 179668087718
   },
   "split": {
     "burn": 0,
     "paid": 0,
-    "seal": 10000
+    "sol_burn": 10000
   }
 }

@@ -24,8 +24,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import inspect
+import re
+
 from indexer import invariants, publish, site
 from indexer.evidence import Evidence
+from indexer.legs import Registry, split_of
 from indexer.observe import Observation, observe
 
 from test_indexer import CHARLIE, charlie_rpc  # noqa: E402
@@ -34,7 +38,9 @@ from test_publication import (  # noqa: E402
     build_all_publishable_sentinel_observation,
     build_observation,
     evidence_db,
+    mint_state,
 )
+from test_publication import FULL_DETAIL_SURFACES  # noqa: E402
 
 
 class TestFigureRowOrder(unittest.TestCase):
@@ -48,11 +54,11 @@ class TestFigureRowOrder(unittest.TestCase):
 class TestWithheldFigureRow(unittest.TestCase):
     def test_withheld_figure_row_renders_the_word_withheld_and_no_value(self):
         distinctive_balance = 87_654_321
-        observation = build_observation(seal_balance=distinctive_balance)
+        observation = build_observation(sol_burn_balance=distinctive_balance)
         rendered = site.render(observation)
 
-        self.assertNotIn(invariants.SEAL_TOTAL, observation.verdict.publishable)
-        start = rendered.index('data-figure="seal_total"')
+        self.assertNotIn(invariants.SOL_BURN_TOTAL, observation.verdict.publishable)
+        start = rendered.index('data-figure="sol_burn_total"')
         end = rendered.index("</div>", start)
         row = rendered[start:end]
         self.assertIn("withheld", row)
@@ -60,16 +66,16 @@ class TestWithheldFigureRow(unittest.TestCase):
 
     def test_withheld_figure_names_every_blocking_check_not_just_the_first(self):
         observation = build_observation()
-        reasons = observation.verdict.blocked[invariants.SEAL_TOTAL]
+        reasons = observation.verdict.blocked[invariants.SOL_BURN_TOTAL]
         blocking_names = [name for name, _status, _detail in reasons]
-        self.assertGreaterEqual(len(blocking_names), 2, "fixture must block seal_total with 2+ checks")
+        self.assertGreaterEqual(len(blocking_names), 2, "fixture must block sol_burn_total with 2+ checks")
 
         rendered = site.render(observation)
-        start = rendered.index('data-figure="seal_total"')
+        start = rendered.index('data-figure="sol_burn_total"')
         end = rendered.index("</div>", start)
         row = rendered[start:end]
         for name in blocking_names:
-            self.assertIn(name, row, f"blocking check {name!r} missing from the withheld seal_total row")
+            self.assertIn(name, row, f"blocking check {name!r} missing from the withheld sol_burn_total row")
 
 
 class TestPublishableFigureRow(unittest.TestCase):
@@ -119,12 +125,12 @@ class TestEscaping(unittest.TestCase):
         # goes through the exact same `esc()` call every other interpolated
         # value does. A markup-bearing check name exercises that same code
         # path a markup-bearing `detail` string would once 02-02 renders it.
-        malicious_name = "<b>SEAL_UNSPENDABLE</b> & friends"
+        malicious_name = "<b>SOL_BURN_UNSPENDABLE</b> & friends"
         observation = build_observation()
         malicious_check = invariants.Check(
             name=malicious_name,
             status=invariants.FAIL,
-            backs=(invariants.SEAL_TOTAL,),
+            backs=(invariants.SOL_BURN_TOTAL,),
             equation="n/a",
             detail="n/a",
         )
@@ -133,7 +139,7 @@ class TestEscaping(unittest.TestCase):
 
         rendered = site.render(observation)
         self.assertNotIn(malicious_name, rendered, "raw markup leaked into the rendered page unescaped")
-        self.assertIn("&lt;b&gt;SEAL_UNSPENDABLE&lt;/b&gt; &amp; friends", rendered)
+        self.assertIn("&lt;b&gt;SOL_BURN_UNSPENDABLE&lt;/b&gt; &amp; friends", rendered)
 
 
 class TestBurnEvents(unittest.TestCase):
@@ -221,19 +227,19 @@ class TestFreshness(unittest.TestCase):
         self.assertIn("RPC unavailable", rendered)
 
 
-class TestSealFailureBanner(unittest.TestCase):
-    """02-02 Task 2, PUB-03: the Seal Failure Banner -- unconditional on
-    SEAL_UNSPENDABLE: FAIL, above every other section, carrying the check's
-    own `detail` verbatim, and naming no seal total anywhere on the page.
+class TestSolBurnFailureBanner(unittest.TestCase):
+    """02-02 Task 2, PUB-03: the SOL burn Failure Banner -- unconditional on
+    SOL_BURN_UNSPENDABLE: FAIL, above every other section, carrying the check's
+    own `detail` verbatim, and naming no SOL burn total anywhere on the page.
     """
 
     def test_banner_present_with_the_check_detail_verbatim_for_a_fail_observation(self):
         observation = build_observation()
-        check = next(c for c in observation.checks if c.name == "SEAL_UNSPENDABLE")
+        check = next(c for c in observation.checks if c.name == "SOL_BURN_UNSPENDABLE")
         self.assertEqual(check.status, invariants.FAIL)
 
         rendered = site.render(observation, now=2.0)
-        self.assertIn('data-banner="seal-failure"', rendered)
+        self.assertIn('data-banner="sol-burn-failure"', rendered)
         self.assertIn(check.detail, rendered)
 
     def test_banner_absent_for_a_pass_observation(self):
@@ -242,22 +248,22 @@ class TestSealFailureBanner(unittest.TestCase):
             observation = build_all_publishable_sentinel_observation(evidence)
             evidence.close()
 
-        check = next(c for c in observation.checks if c.name == "SEAL_UNSPENDABLE")
+        check = next(c for c in observation.checks if c.name == "SOL_BURN_UNSPENDABLE")
         self.assertEqual(check.status, invariants.PASS)
 
         rendered = site.render(observation, now=2.0)
-        self.assertNotIn('data-banner="seal-failure"', rendered)
+        self.assertNotIn('data-banner="sol-burn-failure"', rendered)
 
-    def test_no_seal_lamports_value_appears_anywhere_for_a_fail_observation(self):
+    def test_no_sol_burn_lamports_value_appears_anywhere_for_a_fail_observation(self):
         distinctive_balance = 91_234_567
-        observation = build_observation(seal_balance=distinctive_balance)
+        observation = build_observation(sol_burn_balance=distinctive_balance)
         rendered = site.render(observation, now=2.0)
         self.assertNotIn(str(distinctive_balance), rendered)
 
     def test_banner_renders_above_the_figures_section(self):
         observation = build_observation()
         rendered = site.render(observation, now=2.0)
-        banner_pos = rendered.index('data-banner="seal-failure"')
+        banner_pos = rendered.index('data-banner="sol-burn-failure"')
         figures_pos = rendered.index('id="figures"')
         self.assertLess(banner_pos, figures_pos)
 
@@ -265,21 +271,21 @@ class TestSealFailureBanner(unittest.TestCase):
         observation = build_observation()
         rendered = site.render(observation, now=2.0)
         freshness_pos = rendered.index('class="freshness"')
-        banner_pos = rendered.index('data-banner="seal-failure"')
+        banner_pos = rendered.index('data-banner="sol-burn-failure"')
         self.assertLess(freshness_pos, banner_pos)
 
     def test_detail_over_400_characters_renders_in_full_with_no_ellipsis(self):
         long_detail = "x" * 450
         malicious_check = invariants.Check(
-            name="SEAL_UNSPENDABLE",
+            name="SOL_BURN_UNSPENDABLE",
             status=invariants.FAIL,
-            backs=(invariants.SEAL_TOTAL,),
+            backs=(invariants.SOL_BURN_TOTAL,),
             equation="n/a",
             detail=long_detail,
         )
         observation = build_observation()
         observation.checks = tuple(
-            c for c in observation.checks if c.name != "SEAL_UNSPENDABLE"
+            c for c in observation.checks if c.name != "SOL_BURN_UNSPENDABLE"
         ) + (malicious_check,)
         observation.verdict = invariants.apply_silence_rule(observation.checks)
 
@@ -447,9 +453,9 @@ class TestSingleScriptNoClockRead(unittest.TestCase):
 
 
 FORBIDDEN_PHRASES = (
-    "the seal burned",
-    "burned into the seal",
-    "sealed and burned",
+    "the SOL burn burned",
+    "burned into the SOL burn",
+    "burned and burned",
     "charlie protocol verified",
 )
 
@@ -467,6 +473,24 @@ class TestForbiddenBurnLanguageAbsent(unittest.TestCase):
             rendered = site.render(observation, now=2.0).lower()
             for phrase in FORBIDDEN_PHRASES:
                 self.assertNotIn(phrase, rendered, f"forbidden phrase {phrase!r} found in web_page output")
+
+    def test_forbidden_burn_language_absent_on_landing_page(self):
+        # 02-03 Task 2: the same sweep, over render_landing, for both the
+        # all-blocked and all-publishable sentinel fixtures.
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            pass_observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            fail_observation = build_all_blocked_sentinel_observation(evidence)
+            evidence.close()
+
+        for observation in (fail_observation, pass_observation):
+            rendered = site.render_landing(observation, now=2.0).lower()
+            for phrase in FORBIDDEN_PHRASES:
+                self.assertNotIn(phrase, rendered, f"forbidden phrase {phrase!r} found in landing_page output")
 
 
 class TestStdlibOnlyImport(unittest.TestCase):
@@ -676,3 +700,763 @@ class TestWrite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWalkStateAndNonBoost(unittest.TestCase):
+    """Two claims that were template constants and became false against live
+    evidence the first time the burn walk ran to completion. Both are now
+    computed; these tests exist so they cannot quietly become constants again.
+    """
+
+    class _Obs:
+        def __init__(self, complete=False, events=None):
+            self.burn_walk_complete = complete
+            self.burn_events = events or []
+
+    def test_walk_risk_states_complete_when_the_cursor_says_complete(self):
+        text = site._walk_risk(self._Obs(complete=True))
+        self.assertIn("complete and the residual survives it", text)
+        self.assertNotIn("is incomplete", text)
+
+    def test_walk_risk_states_incomplete_when_the_cursor_says_so(self):
+        text = site._walk_risk(self._Obs(complete=False))
+        self.assertIn("is incomplete", text)
+
+    def test_walk_risk_never_asserts_completeness_the_observation_denies(self):
+        """The regression: a page that says "complete" while the observation
+        says otherwise is the page contradicting its own evidence."""
+        for complete in (True, False):
+            text = site._walk_risk(self._Obs(complete=complete))
+            says_complete = "walk is complete" in text
+            self.assertEqual(says_complete, complete, f"walk_complete={complete}")
+
+    def test_risks_section_still_carries_exactly_seven_entries(self):
+        """D-20: six risks plus the generator-unverified entry. Moving the
+        walk risk out of the static tuple must not change the count."""
+        self.assertEqual(len(site._RISKS) + 2, 7)
+
+    def test_non_boost_burns_are_stated_separately_and_computed(self):
+        events = [
+            {"source": "boost_buy_and_burn", "tokens_burned": 43_575_480_427_900},
+            {"source": "spl_burn", "tokens_burned": 1_100_000_000},
+        ]
+        text = site._non_boost_sentence(events, 6)
+        self.assertIn("1,100.000000", text)
+        self.assertIn("1 recorded burn", text)
+
+    def test_non_boost_sentence_says_so_when_there_are_none(self):
+        events = [{"source": "boost_buy_and_burn", "tokens_burned": 5}]
+        text = site._non_boost_sentence(events, 6)
+        self.assertIn("No burn from any other source", text)
+
+    def test_boost_sentence_no_longer_claims_every_token_ever_lost(self):
+        """The superlative that went false: it was true only while boost was
+        the sole recorded source, and a template cannot know that."""
+        summary = site._boost_summary(
+            [{"source": "boost_buy_and_burn", "tokens_burned": 5, "block_time": 1, "signature": "x"}]
+        )
+        self.assertNotIn("ever lost", site._boost_sentence(summary, 6))
+
+
+# -- QT-01/QT-02/QT-03: the landing page (indexer/site.py's landing path) ---
+def _landing_burn_rows():
+    """29 boost rows + 1 non-boost row summing to the observed-values table
+    in the plan -- 43,576,580.427900 tokens / 17.584506254 SOL across all 30
+    rows, with the one non-boost row carrying 1,100.000000 tokens. Values
+    are computed here from the plan's own totals, never pasted as a whole.
+    """
+    total_tokens = 43_576_580_427_900
+    non_boost_tokens = 1_100_000_000
+    boost_tokens_total = total_tokens - non_boost_tokens
+    boost_lamports_total = 17_584_506_254
+    n = 29
+    base_tokens, remainder_tokens = divmod(boost_tokens_total, n)
+    base_lamports, remainder_lamports = divmod(boost_lamports_total, n)
+    rows = []
+    for i in range(n):
+        rows.append({
+            "signature": f"sig-boost-{i}",
+            "source": site.BOOST_SOURCE,
+            "tokens_burned": base_tokens + (remainder_tokens if i == n - 1 else 0),
+            "sol_spent": base_lamports + (remainder_lamports if i == n - 1 else 0),
+            "block_time": 100 + i,
+            "slot": i,
+        })
+    rows.append({
+        "signature": "sig-handburn",
+        "source": "spl_burn",
+        "tokens_burned": non_boost_tokens,
+        "sol_spent": None,
+        "block_time": 500,
+        "slot": 100,
+    })
+    return rows
+
+
+def _counters_fixture(*, supply=956_383_374_035_955, initial_raw=1_000_000_000_000_000, burn_rows=None):
+    burn_rows = _landing_burn_rows() if burn_rows is None else burn_rows
+    observation = Observation(mint=CHARLIE, observed_at=1.0)
+    observation.mint_state = mint_state(supply)
+    initial_supply_row = {"raw_supply": initial_raw, "decimals": 6}
+    observation.evidence = {"initial_supply": initial_supply_row}
+    observation.burn_events = burn_rows
+    # Real-shape BURN_SUPPLY check (walk complete, real expected/actual) --
+    # `burned` is the evidence store's own running total (independent of
+    # `burn_events`'s per-row sum, exactly like production), computed here
+    # from the fixture's own rows so the check reads FAIL/PASS honestly
+    # rather than resting on NO_CHECK/UNCHECKED.
+    burned = sum(int(row.get("tokens_burned", 0)) for row in burn_rows)
+    observation.checks = (
+        invariants.burn_supply(observation.mint_state, initial_supply_row, burned, walk_complete=True),
+    )
+    observation.verdict = invariants.apply_silence_rule(observation.checks)
+    return observation
+
+
+class TestCounters(unittest.TestCase):
+    def test_six_cells_in_fixed_order_with_expected_display_values(self):
+        cells = site._counters(_counters_fixture())
+        self.assertEqual(len(cells), 6)
+        values = [c["value"] for c in cells]
+        self.assertEqual(values[0], "956,383,374.035955")
+        self.assertEqual(values[1], "1,000,000,000.000000")
+        self.assertEqual(values[2], "30")
+        self.assertEqual(values[3], "43,576,580.427900")
+        self.assertEqual(values[4], "17.584506254")
+        self.assertIn("1", values[5])
+        self.assertIn("1,100.000000", values[5])
+        for cell in cells:
+            self.assertIn("label", cell)
+            self.assertIn("source", cell)
+            self.assertIn("raw", cell)
+
+    def test_changing_fixture_inputs_changes_the_corresponding_cells(self):
+        first = site._counters(_counters_fixture())
+        second = site._counters(_counters_fixture(
+            supply=1_234_567,
+            initial_raw=9_999_999,
+            burn_rows=_boost_rows(2, tokens_start=1, block_time_start=0, step=1),
+        ))
+        self.assertNotEqual(first, second)
+
+    def test_reads_exactly_the_four_permitted_fields_never_burn_total(self):
+        source = inspect.getsource(site._counters)
+        self.assertNotIn("burn_total", source)
+        self.assertNotIn("Publisher", source)
+
+
+class TestSupplyProhibition(unittest.TestCase):
+    def test_no_cell_raw_equals_the_prohibited_difference(self):
+        observation = _counters_fixture()
+        initial_raw = observation.evidence["initial_supply"]["raw_supply"]
+        live_raw = observation.mint_state.supply
+        prohibited_raw = initial_raw - live_raw
+        for cell in site._counters(observation):
+            self.assertNotEqual(cell["raw"], prohibited_raw)
+
+    def test_prohibited_difference_absent_raw_and_display_from_rendered_page(self):
+        observation = _counters_fixture()
+        initial_raw = observation.evidence["initial_supply"]["raw_supply"]
+        live_raw = observation.mint_state.supply
+        prohibited_raw = initial_raw - live_raw
+        decimals = observation.mint_state.decimals
+        prohibited_display = f"{prohibited_raw / (10 ** decimals):,.{decimals}f}"
+
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertNotIn(str(prohibited_raw), rendered)
+        self.assertNotIn(prohibited_display, rendered)
+
+
+class TestNoFiguresNameOnLandingPage(unittest.TestCase):
+    def test_no_invariants_figures_name_appears(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        for name in invariants.FIGURES:
+            self.assertNotIn(name, rendered, f"invariants.FIGURES name {name!r} leaked into the landing page")
+
+    def test_render_landing_source_reads_no_gated_figure(self):
+        source = inspect.getsource(site.render_landing)
+        self.assertNotIn("burn_total", source)
+        self.assertNotIn("Publisher", source)
+
+
+class TestBareObservationLanding(unittest.TestCase):
+    def test_bare_observation_renders_without_raising_and_says_unknown(self):
+        observation = Observation(mint="ZZTOP", observed_at=1_000_000.0)
+        rendered = site.render_landing(observation)
+        self.assertGreater(len(rendered), 0)
+        self.assertIn(site._SNAPSHOT_NOTE, rendered)
+        for cell in site._counters(observation):
+            self.assertEqual(cell["value"], "unknown")
+            self.assertIsNone(cell["raw"])
+        self.assertGreaterEqual(rendered.count("unknown"), 6)
+
+
+class TestRenderLandingSurfaceRegistration(unittest.TestCase):
+    def test_render_landing_resolves_through_render_surface(self):
+        observation = _counters_fixture()
+        result = publish.render_surface("landing_page", observation)
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+
+    def test_accepts_one_positional_and_keyword_only_now(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertIsInstance(rendered, str)
+
+    def test_landing_page_registered_in_surfaces(self):
+        self.assertEqual(publish.SURFACES["landing_page"]["target"], "indexer.site:render_landing")
+        self.assertEqual(publish.SURFACES["landing_page"]["input"], "observation")
+
+    def test_landing_page_not_in_full_detail_surfaces(self):
+        # QT-01/QT-03: FULL_DETAIL_SURFACES are required to show every
+        # publishable figure -- the landing page is required to show none.
+        # A decision, not an oversight.
+        self.assertNotIn("landing_page", FULL_DETAIL_SURFACES)
+
+
+class TestLandingEscaping(unittest.TestCase):
+    def test_check_detail_with_markup_renders_escaped(self):
+        observation = _counters_fixture()
+        malicious_check = invariants.Check(
+            name="BURN_SUPPLY",
+            status=invariants.FAIL,
+            backs=(invariants.BURN_TOTAL, invariants.SUPPLY_DESTROYED),
+            equation="n/a",
+            detail="<script>alert(1)</script>",
+        )
+        observation.checks = (malicious_check,)
+        observation.verdict = invariants.apply_silence_rule(observation.checks)
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertNotIn("<script>alert(1)</script>", rendered)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", rendered)
+
+
+class TestSupplyRefusal(unittest.TestCase):
+    def test_refusal_names_burn_supply_and_renders_its_own_live_fields(self):
+        observation = _counters_fixture()
+        check = observation.checks[0]
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertIn(check.name, rendered)
+        self.assertIn(check.detail, rendered)
+        self.assertIn(site.esc(check.expected), rendered)
+        self.assertIn(site.esc(check.actual), rendered)
+
+    def test_refusal_present_even_with_no_burn_supply_check(self):
+        observation = Observation(mint="ZZTOP", observed_at=1_000_000.0)
+        rendered = site.render_landing(observation)
+        self.assertIn('data-refusal="supply"', rendered)
+
+
+class TestWriteLanding(unittest.TestCase):
+    def test_write_landing_writes_index_html_and_returns_its_path(self):
+        observation = _counters_fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = site.write_landing(observation, tmp)
+        self.assertEqual(path.name, site.LANDING_FILENAME)
+
+    def test_write_landing_bytes_match_render_landing(self):
+        observation = _counters_fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = site.write_landing(observation, tmp)
+            content = path.read_bytes()
+        expected = site.render_landing(observation).encode("utf-8")
+        self.assertEqual(content, expected)
+
+    def test_write_still_has_two_artifact_name_occurrences(self):
+        self.assertEqual(inspect.getsource(site.write).count("_artifact_name"), 2)
+
+    def test_write_landing_has_no_artifact_name_occurrence(self):
+        self.assertEqual(inspect.getsource(site.write_landing).count("_artifact_name"), 0)
+
+
+class TestCoinUrl(unittest.TestCase):
+    def test_coin_url_composes_the_route_prefix_and_artifact_name(self):
+        self.assertEqual(
+            site._coin_url("SOMEMINT", ".html"),
+            site.COIN_ROUTE_PREFIX + site._artifact_name("SOMEMINT", ".html"),
+        )
+
+    def test_landing_links_use_coin_url(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        # The page link is suffix-free (vercel.json's page rewrite is
+        # deliberately suffix-free -- only the record rewrite carries a
+        # literal .json); the record link keeps its .json.
+        self.assertIn(f'href="{site._coin_url(observation.mint, "")}"', rendered)
+        self.assertIn(f'href="{site._coin_url(observation.mint, ".json")}"', rendered)
+
+
+# -- 02-03 Task 2: shared tokens, sourced counters, the withheld treatment --
+class TestSharedTokens(unittest.TestCase):
+    def test_tokens_is_a_substring_of_both_stylesheets(self):
+        self.assertIn(site._TOKENS, site._STYLE)
+        self.assertIn(site._TOKENS, site._LANDING_STYLE)
+
+    def test_palette_declared_exactly_once_in_style(self):
+        # The plan's own acceptance criterion asks for `_STYLE.count("--paper")
+        # == 1`, but `body { background: var(--paper); }` (D-E: unchanged coin-
+        # page CSS) also contains the substring "--paper" as a usage site, not
+        # a second declaration -- an unavoidable collision with any bare
+        # substring count. The declaration line itself is what "extracted, not
+        # duplicated" actually means: exactly one `:root` block, never two
+        # concatenated by an extraction mistake.
+        self.assertEqual(site._STYLE.count("--paper: #FAF7F0;"), 1)
+
+
+class TestCounterSourcesVisible(unittest.TestCase):
+    def test_every_cell_source_string_appears_in_the_rendered_page(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        for cell in site._counters(observation):
+            self.assertIn(cell["source"], rendered, f"source {cell['source']!r} not visible on the landing page")
+
+
+class TestLandingOneStyleZeroScript(unittest.TestCase):
+    def test_exactly_one_style_and_zero_script_elements(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertEqual(rendered.count("<style"), 1)
+        self.assertEqual(rendered.count("<script"), 0)
+
+
+class TestRefusalWithheldTreatment(unittest.TestCase):
+    def test_refusal_wrapper_carries_the_unchecked_class(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        marker = 'data-refusal="supply"'
+        wrapper_start = rendered.rindex("<section", 0, rendered.index(marker))
+        tag_end = rendered.index(">", wrapper_start)
+        self.assertIn("status-unchecked", rendered[wrapper_start:tag_end])
+        self.assertNotIn("status-pass", rendered[wrapper_start:tag_end])
+
+
+class TestGeneratorUnverifiedOnLanding(unittest.TestCase):
+    def test_generator_unverified_constant_appears_escaped(self):
+        observation = _counters_fixture()
+        rendered = site.render_landing(observation, now=2.0)
+        self.assertIn(site.esc(site._GENERATOR_UNVERIFIED), rendered)
+
+
+# -- 02-03 Task 3: vercel.json cross-checked against _artifact_name --------
+VERCEL_JSON_PATH = Path(__file__).resolve().parents[1] / "vercel.json"
+
+
+def _vercel_source_to_regex(vercel_source: str) -> re.Pattern:
+    converted = re.sub(r":mint\(([^)]+)\)", r"(\1)", vercel_source)
+    return re.compile("^" + converted + "$")
+
+
+def _find_rule(rewrites, *, source_exact=None, source_prefix=None, destination_suffix=None):
+    """Look a rewrite rule up by its own SOURCE (and/or destination shape),
+    never by its position in the list -- a pinned test that has to change
+    when a rule is added should change by looking the rule up differently,
+    not by unpacking a fixed-length list.
+    """
+    matches = []
+    for rule in rewrites:
+        if source_exact is not None and rule["source"] != source_exact:
+            continue
+        if source_prefix is not None and not rule["source"].startswith(source_prefix):
+            continue
+        if destination_suffix is not None and not rule["destination"].endswith(destination_suffix):
+            continue
+        matches.append(rule)
+    assert len(matches) == 1, f"expected exactly one matching rule, found {matches}"
+    return matches[0]
+
+
+class TestVercelJson(unittest.TestCase):
+    """Rewritten for 03-01 Task 3: this class used to assert the rewrite
+    list was exactly two long and unpack it into two names in three separate
+    tests, which would fail four times over the moment a third rule exists.
+    It now looks each rule up by its own source/destination shape via
+    `_find_rule` and keeps every assertion it made about the two coin
+    routes, plus the same assertions for `/verify/:mint` and `/coins`.
+    """
+
+    def _load(self):
+        return json.loads(VERCEL_JSON_PATH.read_text(encoding="utf-8"))
+
+    def _rules(self, data):
+        rewrites = data["rewrites"]
+        json_rewrite = _find_rule(rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=".json")
+        html_rewrite = _find_rule(
+            rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=".html"
+        )
+        verify_rewrite = _find_rule(rewrites, source_prefix="/verify/")
+        coins_rewrite = _find_rule(rewrites, source_exact="/coins")
+        return json_rewrite, html_rewrite, verify_rewrite, coins_rewrite
+
+    def test_output_directory_no_build_step_no_clean_urls(self):
+        data = self._load()
+        self.assertEqual(data["outputDirectory"], "web")
+        self.assertIsNone(data["buildCommand"])
+        self.assertIsNone(data["framework"])
+        self.assertIn(data.get("cleanUrls"), (None, False))
+
+    def test_every_rewrite_is_one_of_the_five_this_project_declares(self):
+        """Counted by NAME, not by length. The previous version asserted a
+        bare count and broke four tests at once the moment a route was added;
+        this fails only if a rule appears that nothing here accounts for.
+        """
+        data = self._load()
+        sources = {r["source"] for r in data["rewrites"]}
+        self.assertEqual(sources, {
+            "/coins",
+            "/verify",
+            site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
+            site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
+            "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
+        })
+
+    def test_destinations_and_sources_built_from_artifact_name_and_route_prefix(self):
+        data = self._load()
+        json_rewrite, html_rewrite, verify_rewrite, coins_rewrite = self._rules(data)
+        self.assertEqual(json_rewrite["destination"], "/" + site._artifact_name(":mint", ".json"))
+        self.assertEqual(html_rewrite["destination"], "/" + site._artifact_name(":mint", ".html"))
+        self.assertTrue(json_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
+        self.assertTrue(html_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
+        # D-22: /verify/:mint resolves to the SAME destination the coin-page
+        # rule gives -- one artifact per coin, not two.
+        self.assertEqual(verify_rewrite["destination"], "/" + site._artifact_name(":mint", ".html"))
+        self.assertEqual(verify_rewrite["destination"], html_rewrite["destination"])
+        self.assertTrue(verify_rewrite["source"].startswith("/verify/"))
+        self.assertEqual(coins_rewrite["destination"], "/" + site.INDEX_FILENAME_TEMPLATE.format(page=1))
+
+    def test_mint_pattern_matches_real_mint_and_json_never_matches_html_pattern(self):
+        data = self._load()
+        json_rewrite, html_rewrite, verify_rewrite, coins_rewrite = self._rules(data)
+        json_re = _vercel_source_to_regex(json_rewrite["source"])
+        html_re = _vercel_source_to_regex(html_rewrite["source"])
+        verify_re = _vercel_source_to_regex(verify_rewrite["source"])
+        self.assertRegex(f"/coin/{CHARLIE}.json", json_re)
+        self.assertRegex(f"/coin/{CHARLIE}", html_re)
+        self.assertNotRegex(f"/coin/{CHARLIE}.json", html_re)
+        self.assertRegex(f"/verify/{CHARLIE}", verify_re)
+        # No character outside the base58 class matches any of the three
+        # mint-parameterised rules.
+        for regex in (json_re, html_re, verify_re):
+            self.assertNotRegex("/coin/0OIl", regex)
+            self.assertNotRegex("/verify/0OIl", regex)
+
+    def test_landing_page_links_resolve_under_these_rewrites(self):
+        data = self._load()
+        json_rewrite, html_rewrite, verify_rewrite, coins_rewrite = self._rules(data)
+        json_re = _vercel_source_to_regex(json_rewrite["source"])
+        html_re = _vercel_source_to_regex(html_rewrite["source"])
+        observation = _counters_fixture()
+        self.assertRegex(site._coin_url(observation.mint, ".json"), json_re)
+        self.assertRegex(site._coin_url(observation.mint, ""), html_re)
+
+    def test_coins_rule_precedes_the_parameterised_rules(self):
+        # Precedence stated rather than inferred: the literal /coins rule
+        # must be tried before any rule carrying a :mint parameter.
+        data = self._load()
+        rewrites = data["rewrites"]
+        coins_index = next(i for i, r in enumerate(rewrites) if r["source"] == "/coins")
+        param_indices = [i for i, r in enumerate(rewrites) if ":mint" in r["source"]]
+        self.assertTrue(param_indices)
+        self.assertTrue(all(coins_index < i for i in param_indices))
+
+    def test_no_planning_path_cited(self):
+        self.assertNotIn(".planning", VERCEL_JSON_PATH.read_text(encoding="utf-8"))
+
+
+class TestWebReadmeNoPlanningPath(unittest.TestCase):
+    def test_no_planning_path_cited(self):
+        path = Path(__file__).resolve().parents[1] / "web" / "README.md"
+        self.assertNotIn(".planning", path.read_text(encoding="utf-8"))
+
+
+# -- 03-01 Task 2: a coin page that is true about the coin it is about ------
+# The reference coin's ticker, built by concatenation rather than as one
+# literal, so a test checking for its ABSENCE cannot be satisfied by its own
+# source text turning up in a naive grep.
+_REFERENCE_TICKER = "$" + "CHARLIE"
+
+OTHER_MINT_ONE = "So11111111111111111111111111111111111111112"
+OTHER_MINT_TWO = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+OTHER_SHAREHOLDER = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+
+
+def _other_coin_observation(*, mint=OTHER_MINT_ONE, admin_revoked=True, burn_events=None):
+    """A fully-shaped Observation for a coin that is NOT the reference coin --
+    same construction as `test_publication.build_observation`, parameterised
+    by mint and `admin_revoked` so Task 2's coin-correctness tests can render
+    two different coins and compare.
+    """
+    registry = Registry(program_id=None, grandfathered_sol_burn=frozenset())
+    config = type(
+        "Cfg",
+        (),
+        {
+            "mint": mint,
+            "address": f"config-address-{mint}",
+            "version": 2,
+            "status": 1,
+            "admin": "admin-address",
+            "admin_revoked": admin_revoked,
+            "shareholders": ((OTHER_SHAREHOLDER, 10_000),),
+        },
+    )()
+    split = split_of(config, registry)
+    record = Observation(mint=mint, observed_at=1.0)
+    record.config = config
+    record.graduated = True
+    record.split = split
+    record.mint_state = mint_state(900)
+    record.burn_events = burn_events or []
+
+    sol_burn_check = invariants.sol_burn_balance()
+    ops_check = invariants.ops_routed(split)
+    burn_check = invariants.burn_supply(record.mint_state)
+    atomic_check = invariants.burn_atomic(mint, [], False)
+    spend_check = invariants.burn_spend(split)
+    record.checks = (
+        invariants.config_mint(mint, config),
+        invariants.split_sum(split),
+        invariants.sol_burn_unspendable(split),
+        sol_burn_check,
+        burn_check,
+        invariants.burn_irreversible(record.mint_state),
+        atomic_check,
+        spend_check,
+        ops_check,
+    )
+    record.verdict = invariants.apply_silence_rule(record.checks)
+    return record
+
+
+class TestCoinCorrectCopy(unittest.TestCase):
+    def test_reference_ticker_absent_from_a_different_coins_page(self):
+        rendered = site.render(_other_coin_observation(), now=2.0)
+        self.assertNotIn(_REFERENCE_TICKER, rendered)
+
+    def test_enrollment_section_differs_by_admin_revoked_and_names_the_right_state(self):
+        revoked = site.render(_other_coin_observation(admin_revoked=True), now=2.0)
+        not_revoked = site.render(_other_coin_observation(admin_revoked=False), now=2.0)
+        self.assertNotEqual(revoked, not_revoked)
+
+        start = revoked.index('id="cannot-enroll"')
+        end = revoked.index("</section>", start)
+        revoked_section = revoked[start:end]
+        self.assertIn("only pump could ever reset it", revoked_section)
+        self.assertIn("cannot enroll", revoked_section)
+
+        start = not_revoked.index('id="cannot-enroll"')
+        end = not_revoked.index("</section>", start)
+        not_revoked_section = not_revoked[start:end]
+        self.assertIn("can still be changed by its own admin", not_revoked_section)
+        self.assertNotIn("only pump could ever reset it", not_revoked_section)
+
+    def test_non_revoked_coin_page_asserts_no_permanence_of_its_own_configuration(self):
+        # "permanently destroyed" is a universal, true-of-every-coin claim in
+        # the static How It Works table (the BURN leg's permitted claim) --
+        # this checks only that nothing claims THIS coin's configuration
+        # itself is permanent, which is false while it is reconfigurable.
+        rendered = site.render(_other_coin_observation(admin_revoked=False), now=2.0)
+        self.assertNotIn("only pump could ever reset it", rendered)
+        self.assertNotIn("its configuration is admin_revoked", rendered)
+
+    def test_quiet_section_text_is_identical_for_two_different_splits(self):
+        obs_a = _other_coin_observation(mint=OTHER_MINT_ONE)
+        obs_b = _other_coin_observation(mint=OTHER_MINT_ONE)
+        # Force two different splits with the SAME burn history -- the quiet
+        # section must make no claim that varies with a coin's bps.
+        obs_a.split = split_of(
+            type("Cfg", (), {"mint": OTHER_MINT_ONE, "shareholders": ((OTHER_SHAREHOLDER, 10_000),)})(),
+            Registry(program_id=None, grandfathered_sol_burn=frozenset()),
+        )
+        obs_b.split = split_of(
+            type("Cfg", (), {"mint": OTHER_MINT_ONE, "shareholders": ((OTHER_SHAREHOLDER, 1),)})(),
+            Registry(program_id=None, grandfathered_sol_burn=frozenset()),
+        )
+
+        def quiet_html(observation):
+            rendered = site.render(observation, now=2.0)
+            start = rendered.index('id="quiet"')
+            end = rendered.index("</section>", start)
+            return rendered[start:end]
+
+        self.assertEqual(quiet_html(obs_a), quiet_html(obs_b))
+
+    def test_quiet_section_asserts_no_coin_specific_split(self):
+        rendered = site.render(_other_coin_observation(), now=2.0)
+        start = rendered.index('id="quiet"')
+        end = rendered.index("</section>", start)
+        quiet_section = rendered[start:end]
+        self.assertNotIn("100%", quiet_section)
+        self.assertIn("No protocol program is deployed", quiet_section)
+
+    def test_two_mints_render_differing_coin_specific_sentences_and_neither_contains_the_others_mint(self):
+        rendered_one = site.render(_other_coin_observation(mint=OTHER_MINT_ONE), now=2.0)
+        rendered_two = site.render(_other_coin_observation(mint=OTHER_MINT_TWO), now=2.0)
+        self.assertNotEqual(rendered_one, rendered_two)
+        self.assertNotIn(OTHER_MINT_TWO, rendered_one)
+        self.assertNotIn(OTHER_MINT_ONE, rendered_two)
+
+    def test_sol_burn_failure_banner_never_asserts_permanence_for_a_reconfigurable_coin(self):
+        obs = _other_coin_observation(admin_revoked=False)
+        # Force SOL_BURN_UNSPENDABLE to FAIL so the banner renders.
+        fail_check = invariants.Check(
+            name="SOL_BURN_UNSPENDABLE", status=invariants.FAIL,
+            backs=(invariants.SOL_BURN_TOTAL,), equation="n/a", detail="not program-derived",
+        )
+        obs.checks = tuple(c for c in obs.checks if c.name != "SOL_BURN_UNSPENDABLE") + (fail_check,)
+        obs.verdict = invariants.apply_silence_rule(obs.checks)
+        rendered = site.render(obs, now=2.0)
+        self.assertIn('data-banner="sol-burn-failure"', rendered)
+        start = rendered.index('data-banner="sol-burn-failure"')
+        end = rendered.index("</section>", start)
+        banner = rendered[start:end]
+        self.assertNotIn("cannot be changed by anyone but pump", banner)
+        self.assertIn("can still be changed by its own admin", banner)
+
+    def test_no_recorded_burns_says_so_without_claiming_burns_never_walked(self):
+        obs = _other_coin_observation(burn_events=[])
+        rendered = site.render(obs, now=2.0)
+        start = rendered.index('id="quiet"')
+        end = rendered.index("</section>", start)
+        quiet_section = rendered[start:end]
+        self.assertIn("No burn is recorded against this coin's history", quiet_section)
+
+        start = rendered.index('id="log"')
+        end = rendered.index("</section>", start)
+        log_section = rendered[start:end]
+        self.assertIn("No burn is recorded against this mint yet", log_section)
+
+    def test_forbidden_phrase_sweep_still_passes_over_both_sentinel_fixtures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            pass_observation = build_all_publishable_sentinel_observation(evidence)
+            evidence.close()
+        fail_observation = build_observation()
+        for observation in (fail_observation, pass_observation):
+            rendered = site.render(observation, now=2.0).lower()
+            for phrase in FORBIDDEN_PHRASES:
+                self.assertNotIn(phrase, rendered)
+
+
+class TestCoverageStatement(unittest.TestCase):
+    """D-32 as revised by D-35. The sentence states counts it can back and
+    refuses the two shapes that would smuggle back a denominator the project
+    stopped measuring when the chain-wide sweep was cut.
+
+    The figure-name constraint is enforced HERE, where the sentence is
+    written, not only by the landing page's document-wide test: the moment
+    this sentence renders only on the index, that test stops covering it and
+    the constraint would silently lapse.
+    """
+
+    def test_no_invariants_figures_name_appears(self):
+        sentence = site.coverage_statement({"observed": 12, "failed": 3}).lower()
+        for name in invariants.FIGURES:
+            with self.subTest(figure=name):
+                self.assertNotIn(name, sentence)
+
+    def test_is_computed_not_a_constant(self):
+        a = site.coverage_statement({"observed": 12, "failed": 3})
+        b = site.coverage_statement({"observed": 1})
+        self.assertNotEqual(a, b)
+
+    def test_states_the_counts_it_is_given(self):
+        sentence = site.coverage_statement({"observed": 1234, "failed": 7})
+        self.assertIn("1,234", sentence)
+        self.assertIn("7", sentence)
+
+    def test_missing_counts_read_as_zero_rather_than_raising(self):
+        """A partial dict must not crash a render; an absent count is
+        honestly zero, not an exception on a public surface.
+        """
+        self.assertIn("0", site.coverage_statement({}))
+
+    def test_no_failed_clause_when_nothing_failed(self):
+        self.assertNotIn("failed", site.coverage_statement({"observed": 5}))
+
+    def test_never_claims_a_coin_was_submitted(self):
+        """The count is coins with a committed record. The reference coin has
+        one and nobody submitted it, so the sentence said "1 coin submitted
+        and observed" on the live site while asserting a request that never
+        happened. It states observation, which is what it can back.
+        """
+        for counts in ({"observed": 1}, {"observed": 9, "failed": 2}):
+            with self.subTest(counts=counts):
+                self.assertNotIn("submitted", site.coverage_statement(counts))
+
+    def test_a_denominator_handed_in_is_never_rendered(self):
+        """D-35, and the reason this test exists rather than a comment: the
+        sweep is gone, so `enumerated` and `prospects` are numbers nobody
+        measures any more. If a future edit routes them back into this
+        sentence, no other test in the suite would notice — the page would
+        simply start making a claim with nothing behind it.
+        """
+        sentence = site.coverage_statement(
+            {"observed": 4, "enumerated": 603345, "multi_shareholder": 16871,
+             "prospects": 2582, "measured": 99}
+        )
+        for smuggled in ("603,345", "603345", "16,871", "2,582", "99"):
+            with self.subTest(value=smuggled):
+                self.assertNotIn(smuggled, sentence)
+        self.assertIn("4", sentence)
+
+    def test_states_no_percentage_and_no_of_construction(self):
+        """The two shapes that reintroduce a denominator without naming one:
+        "N of M" and "X%".
+        """
+        for counts in ({"observed": 4}, {"observed": 4, "failed": 2}, {}):
+            sentence = site.coverage_statement(counts)
+            with self.subTest(counts=counts):
+                self.assertNotIn("%", sentence)
+                self.assertNotRegex(sentence, r"\d+\s+of\s+\d+")
+
+    def test_says_plainly_that_it_is_not_a_census(self):
+        """The sentence has to carry its own limit. Without this a reader
+        counts the rows and reasonably concludes that is every coin.
+        """
+        self.assertIn("not a census", site.coverage_statement({"observed": 4}))
+
+
+class TestSubmitIssueUrl(unittest.TestCase):
+    """The pre-filled issue `/verify` links to must be recognised by the
+    thing that reads the queue.
+
+    `site` cannot import `intake` -- `intake` imports `site`, so it would be
+    circular -- and duplicates the two markers as plain strings. That is the
+    `EVIDENCE_EXPORT_PATH` pattern, and it has the same failure mode: if the
+    copies drift, every submission made through this link is silently dropped
+    as not-a-submission. This is the test that makes the duplication safe.
+    """
+
+    def test_markers_match_intakes(self):
+        from indexer import intake
+        self.assertEqual(site._SUBMISSION_MARKER, intake.SUBMISSION_MARKER)
+        self.assertEqual(site._SUBMISSION_TITLE_PREFIX, intake.SUBMISSION_TITLE_PREFIX)
+
+    def test_the_url_it_builds_round_trips_through_is_submission(self):
+        from indexer import intake
+        import urllib.parse
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(site.submit_issue_url()).query)
+        issue = {"title": query["title"][0], "body": query["body"][0], "labels": []}
+        self.assertTrue(intake.is_submission(issue))
+
+    def test_sets_no_label(self):
+        """GitHub drops a `labels` parameter for anyone without triage
+        permission -- every stranger this queue exists for. Relying on one
+        would lose exactly the submissions that matter.
+        """
+        self.assertNotIn("labels=", site.submit_issue_url())
+
+
+class TestVerifyPage(unittest.TestCase):
+    def test_states_it_only_answers_for_measured_coins(self):
+        rendered = site.render_verify(now=1)
+        self.assertIn("only answers for coins that have been measured", rendered)
+
+    def test_links_the_submission_issue_and_the_index(self):
+        rendered = site.render_verify(now=1)
+        self.assertIn(site.submit_issue_url().replace("&", "&amp;"), rendered)
+        self.assertIn(site.INDEX_FILENAME_TEMPLATE.format(page=1), rendered)
+
+    def test_ships_no_script(self):
+        self.assertNotIn("<script", site.render_verify(now=1))

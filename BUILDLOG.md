@@ -29,7 +29,7 @@ fight on Windows.
 
 **Three things we are not going to pretend about:**
 
-1. **A SEAL is a lock, not a burn.** There is no burn instruction for SOL.
+1. **A SOL burn is a lock that can be proven.** Solana has no instruction that reduces SOL supply.
    Every burn dashboard that says otherwise is wrong, and so were we until we
    went looking for the instruction and found it does not exist.
 
@@ -49,7 +49,7 @@ fight on Windows.
 
 **Next.** The indexer, because it is the part that can be wrong in public and
 therefore the part worth building first. Read a sharing config, emit
-`{ seal, burn, paid }` in bps, store the observation append-only including the
+`{ sol_burn, burn, paid }` in bps, store the observation append-only including the
 failures.
 
 **Open, unresolved.** Whether pump will crank a funded boost vault on a
@@ -79,10 +79,10 @@ PROTOCOL.md §3 grandfathers that address, but only for *attribution* — the
 `==` invariant degrading to `≤` because the vault is shared. This is a second,
 separate weakness the spec did not name: the vault does not meet the derivation
 standard. Its standing rests on convention, which is the exact thing §3 was
-written to require an alternative to. So `SEAL_UNSPENDABLE` fails, and by the
-silence rule the protocol may not publish a seal total for $CHARLIE.
+written to require an alternative to. So `SOL_BURN_UNSPENDABLE` fails, and by the
+silence rule the protocol may not publish a SOL burn total for $CHARLIE.
 178.734302038 SOL sits there as of today and the indexer will report the balance
-as an observation while refusing to call it sealed.
+as an observation while refusing to call it a burn.
 
 By way of contrast, `1nc1nerator11111111111111111111111111111111` **is**
 program-derived. A burn address that meets the standard was always possible.
@@ -112,11 +112,11 @@ is small and the "~34,700" was approximate, so it is probably nothing — but
 green. Nothing in the system currently records which burns produced that
 supply, and a supply reading alone cannot tell you.
 
-**Next.** Recording inflows per signature, which turns `SEAL_BALANCE` and
+**Next.** Recording inflows per signature, which turns `SOL_BURN_BALANCE` and
 `OPS_ROUTED` from `UNCHECKED` into checks that can actually fail. Then burn
 events, which does the same for `BURN_SUPPLY`.
 
 **Open, unresolved.** Whether the spec should let a grandfathered on-curve
-address ever carry a seal total, or whether $CHARLIE's own figure stays
+address ever carry a SOL burn total, or whether $CHARLIE's own figure stays
 unpublishable until pump resets the config. The code currently says
 unpublishable, which is the harder answer and probably the right one.

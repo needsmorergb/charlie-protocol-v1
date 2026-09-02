@@ -3,10 +3,11 @@
     python -m indexer observe <mint> [<mint> ...]   read the chain, run the checks
     python -m indexer log                           replay the append-only record
     python -m indexer derive <mint> --program <id>  the vault PDAs for a coin
-    python -m indexer scan <mint> [--evidence] [--pages N]   walk SEAL/OPS inflows into evidence
+    python -m indexer scan <mint> [--evidence] [--pages N]   walk SOL-burn/OPS inflows into evidence
     python -m indexer export [--db] [--out]         write the deterministic committed text export
     python -m indexer reconcile <mint> [--evidence PATH] [--write]   EVID-10's residual, as of an observation
     python -m indexer site <mint> [--evidence PATH] [--write] [--out]   WEB-02/WEB-03/WEB-06: the HTML page + raw JSON
+    python -m indexer intake [--repo OWNER/REPO] [--limit N] [--dry-run]   D-34: read the public issue queue, measure submissions
 
 Exit codes are meant to be usable from a cron line or a CI step:
 
@@ -28,10 +29,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import invariants, publish, site
+from . import coverage, intake, invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
-from .legs import GRANDFATHERED_SEAL, Registry, split_of
+from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
 from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
 from .reconcile import DEFAULT_OUTPUT_PATH, reconcile, record as record_reconciliation, render as render_reconciliation
@@ -50,7 +51,7 @@ def _endpoints(value: str | None) -> tuple:
 def _registry(program_id: str | None) -> Registry:
     return Registry(
         program_id=program_id or os.environ.get("CHARLIE_PROGRAM_ID") or None,
-        grandfathered_seal=GRANDFATHERED_SEAL,
+        grandfathered_sol_burn=GRANDFATHERED_SOL_BURN,
     )
 
 
@@ -103,16 +104,16 @@ def _scan(args) -> int:
                 continue
             split = split_of(config, registry)
             leg_of = {a.address: a.leg for a in split.attributions}
-            destinations = {addr for addr, leg in leg_of.items() if leg in ("seal", "paid")}
+            destinations = {addr for addr, leg in leg_of.items() if leg in ("sol_burn", "paid")}
             if not destinations:
-                print(f"{mint}: no SEAL or OPS destination -- nothing to scan for inflows")
+                print(f"{mint}: no SOL burn or OPS destination -- nothing to scan for inflows")
             for destination in sorted(destinations):
                 # D-13: every configured endpoint is walked deliberately and
                 # unioned -- which inflows get recorded must not depend on
                 # which endpoint happened to answer.
                 newest, oldest, complete, endpoints_contributed = scan_inflows_all_endpoints(
                     rpc, evidence, mint, destinations, leg_of.get, destination,
-                    pages=pages, grandfathered=registry.grandfathered_seal,
+                    pages=pages, grandfathered=registry.grandfathered_sol_burn,
                 )
                 state = "backfill complete" if complete else "backfill incomplete"
                 print(
@@ -122,7 +123,7 @@ def _scan(args) -> int:
                 )
 
             # The burn walk and initial-supply derivation apply to every mint
-            # regardless of whether it has a SEAL/OPS destination configured --
+            # regardless of whether it has a SOL burn/OPS destination configured --
             # EVID-06/09/10: the mint-wide burn walk -- every burn against the
             # mint, by anyone, not just one known actor's transactions (D-09).
             burn_newest, burn_oldest, burn_complete = scan_burns(rpc, evidence, mint, pages=pages)
@@ -171,11 +172,14 @@ def _reconcile(args) -> int:
 
 
 def _site(args) -> int:
-    """WEB-02/WEB-03/WEB-06: build one Observation (real RPC + a pre-populated
-    Evidence store, same as `_observe`/`_reconcile`) and render it through
-    `site.render`/`site.record_json` -- both already-classified `SURFACES`
-    targets. `--write` writes both artifacts to sibling paths under `--out`;
-    without it, the HTML is printed to stdout (matching `_reconcile`'s shape).
+    """WEB-02/WEB-03/WEB-06/QT-01/QT-02/QT-03: build one Observation (real
+    RPC + a pre-populated Evidence store, same as `_observe`/`_reconcile`)
+    and render it through `site.render`/`site.record_json`/
+    `site.render_landing` -- all already-classified `SURFACES` targets. One
+    RPC read produces every artifact. `--write` writes the coin page + record
+    to sibling paths under `--out`, plus `index.html` there too when
+    `--landing` is also given; without `--write`, the relevant HTML is
+    printed to stdout (matching `_reconcile`'s shape).
     """
     rpc = RpcClient(_endpoints(args.rpc))
     registry = _registry(args.program)
@@ -189,8 +193,155 @@ def _site(args) -> int:
         html_path, json_path = site.write(record, Path(args.out))
         print(f"wrote {html_path}")
         print(f"wrote {json_path}")
+        if args.landing:
+            landing_path = site.write_landing(record, Path(args.out))
+            print(f"wrote {landing_path}")
     else:
-        print(site.render(record))
+        if args.landing:
+            print(site.render_landing(record))
+        else:
+            print(site.render(record))
+    return 0
+
+
+def _enumerate(args) -> int:
+    """COV-02: one `getProgramAccounts` sweep against the fee-sharing
+    program, on a DEDICATED client -- never the shared one a per-coin
+    observation loop uses, per RESEARCH.md's verified endpoint-penalty
+    pitfall.
+    """
+    rpc = RpcClient(_endpoints(args.rpc), timeout=60.0)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    revoked = True if args.revoked else (False if args.not_revoked else None)
+    try:
+        result = coverage.sweep(rpc, evidence, holders=args.holders, revoked=revoked, on_progress=print)
+    finally:
+        evidence.close()
+    print(
+        f"returned {result['returned']}  decoded {result['decoded']}  "
+        f"truncated {result['truncated']}  refused {result['refused']}"
+    )
+    if result["truncated"]:
+        print(
+            f"{result['truncated']} account(s) truncated by the 114-byte slice -- "
+            "these need a full fetch (03-02's second pass) before they can be recorded"
+        )
+    return 0
+
+
+def _index_inputs(out_dir: Path) -> tuple[list[dict], set[str]]:
+    """The two things `write_index` needs, read fresh off disk every time:
+    every committed record under `out_dir`, and which mints have a sibling
+    page. Factored out of `_index` so `_index` and `_intake` (03-02) can
+    never disagree about the page set or the known-pages set -- both call
+    this exact function rather than each re-deriving it.
+    """
+    records = []
+    for path in sorted(out_dir.glob("*.json")):
+        try:
+            records.append(json.loads(path.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            continue
+
+    reserved_html_stems = {"index"} | {
+        p.stem for p in out_dir.glob(site.INDEX_FILENAME_TEMPLATE.format(page="*"))
+    }
+    known_pages = {
+        p.stem for p in out_dir.glob("*.html") if p.stem not in reserved_html_stems
+    }
+    return records, known_pages
+
+
+def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Path]:
+    """Writes the index pages from whatever is committed under `out_dir`
+    right now. `extra_counts` lets `_intake` (03-02) fold in the failed-
+    attempt count from the submission store without `_index` (which has no
+    submission store to read) ever needing to know that count exists.
+    """
+    records, known_pages = _index_inputs(out_dir)
+    # D-33/D-35: no enumeration, so no denominator. The only count this
+    # command can back on its own is how many records it actually read.
+    counts = {"observed": len(records)}
+    if extra_counts:
+        counts.update(extra_counts)
+    written = list(site.write_index(records, out_dir, counts=counts, known_pages=known_pages))
+    # `/verify` with no mint after it. Written alongside the index rather than
+    # by a command of its own because it is the same surface from the other
+    # side: the index says which coins are measured, this says how a coin
+    # becomes one. Both callers of this helper therefore keep the two in step.
+    written.append(site.write_verify(out_dir))
+    return written
+
+
+def _index(args) -> int:
+    """WEB-01: read the committed records under `--out` and write the index
+    pages. A record's mint is treated as "has a page" when a sibling
+    `<mint>.html` exists under the same directory.
+    """
+    out_dir = Path(args.out)
+    written = _write_index(out_dir)
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
+def _intake(args) -> int:
+    """D-34: the front door. Reads the public issue queue (no credential),
+    measures every submission up to the per-run cap, writes the artifacts
+    for what it could observe, records every attempt to the evidence store,
+    and rebuilds the index from what is now on disk -- through the exact
+    same `_write_index` helper `_index` uses, so a standalone index build
+    and an intake run can never disagree about the page set.
+
+    The reply to GitHub (a comment, a close) needs `gh` and its credential,
+    so it is behind its own explicit `--answer` flag (D-23) -- omitted, this
+    handler never spawns a process and never requires a token to run. This
+    is what lets the read half run in a deployment holding no secret at all.
+    `--dry-run` additionally skips every LOCAL write this handler performs
+    (the coin artifacts, the index, the evidence rows) and only reports what
+    `run()` would find.
+    """
+    rpc = RpcClient(_endpoints(args.rpc))
+    registry = _registry(args.program)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    out_dir = Path(args.out)
+    try:
+        issues = intake.open_issues(args.repo, limit=max(args.limit * 4, intake.DEFAULT_ISSUE_PAGE_LIMIT))
+        if args.dry_run:
+            submissions = [issue for issue in issues if intake.is_submission(issue)]
+            submissions.sort(key=lambda issue: issue.get("number") or 0)
+            for issue in submissions[: args.limit]:
+                try:
+                    mint = intake.submitted_mint(issue)
+                    print(f"issue #{issue.get('number')}  {mint}  (dry run -- not observed)")
+                except intake.InvalidMint as exc:
+                    print(f"issue #{issue.get('number')}  invalid  {exc.reason}")
+            print("dry run -- no artifact written, no evidence recorded, no reply sent")
+            return 0
+
+        outcomes = intake.run(
+            issues, rpc, registry, evidence, out_dir,
+            repo=args.repo, site_url=args.site_url, limit=args.limit,
+        )
+
+        for outcome in outcomes:
+            if outcome.observed:
+                print(f"issue #{outcome.issue_number}  {outcome.mint}  observed  {outcome.verdict_url or ''}")
+            else:
+                print(f"issue #{outcome.issue_number}  {outcome.mint or '(no mint)'}  failed  {outcome.reason}")
+
+        counts_extra = {"failed": evidence.submission_counts()["failed"]}
+        written = _write_index(out_dir, extra_counts=counts_extra)
+        for path in written:
+            print(f"wrote {path}")
+
+        if args.answer:
+            results = intake.reply(evidence, site_url=args.site_url, repo=args.repo)
+            for result in results:
+                print(f"issue #{result['issue_number']}  reply  {result}")
+    finally:
+        evidence.close()
+
     return 0
 
 
@@ -227,7 +378,7 @@ def _log_lines(records) -> list[str]:
         blocked = gated.get("blocked") or {}
         state = "ERROR" if gated.get("error") and not split else ("FAIL" if failed else "ok")
         if split:
-            summary = f"seal {split.get('seal')} burn {split.get('burn')} paid {split.get('paid')}"
+            summary = f"sol_burn {split.get('sol_burn')} burn {split.get('burn')} paid {split.get('paid')}"
         elif invariants.SPLIT in blocked and blocked[invariants.SPLIT]:
             reason = blocked[invariants.SPLIT][0]
             summary = f"withheld -- {reason['check']} ({reason['status']})"
@@ -269,7 +420,7 @@ def _derive(args) -> int:
     registry = _registry(args.program)
     if not registry.program_id:
         print(
-            "no program id. The protocol program is not deployed, so seal and burn\n"
+            "no program id. The protocol program is not deployed, so the SOL-burn and token-burn\n"
             "vault PDAs cannot be derived yet. Pass --program once it is, or set\n"
             "CHARLIE_PROGRAM_ID.",
             file=sys.stderr,
@@ -277,7 +428,7 @@ def _derive(args) -> int:
         return 2
     for mint in args.mints:
         print(f"mint  {mint}")
-        print(f"  seal  {registry.seal_vault(mint)}")
+        print(f"  sol_burn  {registry.sol_burn_vault(mint)}")
         print(f"  burn  {registry.burn_pool(mint)}")
     return 0
 
@@ -326,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
     derive_cmd.set_defaults(handler=_derive)
 
     scan_cmd = sub.add_parser("scan", parents=[common],
-                              help="walk a coin's SEAL/OPS destinations and record inflows")
+                              help="walk a coin's SOL-burn/OPS destinations and record inflows")
     scan_cmd.add_argument("mints", nargs="+")
     scan_cmd.add_argument(
         "--evidence",
@@ -336,6 +487,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scan_cmd.add_argument("--pages", type=int, help=f"backfill pages per run (default {BACKFILL_PAGES_PER_RUN})")
     scan_cmd.set_defaults(handler=_scan)
+
+    enumerate_cmd = sub.add_parser(
+        "enumerate", parents=[common],
+        help="COV-02: enumerate sharing configs from the fee-sharing program",
+    )
+    enumerate_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"SQLite evidence store to read/write (default {DEFAULT_DB_PATH})"
+    )
+    enumerate_cmd.add_argument("--holders", type=int, help="narrow to exactly this many shareholders")
+    enumerate_cmd.add_argument("--revoked", action="store_true", help="narrow to admin_revoked configs only")
+    enumerate_cmd.add_argument(
+        "--not-revoked", action="store_true", dest="not_revoked", help="narrow to non-admin_revoked configs only"
+    )
+    enumerate_cmd.set_defaults(handler=_enumerate)
+
+    index_cmd = sub.add_parser(
+        "index", help="WEB-01: build the coin index pages from the committed records under --out"
+    )
+    index_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"SQLite evidence store to read (default {DEFAULT_DB_PATH})"
+    )
+    index_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
+    index_cmd.set_defaults(handler=_index)
+
+    intake_cmd = sub.add_parser(
+        "intake", parents=[common],
+        help="D-34/COV-02/COV-03: the front door -- read the public issue queue and measure submissions",
+    )
+    intake_cmd.add_argument(
+        "--repo", default="needsmorergb/charlie-protocol-site",
+        help="owner/repo carrying the public submission queue (default needsmorergb/charlie-protocol-site)",
+    )
+    intake_cmd.add_argument(
+        "--limit", type=int, default=intake.DEFAULT_RUN_LIMIT,
+        help=f"submissions attempted per run (default {intake.DEFAULT_RUN_LIMIT}) -- a cap, not a skip",
+    )
+    intake_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"SQLite evidence store to read/write (default {DEFAULT_DB_PATH})"
+    )
+    intake_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
+    intake_cmd.add_argument(
+        "--site-url", dest="site_url", default=None,
+        help="the deployed site's base URL, for composing each verdict link",
+    )
+    intake_cmd.add_argument(
+        "--dry-run", action="store_true",
+        help="read the queue and report what would be measured; write nothing",
+    )
+    intake_cmd.add_argument(
+        "--answer", action="store_true",
+        help="D-23: also reply on GitHub (comment, close) for every unanswered row -- "
+             "needs a logged-in gh credential; defaults to off so the read half never requires one",
+    )
+    intake_cmd.set_defaults(handler=_intake)
 
     export_cmd = sub.add_parser(
         "export", help="write the deterministic committed text export of the evidence store"
@@ -370,6 +575,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help=f"write to --out (default {site.DEFAULT_OUTPUT_DIR}) instead of printing"
     )
     site_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
+    site_cmd.add_argument(
+        "--landing", action="store_true",
+        help="also emit the landing page (QT-01/QT-02/QT-03) at index.html",
+    )
     site_cmd.set_defaults(handler=_site)
 
     return parser

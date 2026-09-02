@@ -3,7 +3,7 @@
 Charlie Protocol — a fee-routing and **verification** standard for pump.fun
 coins.
 
-Three legs (SEAL, BURN, OPS), a set of invariants, and — the part nobody else
+Three legs (SOL burn, BURN, OPS), a set of invariants, and — the part nobody else
 specifies — what a coin is permitted to *claim* about its fees in public.
 
 - [**PROTOCOL.md**](PROTOCOL.md) — the spec: legs, modes, invariants, claims policy
@@ -23,12 +23,22 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 172 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 405 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
-| `web/` — the index, `/coin`, `/enroll`, `/verify` | **not built** |
+| `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>` | **built and deployed** · `/enroll` remains phase 5 |
+
+Deployed at [charlieprotocol.fun](https://charlieprotocol.fun). Intake is
+**submission-driven** (D-33/D-34): there is no cadence over enumerated
+configs and no chain-wide crawl on any automatic path — a coin is measured
+because someone opened an issue asking for it, on the public queue at
+[`needsmorergb/charlie-protocol-site`](https://github.com/needsmorergb/charlie-protocol-site/issues).
+`indexer/coverage.py`'s `sweep()` and the `enumerate` subcommand remain as a
+working, tested, deliberately dormant offline research tool (D-36) — the
+only way to answer "how many coins have a config at all" if that is ever
+asked again, wired into nothing.
 
 Of the nine checks the indexer knows about, `CONFIG_MINT`, `SPLIT_SUM`,
-`SEAL_UNSPENDABLE`, `SEAL_BALANCE`, `BURN_SUPPLY`, `BURN_IRREVERSIBLE` and
+`SOL_BURN_UNSPENDABLE`, `SOL_BURN_BALANCE`, `BURN_SUPPLY`, `BURN_IRREVERSIBLE` and
 `OPS_ROUTED` compute real `PASS`/`FAIL` against stored evidence, not a
 placeholder. `BURN_SPEND` stays `UNCHECKED` — by construction, not by
 omission: it needs recorded fee claims at a BURN destination, and no coin has
@@ -51,12 +61,12 @@ leg, not third-party burns. $CHARLIE has zero protocol-attributed burns (no
 protocol program exists yet), so `BURN_ATOMIC` reads not-applicable for
 $CHARLIE, and for every coin, until phase 5.
 
-$CHARLIE specifically: `SEAL_UNSPENDABLE` fails permanently — its seal
+$CHARLIE specifically: `SOL_BURN_UNSPENDABLE` fails permanently — its SOL burn
 address is a vanity address rather than the program-derived one PROTOCOL.md
 sec.3 requires, and its config is `admin_revoked` so only pump could ever fix
-that. No seal total is publishable for $CHARLIE, now or later. The opening-balance mechanism
+that. No SOL burn total is publishable for $CHARLIE, now or later. The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
-vaults exist (phase 5) — every SEAL destination today is the grandfathered
+vaults exist (phase 5) — every SOL burn destination today is the grandfathered
 shared address, which the mechanism deliberately excludes (D-06/D-07).
 [`state/RECONCILIATION.md`](state/RECONCILIATION.md) is the committed,
 reproducible record of $CHARLIE's exact residual, correct as of a named
@@ -78,13 +88,19 @@ ever run.
 python -m indexer observe 8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump
 ```
 
+**COV-01: this works for any pump coin with a sharing config, whether or not
+it has ever been submitted here.** `observe()` takes a mint and a registry
+and consults no allowlist, no enrollment flag and no consent table — replace
+the mint above with any pump.fun coin's mint address and run the same
+command to get its checks yourself.
+
 `--store` appends the observation to `state/observations.jsonl`, `--json` gives
 one record per line, `--rpc` (or `CHARLIE_RPC_URLS`) chooses endpoints.
 
 ```bash
 python -m indexer log --mint <mint>          # replay the append-only record
 python -m indexer derive <mint> --program X  # the vault PDAs for a coin
-python -m indexer scan <mint> --evidence      # walk SEAL/OPS inflows and burns into evidence
+python -m indexer scan <mint> --evidence      # walk SOL burn/OPS inflows and burns into evidence
 python -m indexer reconcile <mint> --evidence --write   # EVID-10's residual, as of an observation
 ```
 

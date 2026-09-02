@@ -1,0 +1,302 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Charlie Protocol</title><style>
+:root {
+  --paper: #FAF7F0;
+  --panel: #EFEAE0;
+  --accent: #1D4E89;
+  --destructive: #A3271F;
+  --unchecked: #7A5A12;
+  --ink: #1A1A1A;
+  --pass-glyph: #6B6558;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+  --sp-2xl: 48px;
+  --sp-3xl: 64px;
+}
+:root {
+  /* Palette taken from the live $CHARLIE site (charlie-incinerator.com):
+     near-black ground with the brand green as the single accent. Matching it
+     is the point -- two surfaces for one project should not disagree about
+     what colour the project is. */
+  --ash: #0D0F0C;
+  --ash-raised: #161A14;
+  --ash-ink: #EAF3E3;
+  --ash-muted: #8B9585;
+  --ember: #8FE13F;
+  --hair: #D3D8CD;
+  --measure: 62ch;
+  --shell: 1120px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.55;
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+/* -- entrance motion -------------------------------------------------
+   Entrance only. Nothing here animates a VALUE: a count-up would render
+   figures that are not the observed ones for the length of the tween, and
+   a page whose whole claim is that every number is backed by a check must
+   not display numbers no check backs, not even for a second. Motion is
+   restricted to opacity and position, which carry no data. The landing
+   page also ships zero scripts, so this is CSS only and degrades to the
+   final state when animation is unavailable. */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.rise { animation: rise 620ms cubic-bezier(.16,.84,.44,1) both; }
+.d1 { animation-delay: 60ms; } .d2 { animation-delay: 130ms; } .d3 { animation-delay: 200ms; }
+.d4 { animation-delay: 270ms; } .d5 { animation-delay: 340ms; } .d6 { animation-delay: 410ms; }
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation: none; opacity: 1; transform: none; }
+  .hero-rule { animation: none; transform: none; }
+}
+
+/* -- hero ------------------------------------------------------------ */
+.hero {
+  background: var(--ash);
+  color: var(--ash-ink);
+  padding: clamp(var(--sp-2xl), 9vw, 104px) var(--sp-lg) clamp(var(--sp-xl), 6vw, 72px);
+}
+.hero-inner { max-width: var(--shell); margin: 0 auto; }
+.eyebrow {
+  font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ember); margin: 0 0 var(--sp-lg) 0;
+  display: flex; align-items: center; gap: var(--sp-sm);
+}
+.flame { display: inline-flex; line-height: 0; flex: 0 0 auto; }
+.hero h1 {
+  font-size: clamp(34px, 6.6vw, 72px);
+  font-weight: 700; line-height: 1.02; letter-spacing: -.03em;
+  margin: 0 0 var(--sp-lg) 0; overflow-wrap: anywhere;
+}
+.hero .tagline {
+  font-size: clamp(16px, 2.1vw, 21px); line-height: 1.45;
+  color: var(--ash-ink); max-width: var(--measure); margin: 0 0 var(--sp-xl) 0;
+}
+.hero-rule {
+  height: 1px; background: var(--ember); transform-origin: left center;
+  animation: draw 900ms cubic-bezier(.16,.84,.44,1) 120ms both;
+  margin: 0 0 var(--sp-lg) 0;
+}
+.hero .meta { color: var(--ash-muted); }
+
+/* -- shell ----------------------------------------------------------- */
+main { max-width: var(--shell); margin: 0 auto; padding: clamp(var(--sp-xl), 5vw, 64px) var(--sp-lg) var(--sp-3xl); }
+section { margin-bottom: clamp(var(--sp-2xl), 5vw, 72px); }
+.meta { font-size: 13px; font-weight: 400; line-height: 1.5; }
+.freshness .meta { margin: 0 0 var(--sp-xs) 0; }
+a { color: var(--accent); }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.section-label {
+  font-size: 11.5px; letter-spacing: .17em; text-transform: uppercase;
+  color: var(--unchecked); margin: 0 0 var(--sp-lg) 0;
+}
+/* The label rides the art band's baseline, to the right of Charlie and the
+   chart, rather than wrapping in a narrow column of its own. */
+#counters .section-art .section-label { margin-bottom: 0; flex: 1 1 auto; align-self: flex-end; }
+
+/* -- counters --------------------------------------------------------
+   Column minimum is set by the widest value, not by taste: the supply
+   counters run to 18 monospace characters, which at ~0.6em per character
+   needs ~260px at 24px type. A narrower column does not wrap them -- they
+   cannot wrap, by the rule below -- it makes them overflow the next cell. */
+#counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--sp-xl) var(--sp-2xl);
+}
+.counter-cell { min-width: 0; border-top: 1px solid var(--hair); padding-top: var(--sp-md); }
+.counter-value {
+  font-size: clamp(19px, 2.7vw, 27px);
+  font-weight: 700; line-height: 1.2; letter-spacing: -.015em;
+  margin: 0 0 var(--sp-sm) 0;
+  overflow-wrap: normal; word-break: keep-all;
+  font-variant-numeric: tabular-nums;
+}
+.counter-label { font-size: 15px; font-weight: 400; margin: 0 0 var(--sp-xs) 0; }
+.counter-source { margin: 0; color: var(--unchecked); }
+
+/* -- artwork ---------------------------------------------------------
+   Original inline sprites. All motion is CSS on elements this module emits,
+   so the landing page keeps zero scripts: nothing here can alter a figure,
+   and there is no frame loop to get out of step with the record. */
+.hero-art { display: flex; align-items: flex-end; gap: var(--sp-xl); flex-wrap: wrap; }
+.hero-copy { flex: 1 1 24rem; min-width: 0; }
+.charlie { image-rendering: pixelated; display: block; }
+
+/* -- the scene: Charlie crawls, the incinerator burns -----------------
+   `.walker` travels the full width of `.scene-track` using the left/
+   translateX pair, which resolves against the track at any width without
+   the stylesheet needing to know that width. `.facing` flips him at the
+   turn; the <img> squashes. Three elements because they each animate
+   `transform`, and one element can only hold one. */
+.scene { display: flex; align-items: flex-end; gap: var(--sp-lg);
+  margin: var(--sp-xl) 0 var(--sp-lg); }
+/* Both sizes are driven by HEIGHT, not width, because that is the axis the
+   proportion lives on: the track's height IS Charlie's height, and the
+   furnace box is sized so its building half -- 59.16% of the box, the rest
+   being plume -- lands at roughly three times it. Sizing these by width
+   instead had him rendering 131px tall against a 95px building, a slug
+   taller than the incinerator he is walking to. */
+.scene-track { position: relative; flex: 1 1 auto;
+  height: clamp(38px, 5vw, 64px); }
+/* Both carry height:100% so the <img>'s own height:100% has something to
+   resolve against -- an auto-height ancestor leaves it indeterminate and the
+   image falls back to its intrinsic 484px. */
+.walker { position: absolute; bottom: 0; left: 0; height: 100%;
+  animation: crawl 21s ease-in-out infinite alternate; }
+.facing { height: 100%; animation: face 42s steps(1, end) infinite; }
+.scene .charlie.walk { height: 100%; width: auto;
+  transform-origin: 50% 100%; animation: lurch 1.9s ease-in-out infinite; }
+
+@keyframes crawl { from { left: 0; transform: translateX(0); }
+                   to   { left: 100%; transform: translateX(-100%); } }
+/* The source art faces LEFT -- his eyes sit left of his body's centre. So
+   the mirrored half is the one where he travels RIGHT, which is the first
+   half of the crawl's alternate cycle. Getting this backwards makes him
+   moonwalk. Stepped, so the turn is a flip and not a smear. */
+@keyframes face { 0%, 49.99% { transform: scaleX(-1); }
+                  50%, 100%  { transform: scaleX(1); } }
+@keyframes lurch { 0%, 100% { transform: scaleY(1) scaleX(1); }
+                   45% { transform: scaleY(.93) scaleX(1.05); }
+                   70% { transform: scaleY(1.03) scaleX(.98); } }
+
+/* The mark's own aspect ratio, so the two layers stay registered to each
+   other at every width: smoke pinned to the top, building to the bottom,
+   each keeping its share of the original 333px height. */
+.furnace { position: relative; flex: 0 0 auto; line-height: 0;
+  height: clamp(190px, 26vw, 325px); width: auto; aspect-ratio: 241 / 333; }
+.furnace img { image-rendering: pixelated; display: block;
+  position: absolute; left: 0; width: 100%; height: auto; }
+.furnace .stack { bottom: 0; }
+.smoke-drift { position: absolute; left: 0; top: 0; width: 100%;
+  transform-origin: 50% 100%;
+  animation: sway 11.9s ease-in-out infinite; }
+.furnace .smoke { top: 0; transform-origin: 50% 100%;
+  animation: billow 7.3s ease-in-out infinite; }
+
+/* Two periods that do not divide into each other, so the combined drift
+   takes a long time to repeat itself and never reads as a short loop. */
+@keyframes sway {
+  0%   { transform: translateX(0)     skewX(0deg); }
+  28%  { transform: translateX(3.5%)  skewX(-2.6deg); }
+  54%  { transform: translateX(-2.2%) skewX(1.6deg); }
+  79%  { transform: translateX(4.4%)  skewX(-3.1deg); }
+  100% { transform: translateX(0)     skewX(0deg); }
+}
+@keyframes billow {
+  0%   { transform: translateY(0)     scale(1);     opacity: .95; }
+  38%  { transform: translateY(-3.2%) scale(1.05);  opacity: .74; }
+  71%  { transform: translateY(-1.4%) scale(1.018); opacity: .89; }
+  100% { transform: translateY(0)     scale(1);     opacity: .95; }
+}
+.hero-art .charlie { width: clamp(128px, 18vw, 200px); height: auto; flex: 0 0 auto; }
+/* Spans every column: the art band introduces the counters, it is not a
+   counter itself. Without this it takes the first grid cell and shoves the
+   first figure into column two. */
+.section-art { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: var(--sp-lg);
+  margin-bottom: var(--sp-xl); flex-wrap: wrap; }
+.section-art .charlie-gif { image-rendering: pixelated; display: block;
+  width: clamp(88px, 11vw, 124px); height: auto; }
+.section-art .chart { width: clamp(104px, 13vw, 148px); height: auto; }
+.refusal-art { display: flex; gap: var(--sp-lg); align-items: flex-start; flex-wrap: wrap; }
+.refusal-copy { flex: 1 1 24rem; min-width: 0; }
+
+/* Blink: the eyes squash to a line and back. Long pause, quick close --
+   a steady metronome reads as a machine, not a slug. */
+
+
+/* The flame gutters: two-frame pixel animation, stepped so it stays crisp
+   rather than smearing between states. */
+@keyframes gutter {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  25%      { transform: scaleY(1.14) translateY(-1px); }
+  50%      { transform: scaleY(.92) translateY(1px); }
+  75%      { transform: scaleY(1.06) translateY(0); }
+}
+.flame-svg { width: clamp(16px, 2vw, 22px); height: auto; transform-origin: 50% 100%;
+  animation: gutter 640ms steps(2, end) infinite; }
+
+/* The chart moves, because that is what a chart does. Each bar scales from
+   its own baseline on a staggered delay. */
+@keyframes tick { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.55); } }
+.chart .bar { transform-box: fill-box; transform-origin: 50% 100%; animation: tick 2.6s ease-in-out infinite; }
+.chart .b0 { animation-delay: 0ms; }   .chart .b1 { animation-delay: 180ms; }
+.chart .b2 { animation-delay: 360ms; } .chart .b3 { animation-delay: 540ms; }
+.chart .b4 { animation-delay: 720ms; } .chart .b5 { animation-delay: 900ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flame-svg, .chart .bar, .walker, .facing,
+  .scene .charlie.walk, .smoke-drift, .furnace .smoke { animation: none; }
+}
+
+/* -- status + refusal ------------------------------------------------- */
+.badge { display: inline-flex; align-items: center; gap: var(--sp-xs); padding: 2px 8px; }
+.status-pass { color: var(--pass-glyph); background: none; font-size: 14px; font-weight: 400; }
+.status-fail { background: var(--destructive); color: #fff; font-size: 20px; font-weight: 700; }
+.status-unchecked { border: 1px dashed var(--unchecked); color: var(--unchecked); font-size: 14px; font-weight: 400; }
+.supply-refusal {
+  padding: var(--sp-lg); margin: 0 0 clamp(var(--sp-2xl), 5vw, 72px) 0;
+  background: var(--panel);
+}
+.supply-refusal p { font-size: 16px; font-weight: 400; margin: 0 0 var(--sp-md) 0; max-width: var(--measure); }
+/* The row's spans are separate inline elements with no whitespace between
+   them in the markup, so without a flex gap they render as
+   BURN_SUPPLYFAILinitial_supply -- three fields read as one string. */
+.check-row {
+  padding: var(--sp-md) 0 0 0; border-top: 1px solid var(--hair);
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: var(--sp-xs) var(--sp-md);
+}
+.check-row .check-detail, .check-row .check-expected-actual { flex-basis: 100%; }
+.check-name { font-size: 14px; font-weight: 400; }
+.check-equation { font-size: 14px; font-weight: 400; }
+.check-detail { font-size: 16px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.check-expected-actual { font-size: 14px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+
+/* -- prose + links ---------------------------------------------------- */
+#what-this-is p { font-size: clamp(16px, 1.9vw, 18px); line-height: 1.6; max-width: var(--measure); }
+/* Bordered like the refusal block above it, because it is the same kind of
+   statement: a thing this page will not claim yet. */
+#launch-soon {
+  border: 1px dashed var(--unchecked); padding: var(--sp-lg);
+  max-width: var(--measure);
+}
+.soon-head { display: flex; align-items: center; gap: var(--sp-md);
+  flex-wrap: wrap; margin-bottom: var(--sp-md); }
+.soon-head h2 { margin: 0; font-size: clamp(19px, 2.4vw, 24px); }
+#launch-soon p { font-size: clamp(15px, 1.8vw, 17px); line-height: 1.6;
+  margin: 0 0 var(--sp-md) 0; }
+#launch-soon p:last-child { margin-bottom: 0; }
+
+#why-counted { max-width: var(--measure); }
+#why-counted p { font-size: clamp(15px, 1.8vw, 17px); line-height: 1.6;
+  margin: 0 0 var(--sp-md) 0; }
+#why-counted p:last-child { margin-bottom: 0; color: var(--unchecked); }
+
+#two-ways-in { display: flex; flex-wrap: wrap; gap: var(--sp-md); }
+#two-ways-in p { margin: 0; }
+#two-ways-in a {
+  display: inline-block; padding: var(--sp-md) var(--sp-lg);
+  background: var(--ash); color: var(--ash-ink); text-decoration: none;
+  font-size: 15px; border: 1px solid var(--ash);
+}
+#two-ways-in a:hover, #two-ways-in a:focus-visible { background: var(--ember); border-color: var(--ember); color: var(--ash); }
+footer { border-top: 1px solid var(--hair); padding-top: var(--sp-lg); margin-top: var(--sp-2xl); }
+footer p { font-size: 13px; font-weight: 400; margin: 0 0 var(--sp-sm) 0; color: var(--unchecked); max-width: var(--measure); }
+footer a { word-break: break-all; overflow-wrap: anywhere; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style></head><body><header class="hero"><div class="hero-inner"><div class="hero-art"><div class="hero-copy"><p class="eyebrow rise"><span class="flame"><svg class="flame-svg" viewBox="0 0 16 20" width="16" height="20" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="7" y="1" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="2" width="1" height="1" fill="#ff4d2e"/><rect x="7" y="2" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="3" width="1" height="1" fill="#ff4d2e"/><rect x="7" y="3" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="4" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="4" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="4" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="5" width="1" height="1" fill="#ff4d2e"/><rect x="5" y="5" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="5" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="5" width="1" height="1" fill="#ff8a1f"/><rect x="3" y="6" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="6" width="1" height="1" fill="#ff4d2e"/><rect x="5" y="6" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="6" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="6" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="6" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="7" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="7" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="7" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="7" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="7" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="7" width="1" height="1" fill="#ff4d2e"/><rect x="9" y="7" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="8" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="8" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="8" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="8" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="8" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="8" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="8" width="1" height="1" fill="#ff4d2e"/><rect x="9" y="8" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="9" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="9" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="9" width="1" height="1" fill="#ff4d2e"/><rect x="1" y="10" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="10" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="10" width="1" height="1" fill="#ffd84a"/><rect x="7" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="10" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="10" width="1" height="1" fill="#ff4d2e"/><rect x="1" y="11" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="3" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="11" width="1" height="1" fill="#ffd84a"/><rect x="6" y="11" width="1" height="1" fill="#ffd84a"/><rect x="7" y="11" width="1" height="1" fill="#ffd84a"/><rect x="8" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="11" width="1" height="1" fill="#ff8a1f"/><rect x="11" y="11" width="1" height="1" fill="#ff4d2e"/><rect x="1" y="12" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="12" width="1" height="1" fill="#ff8a1f"/><rect x="3" y="12" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="12" width="1" height="1" fill="#ffd84a"/><rect x="5" y="12" width="1" height="1" fill="#ffd84a"/><rect x="6" y="12" width="1" height="1" fill="#ffd84a"/><rect x="7" y="12" width="1" height="1" fill="#ffd84a"/><rect x="8" y="12" width="1" height="1" fill="#ffd84a"/><rect x="9" y="12" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="12" width="1" height="1" fill="#ff8a1f"/><rect x="11" y="12" width="1" height="1" fill="#ff8a1f"/><rect x="12" y="12" width="1" height="1" fill="#ff4d2e"/><rect x="1" y="13" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="13" width="1" height="1" fill="#ff8a1f"/><rect x="3" y="13" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="13" width="1" height="1" fill="#ffd84a"/><rect x="5" y="13" width="1" height="1" fill="#ffd84a"/><rect x="6" y="13" width="1" height="1" fill="#ffd84a"/><rect x="7" y="13" width="1" height="1" fill="#ffd84a"/><rect x="8" y="13" width="1" height="1" fill="#ffd84a"/><rect x="9" y="13" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="13" width="1" height="1" fill="#ff8a1f"/><rect x="11" y="13" width="1" height="1" fill="#ff8a1f"/><rect x="12" y="13" width="1" height="1" fill="#ff4d2e"/><rect x="1" y="14" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="14" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="14" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="14" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="14" width="1" height="1" fill="#ffd84a"/><rect x="6" y="14" width="1" height="1" fill="#ffd84a"/><rect x="7" y="14" width="1" height="1" fill="#ffd84a"/><rect x="8" y="14" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="14" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="14" width="1" height="1" fill="#ff8a1f"/><rect x="11" y="14" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="15" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="15" width="1" height="1" fill="#ff8a1f"/><rect x="4" y="15" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="15" width="1" height="1" fill="#ffd84a"/><rect x="6" y="15" width="1" height="1" fill="#ffd84a"/><rect x="7" y="15" width="1" height="1" fill="#ffd84a"/><rect x="8" y="15" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="15" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="15" width="1" height="1" fill="#ff8a1f"/><rect x="11" y="15" width="1" height="1" fill="#ff4d2e"/><rect x="2" y="16" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="16" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="5" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="16" width="1" height="1" fill="#ff8a1f"/><rect x="10" y="16" width="1" height="1" fill="#ff4d2e"/><rect x="11" y="16" width="1" height="1" fill="#ff4d2e"/><rect x="3" y="17" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="17" width="1" height="1" fill="#ff4d2e"/><rect x="5" y="17" width="1" height="1" fill="#ff8a1f"/><rect x="6" y="17" width="1" height="1" fill="#ff8a1f"/><rect x="7" y="17" width="1" height="1" fill="#ff8a1f"/><rect x="8" y="17" width="1" height="1" fill="#ff8a1f"/><rect x="9" y="17" width="1" height="1" fill="#ff4d2e"/><rect x="10" y="17" width="1" height="1" fill="#ff4d2e"/><rect x="4" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="5" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="7" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="8" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="9" y="18" width="1" height="1" fill="#ff4d2e"/><rect x="5" y="19" width="1" height="1" fill="#ff4d2e"/><rect x="6" y="19" width="1" height="1" fill="#ff4d2e"/><rect x="7" y="19" width="1" height="1" fill="#ff4d2e"/><rect x="8" y="19" width="1" height="1" fill="#ff4d2e"/></svg></span>Fee routing, and what may be claimed about it</p><h1 class="rise d1">Charlie Protocol</h1><p class="tagline rise d2">Every number on this page names the check that could falsify it.</p></div></div><div class="scene" aria-hidden="true"><div class="scene-track"><div class="walker"><div class="facing"><img class="charlie walk" src="/assets/charlie.png" width="383" height="484" alt="" decoding="async"></div></div></div><div class="furnace"><span class="smoke-drift"><img class="smoke" src="/assets/incinerator-smoke.png" alt="" decoding="async"></span><img class="stack" src="/assets/incinerator-stack.png" alt="" decoding="async"></div></div><div class="hero-rule"></div><div class="rise d3"><div class="freshness"><p class="meta">observed at 2026-09-02 15:08:04Z (epoch 1788361684.346464)</p><p class="meta">age: 2 seconds</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p></div></div></div></header><main><section id="counters" aria-label="live counters"><div class="section-art"><img class="charlie-gif" src="/assets/charlie-found.gif" width="256" height="256" alt="Charlie, throwing out the drafts that did not check out" decoding="async" loading="lazy"><svg class="chart" viewBox="0 0 52 28" width="52" height="28" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A chart, moving"><rect x="0" y="8" width="52" height="1" fill="#3E6B1C"/><rect x="0" y="16" width="52" height="1" fill="#3E6B1C"/><rect x="0" y="24" width="52" height="1" fill="#3E6B1C"/><rect class="bar b0" x="4" y="14" width="5" height="10" fill="#8FE13F"/><rect class="bar b1" x="12" y="9" width="5" height="16" fill="#8FE13F"/><rect class="bar b2" x="20" y="18" width="5" height="6" fill="#8FE13F"/><rect class="bar b3" x="28" y="5" width="5" height="20" fill="#8FE13F"/><rect class="bar b4" x="36" y="12" width="5" height="13" fill="#8FE13F"/><rect class="bar b5" x="44" y="2" width="5" height="23" fill="#8FE13F"/></svg><p class="section-label">Observed, and where each one comes from</p></div><div class="counter-cell rise d1"><p class="counter-value">956,382,187.958914</p><p class="counter-label">Supply remaining</p><p class="counter-source meta">mint_state.supply</p></div><div class="counter-cell rise d2"><p class="counter-value">1,000,000,000.000000</p><p class="counter-label">Initial supply</p><p class="counter-source meta">evidence.initial_supply.raw_supply</p></div><div class="counter-cell rise d3"><p class="counter-value">30</p><p class="counter-label">Recorded burn transactions</p><p class="counter-source meta">len(burn_events)</p></div><div class="counter-cell rise d4"><p class="counter-value">43,576,580.427900</p><p class="counter-label">Tokens in those burns</p><p class="counter-source meta">sum(tokens_burned across burn_events)</p></div><div class="counter-cell rise d5"><p class="counter-value">17.584506254</p><p class="counter-label">SOL spent buying them</p><p class="counter-source meta">sum(sol_spent across burn_events)</p></div><div class="counter-cell rise d6"><p class="counter-value">1 transaction -- 1,100.000000 tokens</p><p class="counter-label">Burned by hand, not by boost</p><p class="counter-source meta">burn_events where source != boost_buy_and_burn</p></div></section><section id="why-counted"><p>The last counter is people destroying their own tokens. No mechanism ran, nothing asked them to, and no reward was paid for it -- one of them so far. They are counted anyway, on purpose. The figure they feed asks how much of this token is gone, not how much of it this protocol destroyed; a protocol that counted only its own burns would report the ones it caused and quietly drop everyone else's. So the walk records every burn against the mint, by anyone.</p><p>It does not follow that the shortfall below is more of the same. That gap is unattributed. Naming a cause for it here is exactly the claim this page will not make.</p></section><section class="supply-refusal status-unchecked" data-refusal="supply"><p>Both supply endpoints render above. This page declines to subtract them -- the difference would be a checked figure, and the check that backs it is shown below, exactly as it reads right now.</p><div class="check-row" data-check="BURN_SUPPLY"><span class="check-name">BURN_SUPPLY</span><span class="badge status-fail">FAIL</span><span class="check-equation">initial_supply - sum(burn_amounts) == getMint(mint).supply</span><p class="check-detail">claimed burns do not reconcile against the mint supply</p><p class="check-expected-actual">expected 956423419572100 | actual 956382187958914</p></div></section><section id="what-this-is"><p>Charlie Protocol is a fee-routing and verification standard for pump.fun coins, naming three destinations for creator fees -- BURN (SOL), BURN (token), OPS -- and specifying the part nobody else does: what a coin is permitted to claim about them in public. Both burn: a SOL burn sends SOL where no key can spend it, a BURN destroys token supply. The word is only permitted where the destination is provably unspendable -- and $CHARLIE&#x27;s is not.</p></section><section id="launch-soon"><div class="soon-head"><h2>Launch with Charlie Protocol</h2><span class="badge status-unchecked">Coming soon</span></div><p>When it ships, a coin will name its three fee destinations when it is created -- SOL_BURN, BURN and OPS -- and its SOL burn vault will be derived by the program rather than chosen by whoever deploys it. The coin then gets a page like this one, on which no figure renders unless a passing check backs it.</p><p>None of that is built yet. What produced every number above exists: the checks, the verifier, and the committed record they read from. The on-chain program that does the enrolling does not, so no coin can enroll today. That includes $CHARLIE, which revoked its own admin and can no longer be reconfigured by anyone but pump.</p><p>It will land in the repository linked below. There is nothing to sign up for and nothing to buy in order to be ready for it.</p></section><section id="two-ways-in"><p><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">View $CHARLIE, checked<span class="visually-hidden"> (opens the checked coin page)</span></a></p><p><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">View its raw observation record<span class="visually-hidden"> (opens the raw JSON record)</span></a></p></section><footer><p>Spec, code and committed evidence: <a href="https://github.com/needsmorergb/charlie-protocol-v1">https://github.com/needsmorergb/charlie-protocol-v1</a></p><p>Every counter above is recomputable from the record published at <a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json</a>.</p><p>The publication sweep proves no ungated figure can leak onto this page. It does not prove the numbers shown are the right ones, because nothing independently checks that this renderer faithfully reflects the record it was generated from.</p></footer></main></body></html>

@@ -1,7 +1,7 @@
 """ed25519 point decompression, and the PDA derivation that depends on it.
 
-This module is the cryptographic core of the SEAL leg. PROTOCOL.md sec.3 says a
-seal vault must be a program-derived address rather than a vanity address,
+This module is the cryptographic core of the SOL burn leg. PROTOCOL.md sec.3 says a
+SOL burn vault must be a program-derived address rather than a vanity address,
 because program derivation is a property the Solana runtime itself enforces,
 whereas a vanity address's standing rests on convention. `is_on_curve` is where
 that derivation is actually computed, so it is written out longhand rather than
@@ -40,7 +40,7 @@ def is_on_curve(candidate) -> bool:
     """Does this 32-byte value decompress to an ed25519 point?
 
     True  -> an ordinary account, not program-derived. The protocol may not
-             call it a seal.
+             call it a burn.
     False -> a program-derived address. Only a program that can sign for the
              address may move its lamports -- and if no such program exists, or
              the program that owns it has no instruction that moves them, the

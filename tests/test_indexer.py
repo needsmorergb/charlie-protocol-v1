@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from indexer import invariants
 from indexer.base58 import decode, encode, pubkey_bytes
 from indexer.curve import find_program_address, is_on_curve
-from indexer.legs import GRANDFATHERED_SEAL, Registry, split_of
+from indexer.legs import GRANDFATHERED_SOL_BURN, Registry, split_of
 from indexer.observe import observe
 from indexer.pump import (
     DISC_BONDING_CURVE,
@@ -137,7 +137,7 @@ class TestBase58(unittest.TestCase):
 class TestCurve(unittest.TestCase):
     def test_pdas_are_off_curve(self):
         """The property that makes a PDA unsignable."""
-        for seed in (b"seal", b"burn", b"bonding-curve"):
+        for seed in (b"sol_burn", b"burn", b"bonding-curve"):
             address, _bump = find_program_address([seed, pubkey_bytes(CHARLIE)], PROGRAM)
             self.assertFalse(is_on_curve(address), address)
 
@@ -148,9 +148,9 @@ class TestCurve(unittest.TestCase):
         """Pinned against mainnet 2026-08-29, and it is the finding, not a detail.
 
         `burn111...111` holds $CHARLIE's entire fee stream and is a vanity address
-        rather than the program-derived seal vault PROTOCOL.md sec.3 requires. That
-        section grandfathers the address for attribution; meeting the seal-vault
-        standard is separate, and SEAL_UNSPENDABLE fails on it.
+        rather than the program-derived SOL burn vault PROTOCOL.md sec.3 requires. That
+        section grandfathers the address for attribution; meeting the SOL-burn-vault
+        standard is separate, and SOL_BURN_UNSPENDABLE fails on it.
         """
         self.assertTrue(is_on_curve(BURN_VANITY))
 
@@ -221,7 +221,7 @@ class TestDecoding(unittest.TestCase):
 # -- leg attribution ------------------------------------------------------
 class TestLegs(unittest.TestCase):
     def setUp(self):
-        self.registry = Registry(program_id=PROGRAM, grandfathered_seal=GRANDFATHERED_SEAL)
+        self.registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=GRANDFATHERED_SOL_BURN)
 
     def config(self, holders, mint=CHARLIE):
         rpc = FakeRpc(
@@ -229,31 +229,31 @@ class TestLegs(unittest.TestCase):
         )
         return read_sharing_config(rpc, read_bonding_curve(rpc, CHARLIE))
 
-    def test_protocol_pdas_are_seal_and_burn(self):
-        seal = self.registry.seal_vault(CHARLIE)
+    def test_protocol_pdas_are_sol_burn_and_burn(self):
+        sol_burn = self.registry.sol_burn_vault(CHARLIE)
         burn = self.registry.burn_pool(CHARLIE)
-        split = split_of(self.config([(seal, 6_000), (burn, 4_000)]), self.registry)
-        self.assertEqual((split.seal, split.burn, split.paid), (6_000, 4_000, 0))
+        split = split_of(self.config([(sol_burn, 6_000), (burn, 4_000)]), self.registry)
+        self.assertEqual((split.sol_burn, split.burn, split.paid), (6_000, 4_000, 0))
 
-    def test_grandfathered_address_is_seal(self):
+    def test_grandfathered_address_is_sol_burn(self):
         split = split_of(self.config([(BURN_VANITY, 10_000)]), self.registry)
-        self.assertEqual((split.seal, split.burn, split.paid), (10_000, 0, 0))
+        self.assertEqual((split.sol_burn, split.burn, split.paid), (10_000, 0, 0))
 
     def test_unknown_address_is_ops_even_when_keyless(self):
-        """The conservative direction: unproven is OPS, never SEAL."""
+        """The conservative direction: unproven is OPS, never SOL_BURN."""
         split = split_of(self.config([(INCINERATOR, 10_000)]), self.registry)
         self.assertEqual(split.paid, 10_000)
         self.assertTrue(split.attributions[0].keyless)
-        self.assertIn("Not provably sealed", split.attributions[0].reason)
+        self.assertIn("Not provably burned", split.attributions[0].reason)
 
     def test_ordinary_wallet_is_ops(self):
         split = split_of(self.config([(WALLET, 10_000)]), self.registry)
         self.assertEqual(split.paid, 10_000)
         self.assertFalse(split.attributions[0].keyless)
 
-    def test_without_a_deployed_program_nothing_derives_as_seal(self):
+    def test_without_a_deployed_program_nothing_derives_as_sol_burn(self):
         registry = Registry(program_id=None)
-        self.assertIsNone(registry.seal_vault(CHARLIE))
+        self.assertIsNone(registry.sol_burn_vault(CHARLIE))
         split = split_of(self.config([(WALLET, 10_000)]), registry)
         self.assertEqual(split.paid, 10_000)
 
@@ -273,19 +273,19 @@ class TestInvariants(unittest.TestCase):
         self.assertEqual({c.name: c for c in record.checks}["CONFIG_MINT"].status, invariants.FAIL)
         self.assertEqual(record.verdict.publishable, frozenset())
 
-    def test_on_curve_seal_destination_fails(self):
+    def test_on_curve_sol_burn_destination_fails(self):
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
-        check = {c.name: c for c in record.checks}["SEAL_UNSPENDABLE"]
+        check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
         self.assertEqual(check.status, invariants.FAIL)
         self.assertIn(BURN_VANITY, check.actual)
-        self.assertNotIn(invariants.SEAL_TOTAL, record.verdict.publishable)
+        self.assertNotIn(invariants.SOL_BURN_TOTAL, record.verdict.publishable)
 
-    def test_off_curve_seal_destination_passes(self):
+    def test_off_curve_sol_burn_destination_passes(self):
         registry = Registry(program_id=PROGRAM)
-        seal = registry.seal_vault(CHARLIE)
-        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(seal, 10_000)])})
+        sol_burn = registry.sol_burn_vault(CHARLIE)
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(sol_burn, 10_000)])})
         record = observe(rpc, CHARLIE, registry, now=1.0)
-        self.assertEqual({c.name: c for c in record.checks}["SEAL_UNSPENDABLE"].status, invariants.PASS)
+        self.assertEqual({c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"].status, invariants.PASS)
 
     def test_live_mint_authority_forbids_the_burn_claim(self):
         rpc = charlie_rpc({CHARLIE: mint_account(1, mint_authority=WALLET)})
@@ -331,10 +331,34 @@ class TestObservation(unittest.TestCase):
         line = json.dumps(record.as_dict(), sort_keys=True)
         self.assertNotIn("\n", line)
         parsed = json.loads(line)
-        self.assertEqual(parsed["split"], {"seal": 10_000, "burn": 0, "paid": 0})
-        self.assertEqual(parsed["seal_balances"][BURN_VANITY], 178_734_302_038)
+        self.assertEqual(parsed["split"], {"sol_burn": 10_000, "burn": 0, "paid": 0})
+        self.assertEqual(parsed["sol_burn_balances"][BURN_VANITY], 178_734_302_038)
         self.assertEqual(parsed["publishable"], ["split"])
         self.assertTrue(parsed["config"]["admin_revoked"])
+
+    def test_a_mint_present_in_no_local_table_at_all_still_gets_a_full_observation(self):
+        """COV-01 (03-02 Task 3): `observe()` takes a mint and a registry and
+        consults no list of permitted coins -- proven, not just claimed, on
+        a mint that is NOT the reference implementation and appears in no
+        fixture, enumeration or allowlist anywhere in this test file.
+        """
+        other_mint = WALLET
+        other_config_addr = INCINERATOR
+        other_curve = bonding_curve(other_mint)
+        accounts = {
+            other_curve: curve_account(other_config_addr),
+            other_config_addr: config_account(
+                other_mint, [(BURN_VANITY, 5_000), (WALLET, 5_000)], admin_revoked=False
+            ),
+            other_mint: mint_account(1_000_000_000),
+        }
+        record = observe(FakeRpc(accounts), other_mint, Registry(), now=1.0)
+
+        self.assertIsNone(record.error)
+        self.assertEqual(len(record.checks), 9)
+        self.assertIsNotNone(record.verdict)
+        self.assertEqual(record.split.sol_burn, 5_000)
+        self.assertEqual(record.split.paid, 5_000)
 
 
 # -- the append-only store ------------------------------------------------

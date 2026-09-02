@@ -81,3 +81,78 @@ exists publicly that this repo lacks, and force-pushing would delete it.
 Never cite a `.planning/` path from a file outside `.planning/`. Such citations
 dangle in the published repo; `indexer/reconcile.py` had one and the text had to
 be restated in prose instead.
+
+## Publishing to `charlie-protocol-site` (the deployed site)
+
+This is a **different repository from `charlie-protocol-v1` above**, and a
+different kind of publish. `charlie-protocol-v1` is a filtered mirror of this
+source tree; `needsmorergb/charlie-protocol-site` holds no source at all --
+it is a **build output**, exactly the generated contents of `web/`, that
+Vercel auto-deploys on every push to its `main`. Nothing here is hand-edited
+in that repository; if a page is wrong, the generator (`indexer/site.py`) is
+wrong, and a hand edit there would make the committed page and the generator
+that produced it permanently disagree -- precisely the failure this project
+exists to make visible.
+
+### The recipe
+
+```bash
+# 1. Generate everything current HEAD can produce.
+python -m indexer intake --repo needsmorergb/charlie-protocol-site \
+  --evidence state/evidence.db --out web --site-url https://charlieprotocol.fun
+# (or, with no open submissions to measure, just rebuild the index:)
+python -m indexer index --out web
+
+# 2. Clone the deploy target fresh -- do not reuse a stale checkout.
+git clone https://github.com/needsmorergb/charlie-protocol-site.git /tmp/cp-site
+cd /tmp/cp-site
+
+# 3. Replace web/ wholesale. This is the step that matters: a `cp -r`
+#    that only ADDS files would leave behind a page the generator stopped
+#    producing (a mint that no longer has a config, a renamed route). The
+#    directory must be emptied first so the copy is authoritative.
+rm -rf ./*
+cp -r /path/to/charlie-protocol-v1/web/. .
+cp /path/to/charlie-protocol-v1/vercel.json .
+
+# 4. Commit and push. Vercel deploys on push to main -- there is no
+#    separate deploy step.
+git add -A
+git commit -m "deploy: regenerate from charlie-protocol-v1 web/"
+git push origin main
+```
+
+### Verification -- before anything cites a route as live
+
+Fetch every route on the live domain and confirm it answers before citing
+it anywhere (a comment on an issue, a post, a link from another page). A
+verdict link posted before this step is a dead link presented as an answer
+-- the same defect as a figure with no passing check behind it (T-03-09).
+
+```bash
+python -c "import urllib.request as u; print(u.urlopen('https://charlieprotocol.fun/coins', timeout=20).status)"
+python -c "import urllib.request as u; print(u.urlopen('https://charlieprotocol.fun/verify/<mint>', timeout=20).status)"
+```
+
+Both must print `200`. Vercel deploys are not instantaneous -- allow the
+build to finish (check the Vercel dashboard, or retry with a short delay)
+before concluding a route is broken.
+
+### Deployed configuration lag
+
+As of this writing the deployed `vercel.json` on `charlie-protocol-site` is
+still phase 2's two-rewrite version (`/coin/:mint` and `/coin/:mint.json`
+only). The `/coins` and `/verify/:mint` rewrites this phase added exist in
+this repository's `vercel.json` but are **not live** until step 3-4 above
+copies the updated file across and pushes. Generating `web/coins-1.html`
+and committing it here does not make `/coins` resolve on the live domain --
+publishing is the step that does.
+
+### Never automated in CI
+
+This recipe is run by hand, by an operator holding a `gh`/git credential
+with push access to `charlie-protocol-site`. Nothing in `indexer/` performs
+step 2-4 itself -- `intake`'s write half is limited to `gh issue
+comment`/`gh issue close` (see `answer()` in `indexer/intake.py`), gated
+behind its own explicit flag, and never touches the deploy target
+repository.

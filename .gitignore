@@ -18,3 +18,13 @@ state/*.db-shm
 
 # Planning artifacts live in the working repo, not in the published one.
 .planning/
+
+# Agent tooling configuration, not project documentation. Nothing a verifier
+# needs, and it is the clearest authorship tell in the tree.
+CLAUDE.md
+
+# The append-only observation log is the local working record. It carries
+# superseded schema-1 rows whose wording predates the current spec, and the
+# committed public evidence is state/evidence/*.jsonl plus the record
+# published beside each coin page -- both regenerated from the current code.
+state/observations.jsonl

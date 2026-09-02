@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": "web",
+  "rewrites": [
+    {
+      "source": "/coins",
+      "destination": "/coins-1.html"
+    },
+    {
+      "source": "/verify",
+      "destination": "/verify.html"
+    },
+    {
+      "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+).json",
+      "destination": "/:mint.json"
+    },
+    {
+      "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+      "destination": "/:mint.html"
+    },
+    {
+      "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
+      "destination": "/:mint.html"
+    }
+  ]
+}

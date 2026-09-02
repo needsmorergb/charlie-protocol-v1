@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Verify a coin -- Charlie Protocol</title><style>
+:root {
+  --paper: #FAF7F0;
+  --panel: #EFEAE0;
+  --accent: #1D4E89;
+  --destructive: #A3271F;
+  --unchecked: #7A5A12;
+  --ink: #1A1A1A;
+  --pass-glyph: #6B6558;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+  --sp-2xl: 48px;
+  --sp-3xl: 64px;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  padding: var(--sp-xl) var(--sp-lg);
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 28px; font-weight: 700; margin: 0 0 var(--sp-md) 0; }
+.meta { font-size: 14px; font-weight: 400; margin: 0 0 var(--sp-xs) 0; }
+a { color: var(--accent); }
+.index-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-xs) var(--sp-md);
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-md);
+  border-left: 1px dashed var(--unchecked);
+}
+.index-mint {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.index-split, .index-withheld { font-size: 14px; flex: 2 1 260px; min-width: 0; }
+.index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
+.index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
+.index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
+</style></head><body><header><h1>Verify a coin</h1><p class="meta">Put a mint address after this URL: <code>/verify/&lt;mint&gt;</code></p></header><main><p>That address resolves to the coin's page: its fee split, what that split does, and every check that passed, failed, or was never run beside the figure it backs.</p><p><strong>It only answers for coins that have been measured.</strong> Nothing here crawls the chain looking for coins to grade -- a coin is measured because someone asked for it to be. A mint nobody has submitted has no page, and this route will not invent one.</p><p><a href="https://github.com/needsmorergb/charlie-protocol-site/issues/new?title=%5Bcoverage%5D+%3Cpaste+your+mint+address%3E&amp;body=%3C%21--+charlie-protocol%3Asubmission+--%3E%0A%0AMint+address%3A%0A%0A%28paste+the+mint+address+on+the+line+above%2C+nothing+else%29%0A">Submit a mint to be measured</a> -- it opens a public issue, so the request and the answer are both on the record. No account here, no approval from us.</p><p><a href="coins-1.html">Every coin measured so far</a>.</p></main><p class="meta">generated at 2026-09-02 15:08:06Z</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p></body></html>

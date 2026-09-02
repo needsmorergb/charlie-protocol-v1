@@ -13,9 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from indexer import invariants
+from indexer import invariants, legs
 from indexer.evidence import Evidence
-from indexer.legs import Attribution, GRANDFATHERED_SEAL, Registry, Split
+from indexer.legs import Attribution, GRANDFATHERED_SOL_BURN, Registry, Split
 from indexer.scan import scan_inflows, scan_inflows_all_endpoints
 
 MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
@@ -82,14 +82,14 @@ def evidence_db(tmp_dir: str) -> Evidence:
 
 
 def split_with(attributions) -> Split:
-    seal = sum(a.bps for a in attributions if a.leg == "seal")
+    sol_burn = sum(a.bps for a in attributions if a.leg == "sol_burn")
     burn = sum(a.bps for a in attributions if a.leg == "burn")
     paid = sum(a.bps for a in attributions if a.leg == "paid")
-    return Split(seal=seal, burn=burn, paid=paid, attributions=tuple(attributions))
+    return Split(sol_burn=sol_burn, burn=burn, paid=paid, attributions=tuple(attributions))
 
 
-def seal_attr(address, bps=10_000):
-    return Attribution(address=address, bps=bps, leg="seal", reason="test fixture", keyless=True)
+def sol_burn_attr(address, bps=10_000):
+    return Attribution(address=address, bps=bps, leg="sol_burn", reason="test fixture", keyless=True)
 
 
 def ops_attr(address, bps=10_000):
@@ -107,7 +107,7 @@ class TestMultiDestination(unittest.TestCase):
             )
             destinations = {GRANDFATHERED, SHAREHOLDER_A, SHAREHOLDER_B}
             evidence = evidence_db(tmp)
-            scan_inflows(rpc, evidence, MINT, destinations, leg_of=lambda _d: "seal",
+            scan_inflows(rpc, evidence, MINT, destinations, leg_of=lambda _d: "sol_burn",
                           target=GRANDFATHERED, pages=1)
             rows = [row for d in destinations for row in evidence.inflows_for(d)]
             evidence.close()
@@ -125,7 +125,7 @@ class TestMultiDestination(unittest.TestCase):
             )
             evidence = evidence_db(tmp)
             newest, oldest, complete = scan_inflows(
-                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             rows = evidence.inflows_for(GRANDFATHERED)
@@ -144,7 +144,7 @@ class TestMultiDestination(unittest.TestCase):
             )
             evidence = evidence_db(tmp)
             newest, oldest, complete = scan_inflows(
-                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             evidence.close()
@@ -165,7 +165,7 @@ class TestMultiDestination(unittest.TestCase):
                 transactions={"sig-credit": credit_tx, "sig-debit": debit_tx},
             )
             evidence = evidence_db(tmp)
-            scan_inflows(rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+            scan_inflows(rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                          target=GRANDFATHERED, pages=1)
             recorded = evidence.recorded_lamports(GRANDFATHERED)
             outflows = evidence.outflows_for(GRANDFATHERED)
@@ -191,13 +191,13 @@ class TestBackfillGate(unittest.TestCase):
             rpc = FakeScanRpc(pages=[page], transactions=transactions)
             evidence = evidence_db(tmp)
             _newest, oldest, complete = scan_inflows(
-                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             self.assertFalse(complete)
 
-            split = split_with([seal_attr(GRANDFATHERED)])
-            check = invariants.seal_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 1000})
+            split = split_with([sol_burn_attr(GRANDFATHERED)])
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 1000})
             evidence.close()
 
             self.assertEqual(check.status, invariants.UNCHECKED)
@@ -229,14 +229,14 @@ class TestBackfillGate(unittest.TestCase):
             evidence = evidence_db(tmp)
             scan_inflows_all_endpoints(
                 {"endpoint-a": endpoint_a, "endpoint-b": endpoint_b},
-                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             cursor_a = evidence.get_cursor(GRANDFATHERED, "inflow", endpoint="endpoint-a")
             cursor_b = evidence.get_cursor(GRANDFATHERED, "inflow", endpoint="endpoint-b")
 
-            split = split_with([seal_attr(GRANDFATHERED)])
-            check = invariants.seal_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 1000})
+            split = split_with([sol_burn_attr(GRANDFATHERED)])
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 1000})
             evidence.close()
 
             self.assertEqual(check.status, invariants.UNCHECKED)
@@ -276,21 +276,21 @@ class TestPerDestinationComparator(unittest.TestCase):
             pages=[[{"signature": f"sig-{destination}", "err": None, "slot": 1, "blockTime": 1}]],
             transactions={f"sig-{destination}": tx},
         )
-        scan_inflows(rpc, evidence, MINT, {destination}, leg_of=lambda _d: "seal",
+        scan_inflows(rpc, evidence, MINT, {destination}, leg_of=lambda _d: "sol_burn",
                      target=destination, pages=1)
 
     def test_derived_vault_gets_equals_and_grandfathered_gets_less_equal(self):
         with tempfile.TemporaryDirectory() as tmp:
-            registry = Registry(program_id=PROGRAM, grandfathered_seal=GRANDFATHERED_SEAL)
-            derived_vault = registry.seal_vault(MINT)
+            registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=GRANDFATHERED_SOL_BURN)
+            derived_vault = registry.sol_burn_vault(MINT)
             evidence = evidence_db(tmp)
 
             self._complete(evidence, derived_vault, tmp, 500)
             self._complete(evidence, GRANDFATHERED, tmp, 100)
 
-            split = split_with([seal_attr(derived_vault), seal_attr(GRANDFATHERED)])
+            split = split_with([sol_burn_attr(derived_vault), sol_burn_attr(GRANDFATHERED)])
             balances = {derived_vault: 500, GRANDFATHERED: 9_999_999}  # grandfathered holds strangers' funds too
-            check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=registry)
             evidence.close()
 
             self.assertEqual(check.status, invariants.PASS)
@@ -299,17 +299,17 @@ class TestPerDestinationComparator(unittest.TestCase):
 
     def test_aggregate_fails_if_either_destination_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
-            registry = Registry(program_id=PROGRAM, grandfathered_seal=GRANDFATHERED_SEAL)
-            derived_vault = registry.seal_vault(MINT)
+            registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=GRANDFATHERED_SOL_BURN)
+            derived_vault = registry.sol_burn_vault(MINT)
             evidence = evidence_db(tmp)
 
             self._complete(evidence, derived_vault, tmp, 500)
             self._complete(evidence, GRANDFATHERED, tmp, 100)
 
-            split = split_with([seal_attr(derived_vault), seal_attr(GRANDFATHERED)])
+            split = split_with([sol_burn_attr(derived_vault), sol_burn_attr(GRANDFATHERED)])
             # derived vault balance no longer matches recorded -- must fail
             balances = {derived_vault: 999, GRANDFATHERED: 9_999_999}
-            check = invariants.seal_balance(split=split, evidence=evidence, balances=balances, registry=registry)
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=registry)
             evidence.close()
 
             self.assertEqual(check.status, invariants.FAIL)
@@ -326,7 +326,31 @@ class TestOpsRouted(unittest.TestCase):
             evidence.close()
             self.assertEqual(check_pass.status, invariants.PASS)
 
-    def test_fail_when_no_inflow_ever_recorded_despite_a_complete_walk(self):
+    def test_unchecked_when_a_complete_walk_finds_no_inflow_at_all(self):
+        """This asserted FAIL until 2026-09-02, and it was wrong.
+
+        A completed walk that finds nothing is the normal state of a coin
+        whose creator fees have never been claimed -- most coins, most of the
+        time. FAIL is the loudest state on the page and it means "this
+        contradicts"; it must not mean "nothing happened". Measured live
+        against a real third-party coin, the old behaviour branded it FAIL
+        for the crime of not having traded yet, and intake had just been
+        wired to publish exactly such coins.
+
+        PASS is not available either -- nothing was reconciled, so claiming
+        the routing is verified would be the overclaim the silence rule
+        exists to stop. UNCHECKED is the honest state and withholds
+        `ops_total` exactly as hard.
+
+        Why the balance cannot rescue a FAIL here: an OPS destination is an
+        ordinary spendable wallet, so its balance is not attributable to this
+        protocol at all. A non-zero balance with no recorded inflow is a
+        person's own SOL, not evidence that fees arrived unrecorded -- which
+        is why `balances` is deliberately not consulted in this branch.
+
+        The bug never surfaced on $CHARLIE because it has no OPS destination
+        and returns UNCHECKED before reaching this code.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             evidence = evidence_db(tmp)
             rpc = FakeScanRpc(pages=[[]], transactions={})
@@ -335,7 +359,21 @@ class TestOpsRouted(unittest.TestCase):
             split = split_with([ops_attr(OPS_WALLET)])
             check = invariants.ops_routed(split, evidence=evidence, balances={OPS_WALLET: 0})
             evidence.close()
-            self.assertEqual(check.status, invariants.FAIL)
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertIn("nothing to reconcile", check.detail)
+
+    def test_a_wallet_holding_sol_with_no_recorded_inflow_is_still_unchecked(self):
+        """An OPS wallet's balance is its owner's, not the protocol's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            rpc = FakeScanRpc(pages=[[]], transactions={})
+            scan_inflows(rpc, evidence, MINT, {OPS_WALLET}, leg_of=lambda _d: "paid",
+                         target=OPS_WALLET, pages=1)
+            split = split_with([ops_attr(OPS_WALLET)])
+            check = invariants.ops_routed(split, evidence=evidence,
+                                          balances={OPS_WALLET: 9_000_000_000})
+            evidence.close()
+            self.assertEqual(check.status, invariants.UNCHECKED)
 
     def _complete(self, evidence, destination, tmp, delta):
         tx = make_tx({destination: (0, delta)})
@@ -347,7 +385,7 @@ class TestOpsRouted(unittest.TestCase):
                      target=destination, pages=1)
 
     def test_unchanged_unchecked_wording_for_a_coin_without_an_ops_destination(self):
-        split = split_with([seal_attr(GRANDFATHERED)])
+        split = split_with([sol_burn_attr(GRANDFATHERED)])
         check = invariants.ops_routed(split)
         self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertIn("no OPS destination in this split", check.detail)
@@ -380,7 +418,7 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
             evidence = evidence_db(tmp)
             newest, oldest, complete, contributing = scan_inflows_all_endpoints(
                 {"endpoint-a": endpoint_a, "endpoint-b": endpoint_b},
-                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             rows = evidence.inflows_for(GRANDFATHERED)
@@ -409,13 +447,13 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
                 }
 
             scan_inflows_all_endpoints(
-                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             first_rows = evidence.inflows_for(GRANDFATHERED)
 
             scan_inflows_all_endpoints(
-                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                endpoints(), evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             second_rows = evidence.inflows_for(GRANDFATHERED)
@@ -434,7 +472,7 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
             evidence = evidence_db(tmp)
             newest, oldest, complete, contributing = scan_inflows_all_endpoints(
                 {"endpoint-bad": RaisingRpc(), "endpoint-good": good},
-                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             rows = evidence.inflows_for(GRANDFATHERED)
@@ -453,23 +491,23 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
             evidence = evidence_db(tmp)
             _newest, _oldest, complete, contributing = scan_inflows_all_endpoints(
                 {"endpoint-bad": RaisingRpc()},
-                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
             evidence.close()
             self.assertFalse(complete)
             self.assertEqual(contributing, 0)
 
-    def test_seal_balance_unchecked_never_fail_while_no_endpoint_has_completed(self):
+    def test_sol_burn_balance_unchecked_never_fail_while_no_endpoint_has_completed(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = evidence_db(tmp)
             scan_inflows_all_endpoints(
                 {"endpoint-bad": RaisingRpc()},
-                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "seal",
+                evidence, MINT, {GRANDFATHERED}, leg_of=lambda _d: "sol_burn",
                 target=GRANDFATHERED, pages=1,
             )
-            split = split_with([seal_attr(GRANDFATHERED)])
-            check = invariants.seal_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 0})
+            split = split_with([sol_burn_attr(GRANDFATHERED)])
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances={GRANDFATHERED: 0})
             evidence.close()
 
             self.assertEqual(check.status, invariants.UNCHECKED)
@@ -485,7 +523,7 @@ class TestUnionAcrossEndpoints(unittest.TestCase):
             evidence = evidence_db(tmp)
             scan_inflows_all_endpoints(
                 {"endpoint-only": endpoint}, evidence, MINT, {GRANDFATHERED},
-                leg_of=lambda _d: "seal", target=GRANDFATHERED, pages=1,
+                leg_of=lambda _d: "sol_burn", target=GRANDFATHERED, pages=1,
             )
             coverage = evidence.cursor_endpoints(GRANDFATHERED, "inflow")
             evidence.close()
@@ -504,7 +542,7 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
             )
             evidence = evidence_db(tmp)
             _newest, _oldest, complete = scan_inflows(
-                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "sol_burn",
                 target=SHAREHOLDER_A, pages=1,
             )
             opening = evidence.active_opening_balance(SHAREHOLDER_A)
@@ -525,7 +563,7 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
             )
             evidence = evidence_db(tmp)
             scan_inflows(
-                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "sol_burn",
                 target=SHAREHOLDER_A, pages=1,
             )
             opening = evidence.active_opening_balance(SHAREHOLDER_A)
@@ -541,7 +579,7 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
         "nothing to admit": no opening balance is fabricated, the failure is
         recorded against the destination's cursor for this endpoint naming
         the signature, and the backfill is left NOT complete so
-        `SEAL_BALANCE` reads `UNCHECKED` with a stated reason.
+        `SOL_BURN_BALANCE` reads `UNCHECKED` with a stated reason.
         """
         with tempfile.TemporaryDirectory() as tmp:
             # SHAREHOLDER_A is never a key in this transaction's account
@@ -553,13 +591,13 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
             )
             evidence = evidence_db(tmp)
             _newest, _oldest, complete = scan_inflows(
-                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "seal",
+                rpc, evidence, MINT, {SHAREHOLDER_A}, leg_of=lambda _d: "sol_burn",
                 target=SHAREHOLDER_A, pages=1,
             )
             opening = evidence.active_opening_balance(SHAREHOLDER_A)
             cursor = evidence.get_cursor(SHAREHOLDER_A, "inflow")
-            split = split_with([seal_attr(SHAREHOLDER_A)])
-            check = invariants.seal_balance(split=split, evidence=evidence, balances={SHAREHOLDER_A: 500})
+            split = split_with([sol_burn_attr(SHAREHOLDER_A)])
+            check = invariants.sol_burn_balance(split=split, evidence=evidence, balances={SHAREHOLDER_A: 500})
             evidence.close()
 
             self.assertFalse(complete)
@@ -572,3 +610,55 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRecipientKind(unittest.TestCase):
+    """D-40. What a fee recipient IS, from its owner program.
+
+    Every category here was found in real data on 2026-09-02 by frequency
+    analysis over 1,681 multi-shareholder configs -- none was invented to
+    make the code tidy.
+    """
+
+    def test_system_owned_is_a_wallet(self):
+        self.assertEqual(
+            legs.recipient_kind({"owner": legs.SYSTEM_PROGRAM}), legs.RECIPIENT_WALLET)
+
+    def test_fee_share_owned_is_another_sharing_config(self):
+        """Chained fee splitting: a config naming another config. Eight of
+        the twenty-four most-shared recipients were exactly this.
+        """
+        self.assertEqual(
+            legs.recipient_kind({"owner": legs.FEE_SHARE_PROGRAM}),
+            legs.RECIPIENT_SHARING_CONFIG)
+
+    def test_either_token_program_is_a_token_account(self):
+        for owner in (legs.TOKEN_PROGRAM, legs.TOKEN_2022_PROGRAM):
+            with self.subTest(owner=owner):
+                self.assertEqual(
+                    legs.recipient_kind({"owner": owner}), legs.RECIPIENT_TOKEN_ACCOUNT)
+
+    def test_any_other_owner_is_program_owned(self):
+        self.assertEqual(
+            legs.recipient_kind({"owner": "SomeOtherProgram1111111111111111111111111111"}),
+            legs.RECIPIENT_PROGRAM_OWNED)
+
+    def test_absent_account_has_never_received_a_lamport(self):
+        """A finding, not an error. A Solana account is created on first
+        receipt, so an address that does not exist has never been paid. Two
+        addresses named by 96 configs each were in this state when measured.
+        """
+        self.assertEqual(legs.recipient_kind(None), legs.RECIPIENT_NEVER_FUNDED)
+
+    def test_every_kind_is_declared(self):
+        for owner in (legs.SYSTEM_PROGRAM, legs.FEE_SHARE_PROGRAM, legs.TOKEN_PROGRAM,
+                      legs.TOKEN_2022_PROGRAM, "Whatever111111111111111111111111111111111111"):
+            self.assertIn(legs.recipient_kind({"owner": owner}), legs.RECIPIENT_KINDS)
+        self.assertIn(legs.recipient_kind(None), legs.RECIPIENT_KINDS)
+
+    def test_is_not_a_gated_figure(self):
+        """It states what an address is, never how much reached it, so it is
+        an observed fact and must never appear in `invariants.FIGURES`.
+        """
+        for kind in legs.RECIPIENT_KINDS:
+            self.assertNotIn(kind, invariants.FIGURES)

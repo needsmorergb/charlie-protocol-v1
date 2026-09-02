@@ -16,19 +16,32 @@ invariants are the protocol.
 Three destinations. They are not the same kind of object and the protocol
 never calls them by the same word.
 
-| | **SEAL** | **BURN** | **OPS** |
+| | **BURN (SOL)** | **BURN** | **OPS** |
 |---|---|---|---|
 | Action | SOL → unspendable vault | SOL → buy token → SPL `burn` | SOL → spendable wallet |
 | SOL supply | unchanged | unchanged | unchanged |
 | Token supply | unchanged | **reduced** | unchanged |
 | Keeper required | no | yes | no |
 | Trust required | none | atomicity | **full** |
-| Permitted claim | "removed from circulation" | "permanently destroyed" | "funds operations" |
-| Forbidden claim | ~~"burned"~~ | — | ~~"burned"~~, ~~"sealed"~~ |
+| Permitted claim | "burned", "removed from circulation" — **only if the destination passes `SOL_BURN_UNSPENDABLE`** | "burned", "permanently destroyed" | "funds operations" |
+| Forbidden claim | ~~"burned"~~ when the destination is spendable | — | ~~"burned"~~, ~~"funds operations"~~ as a burn |
 
-There is no burn instruction for SOL. A SEAL is a lock. Any coin, document,
-dashboard, or post that calls a SEAL or an OPS payment a burn is out of
-compliance, including ours.
+**Both legs burn.** Solana has no instruction that reduces SOL supply, so a
+SOL burn means SOL sent where no key can ever spend it; a token BURN reduces
+token supply outright.
+
+**What the protocol enforces is the part everyone else asserts:**
+that the destination genuinely cannot be spent. A burn claim is permitted only
+where `SOL_BURN_UNSPENDABLE` passes — the destination is program-derived, or
+otherwise off the ed25519 curve, which is a property the runtime enforces and
+anyone can recompute. Where it does not pass, the claim is not permitted:
+unspendability by convention is not the same thing as unspendability the chain
+guarantees, and only the second survives being checked.
+
+This binds us first. $CHARLIE's `burn111…111` is **on** the curve, its
+`SOL_BURN_UNSPENDABLE` fails, and no burn total is publishable for our own coin —
+published on the live site rather than excused. An OPS payment is never a burn
+under any circumstances: the wallet is spendable by design.
 
 ---
 
@@ -43,10 +56,10 @@ exactly `10000`, and are set by the sharing config admin via
 `admin_revoked`, in which case the split is permanent and only pump can reset
 it.
 
-### Mode 1 — SEAL
+### Mode 1 — SOL burn
 
 ```
-{ SEAL: 10000, BURN: 0, OPS: 0 }
+{ SOL_BURN: 10000, BURN: 0, OPS: 0 }
 ```
 
 100% to a provably unspendable vault. No keeper, no signing authority, no
@@ -65,10 +78,10 @@ Reference implementation: **$CHARLIE**.
 ### Mode 2 — SPLIT
 
 ```
-{ SEAL: n, BURN: 10000 - n, OPS: 0 }
+{ SOL_BURN: n, BURN: 10000 - n, OPS: 0 }
 ```
 
-Divided between the seal vault and a buy-and-burn leg that reduces token
+Divided between the SOL burn vault and a buy-and-burn leg that reduces token
 supply. `n = 0` is legal — 100% BURN, the maximally deflationary configuration.
 
 **Does:** converts fee revenue into supply reduction.
@@ -81,7 +94,7 @@ No spendable wallet is in the path. Mode 2 is fully verifiable end to end.
 ### Mode 3 — OPERATED
 
 ```
-{ SEAL: n, BURN: m, OPS: k }     n + m + k = 10000
+{ SOL_BURN: n, BURN: m, OPS: k }     n + m + k = 10000
 ```
 
 The only mode where a spendable wallet is in the fee path. Funds promotion,
@@ -98,7 +111,7 @@ not a single-signer wallet.
 
 ## 3. Vaults
 
-A SEAL vault MUST be a **PDA**, not a vanity address.
+A SOL burn vault MUST be a **PDA**, not a vanity address.
 
 - Program derivation is a property the Solana runtime enforces on every
   signature it checks. A vanity address carries no such backing — its standing
@@ -115,9 +128,9 @@ exemption.
 
 It is not grandfathered for the derivation requirement, and it fails there:
 `burn111…111` is a vanity address, not a PDA. That is measured, not assumed.
-Grandfathering the attribution invariant does not grandfather this one — a seal
-destination that is not program-derived fails `SEAL_UNSPENDABLE` and the
-protocol publishes no seal total for it, ours included. A burn address that
+Grandfathering the attribution invariant does not grandfather this one — a SOL burn
+destination that is not program-derived fails `SOL_BURN_UNSPENDABLE` and the
+protocol publishes no SOL burn total for it, ours included. A burn address that
 meets the standard is perfectly possible; `1nc1nerator111…111` is
 program-derived. Ours simply is not.
 
@@ -128,7 +141,7 @@ program-derived. Ours simply is not.
 The protocol's actual product. Every published figure is backed by a check
 that **can fail**.
 
-**SEAL leg**
+**SOL burn leg**
 
 ```
 Σ recorded_inflows == getBalance(vault)           # dedicated PDA vault
@@ -178,7 +191,7 @@ protocol publishes.
 
 ## 5. Cranking
 
-Only the BURN leg needs a cranker. SEAL and OPS are pure routing.
+Only the BURN leg needs a cranker. the SOL burn and OPS are pure routing.
 
 1. **Permissionless, gas-reimbursed.** Anyone may crank. Atomicity means a
    caller cannot profit by misbehaving. Removes the operator from the trust
@@ -199,7 +212,7 @@ destinations; nothing is granted, approved, or gatekept.
 Every coin — enrolled or not — is measured from public chain data alone, and
 the report separates **the fact** from **the judgment**:
 
-**The fact.** The split, in bps: `{ burn, seal, paid }`. Derived from the
+**The fact.** The split, in bps: `{ burn, sol_burn, paid }`. Derived from the
 sharing config. Not an opinion.
 
 **The judgment.** Whether the coin's public claims match that split:

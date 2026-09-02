@@ -127,6 +127,41 @@ class RpcClient:
 
         raise RpcUnavailable(f"{method}: all RPC endpoints failed ({last_error})")
 
+    def program_accounts(
+        self,
+        program_id: str,
+        *,
+        filters=(),
+        data_slice: dict | None = None,
+        encoding: str = "base64",
+    ) -> list[dict]:
+        """`getProgramAccounts`, typed: every `{pubkey, account}` entry the
+        node returns for `program_id`, normalised to a list -- never `None`,
+        the same defensive posture `accounts()` already takes against a
+        short response.
+
+        `filters` and `data_slice` pass straight through to the RPC;
+        `data_slice` is omitted from the params entirely when not given (a
+        full-data sweep of the fee-sharing program is a ~965 MB response at
+        today's ~603K-account scale -- RESEARCH.md's Pitfall 3 -- so a caller
+        narrowing the payload is deliberate, never implied by a default).
+
+        Delegates to `call()` -- the retry loop, the endpoint rotation and
+        the `RpcError`-vs-`RpcUnavailable` distinction it already implements
+        apply here unchanged. This method adds a typed shape, not a second
+        transport: research verified that a `getProgramAccounts` refusal from
+        an endpoint that does not support it already arrives as a non-2xx
+        HTTP status, already treated by `_post()` as an infrastructure
+        failure that rotates to the next endpoint.
+        """
+        options: dict = {"encoding": encoding}
+        if filters:
+            options["filters"] = list(filters)
+        if data_slice is not None:
+            options["dataSlice"] = data_slice
+        result = self.call("getProgramAccounts", [program_id, options])
+        return list(result or [])
+
     def accounts(self, addresses: list[str]) -> list[dict | None]:
         """Always exactly `len(addresses)` entries, whatever the node returns.
 
