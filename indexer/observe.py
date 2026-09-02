@@ -69,6 +69,10 @@ class Observation:
     # from a closed vocabulary (`intake.REASONS`), never derived by matching
     # text in `error`: `intake.reason_for()` reads this field directly.
     error_kind: str | None = None
+    # The bonding curve's creator. For a coin with a sharing config this is
+    # that config's address; with no config it is an ordinary wallet, and the
+    # entire creator fee is paid to it.
+    creator: str | None = None
 
     config: SharingConfig | None = None
     graduated: bool | None = None
@@ -141,6 +145,11 @@ def observe(
         curve = read_bonding_curve(rpc, mint)
         record.graduated = curve.graduated
         record.cashback = curve.cashback
+        # Kept even when the sharing-config read below fails, because for a
+        # coin with no config THIS ADDRESS IS THE ANSWER: it is where the
+        # whole creator fee goes. Parsing it back out of an error string is
+        # not a way to state a fact a page is going to render.
+        record.creator = curve.creator
         if config is not None:
             if config.address != curve.creator:
                 record.error = (

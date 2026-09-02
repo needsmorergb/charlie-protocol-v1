@@ -60,6 +60,11 @@ def _artifact_name(mint: str, suffix: str) -> str:
 # `TestNoFeeSplitPage.test_marker_matches_the_message_pump_actually_raises`
 # fails the moment the two drift.
 NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
+# `observe` sets this `error_kind` when the bonding curve's creator is not a
+# fee-sharing config. A structured field beats matching an error message, and
+# the string marker above is kept only so a record written before this field
+# existed still renders as the finding it is.
+NO_SHARING_CONFIG = "no_sharing_config"
 
 SITE_ORIGIN = "https://charlieprotocol.fun"
 META_IMAGE_SRC = "/assets/meta-image.png"
@@ -868,7 +873,8 @@ def _results_chart(observation) -> str:
     total = len(checks)
     widest = max((n for _l, n in counts), default=0) or 1
 
-    row_h, gap, label_w, bar_w = 26, 8, 96, 300
+    # See `_no_split_breakdown`: narrow enough to render unscaled on a phone.
+    row_h, gap, label_w, bar_w = 26, 8, 96, 170
     height = len(counts) * (row_h + gap)
     bars = []
     for i, (label, n) in enumerate(counts):
@@ -1280,6 +1286,7 @@ _STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 .bar-pass { fill: var(--pass-glyph); }
 .bar-fail { fill: var(--destructive); }
 .bar-unchecked { fill: none; stroke: var(--unchecked); stroke-width: 1; stroke-dasharray: 3 3; }
+.bar-neutral { fill: var(--pass-glyph); }
 .deflation-value {
   font-size: clamp(22px, 4vw, 34px); font-weight: 700; margin: 0 0 var(--sp-md) 0;
   overflow-wrap: anywhere;
@@ -1714,6 +1721,73 @@ footer a { word-break: break-all; overflow-wrap: anywhere; }
 """
 
 
+def _no_split_breakdown(observation) -> str:
+    """The split for a coin with no sharing config, stated rather than implied.
+
+    "This coin does not split its creator fees" tells a reader what is absent.
+    It does not tell them what IS happening, and what is happening is the whole
+    point: every basis point of the creator fee goes to one ordinary wallet,
+    and none of it goes to a burn of either kind. Saying only the first half
+    leaves the reader to work out the second, or to assume the page could not
+    determine it.
+
+    Drawn from `error_kind == "no_sharing_config"`, which is the chain saying
+    the creator address is not a fee-sharing config. With no config there is
+    nothing to divide the fee between, so the shares are not estimated: they
+    follow from the absence.
+
+    Not a gated FIGURE. `split` is published only where CONFIG_MINT and
+    SPLIT_SUM pass, and neither can run without a config. This is an observed
+    fact about where pump sends the fee, and it names no figure.
+    """
+    creator = getattr(observation, "creator", None)
+    rows = [("SOL burn", 0), ("Token burn", 0), ("To the creator", 10000)]
+    # Sized so the whole svg fits a 375px phone without `max-width:100%`
+    # scaling it down, which shrinks the label text with it.
+    row_h, gap, label_w, bar_w = 26, 8, 118, 140
+    height = len(rows) * (row_h + gap)
+    bars = []
+    for i, (label, bps) in enumerate(rows):
+        y = i * (row_h + gap)
+        w = int(bar_w * bps / 10000)
+        # Deliberately NOT the failure red. Paying the creator is what most
+        # coins do and this page does not grade it; borrowing the colour a
+        # failed check owns would tell the reader it is wrong.
+        cls = "bar-neutral" if bps else "bar-unchecked"
+        bars.append(
+            f'<text x="0" y="{y + 17}" class="chart-label">{esc(label)}</text>'
+            f'<rect x="{label_w}" y="{y}" width="{w}" height="{row_h}" class="{cls}"></rect>'
+            f'<text x="{label_w + w + 8}" y="{y + 17}" class="chart-value">'
+            f"{bps / 100:g}%</text>"
+        )
+    destination = (
+        f"<p>All of it goes to <code>{esc(creator)}</code>, an ordinary "
+        "wallet.</p>" if creator else ""
+    )
+    cashback = ""
+    if getattr(observation, "cashback", None) is True:
+        cashback = (
+            "<p>Trader Cashback is on for this coin, so part of the fee pump "
+            "collects is returned to traders. That is pump's mechanism and sits "
+            "outside the creator fee shown here.</p>"
+        )
+    return (
+        '<section id="split-breakdown">'
+        "<h2>Where the creator fee goes</h2>"
+        f'<svg class="chart" viewBox="0 0 {label_w + bar_w + 60} {height}" '
+        f'width="{label_w + bar_w + 60}" height="{height}" role="img" '
+        'aria-label="SOL burn 0 percent; token burn 0 percent; to the creator '
+        '100 percent"'
+        f">{''.join(bars)}</svg>"
+        + destination
+        + "<p><strong>Nothing is burned.</strong> No part of this fee reaches a "
+        "SOL burn vault or buys tokens to destroy them. There is no fee-sharing "
+        "config for this coin, so there is nothing to divide the fee between.</p>"
+        + cashback
+        + "</section>"
+    )
+
+
 def _document(title: str, body: str, *, style: str = _STYLE, description: str = "") -> str:
     """Wraps `body` (already-built HTML) in the page shell -- the one place
     `<!doctype html>`/`<head>`/`<style>` are assembled, shared by the coin
@@ -1773,29 +1847,34 @@ def render(observation, *, now=None) -> str:
         "</header>"
     )
 
-    if observation.error and observation.config is None and NO_FEE_SPLIT_MARKER in observation.error:
+    if observation.error and observation.config is None and (
+        getattr(observation, "error_kind", None) == NO_SHARING_CONFIG
+        or NO_FEE_SPLIT_MARKER in (observation.error or "")
+    ):
         # NOT an error. The chain was read and it answered: this coin pays its
         # creator fee to an ordinary wallet, so there is no split to verify.
         # That is the majority of pump coins, so it is the page most visitors
         # see, and it used to say "No observation" and "a tick that could not
         # read the chain" -- telling them the tool had broken when it had
         # worked and had an answer.
-        creator = ""
-        found = re.search(r"its creator ([1-9A-HJ-NP-Za-km-z]{32,44})", observation.error)
-        if found:
-            creator = (
-                "<p>pump pays this coin&#x27;s creator fee to "
-                f"<code>{esc(found.group(1))}</code>, an ordinary wallet.</p>"
-            )
+        # `creator` is stored on the observation now. It used to be pulled
+        # back out of the error string with a regex, which made a fact the
+        # page renders depend on the wording of an error message.
+        if getattr(observation, "creator", None) is None:
+            found = re.search(r"its creator ([1-9A-HJ-NP-Za-km-z]{32,44})",
+                              observation.error or "")
+            if found:
+                observation.creator = found.group(1)
         body = (
             header
             + '<section class="error-state">'
             + "<h2>This coin does not split its creator fees</h2>"
-            + creator
-            + "<p>There is no fee-sharing config for it, so there is no split "
-            "to verify and no destination to check. That is a fact about the "
-            "coin, not a failure here: the chain was read and this is what it "
-            "says.</p>"
+            + "<p>There is no fee-sharing config for it. That is a fact about "
+            "the coin, not a failure here: the chain was read and this is what "
+            "it says.</p>"
+            + "</section>"
+            + _no_split_breakdown(observation)
+            + '<section class="error-state">'
             + "<p>Charlie Protocol checks coins that route their fees through "
             "a split. When a coin does, this page shows where every basis "
             "point goes, what each destination actually is, and which checks "

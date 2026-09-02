@@ -1735,6 +1735,65 @@ class TestNoFeeSplitPage(unittest.TestCase):
         self.assertNotIn("does not split its creator fees", h)
 
 
+class TestNoSplitBreakdown(unittest.TestCase):
+    """Saying a coin has no split states what is ABSENT. The page must also
+    state what is happening, because that is the finding: every basis point of
+    the creator fee goes to one ordinary wallet and none of it is burned.
+    """
+
+    def _obs(self, cashback=None):
+        o = Observation(mint=CHARLIE, observed_at=1.0)
+        o.error = f"{CHARLIE}: its creator FZGxx {pump.NO_FEE_SPLIT_MARKER} ..."
+        o.error_kind = site.NO_SHARING_CONFIG
+        o.creator = "FZGxxhzHFDQMQqjjjkPNTzGpfbPWkYCXxqXgyRfijFuj"
+        o.cashback = cashback
+        return o
+
+    def test_shows_all_three_legs_including_the_zeroes(self):
+        h = site.render(self._obs())
+        for label in ("SOL burn", "Token burn", "To the creator"):
+            with self.subTest(leg=label):
+                self.assertIn(label, h)
+        self.assertIn("100%", h)
+        self.assertIn("0%", h)
+
+    def test_says_plainly_that_nothing_is_burned(self):
+        self.assertIn("Nothing is burned", site.render(self._obs()))
+
+    def test_names_the_wallet_that_receives_all_of_it(self):
+        h = site.render(self._obs())
+        self.assertIn("FZGxxhzHFDQMQqjjjkPNTzGpfbPWkYCXxqXgyRfijFuj", h)
+        self.assertIn("All of it goes to", h)
+
+    def test_the_chart_is_readable_without_seeing_it(self):
+        """Every share is in text as well as bar length, and the svg carries
+        the same numbers for a screen reader.
+        """
+        h = site.render(self._obs())
+        self.assertIn("to the creator 100 percent", h)
+
+    def test_cashback_is_scoped_to_pump_not_folded_into_the_split(self):
+        """Cashback returns part of pump's fee to traders. It is a different
+        pool, and folding it in would make '100% to the creator' wrong.
+        """
+        on = site.render(self._obs(cashback=True))
+        self.assertIn("Trader Cashback is on", on)
+        self.assertIn("outside the creator fee", on)
+        self.assertNotIn("Trader Cashback is on", site.render(self._obs(cashback=False)))
+
+    def test_it_is_not_published_as_the_gated_split_figure(self):
+        """CONFIG_MINT and SPLIT_SUM cannot run without a config, so `split`
+        stays withheld. This is an observed fact about a destination.
+        """
+        h = site.render(self._obs())
+        self.assertNotIn('data-figure="split"', h)
+
+    def test_error_kind_drives_it_rather_than_the_error_wording(self):
+        o = self._obs()
+        o.error = "some other phrasing entirely"
+        self.assertIn("Where the creator fee goes", site.render(o))
+
+
 class TestNotFoundPage(unittest.TestCase):
     """A pasted CA for an unmeasured coin was reaching Vercel's own 404:
     "The page could not be found" and a request id. The visitor did exactly
