@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import inspect
 import re
 
-from indexer import invariants, publish, site
+from indexer import invariants, publish, pump, site
 from indexer.evidence import Evidence
 from indexer.legs import Registry, split_of
 from indexer.observe import Observation, observe
@@ -1610,6 +1610,65 @@ class TestLaunchModeAndResults(unittest.TestCase):
         for name in invariants.FIGURES:
             with self.subTest(figure=name):
                 self.assertNotIn(name, h)
+
+
+class TestNoFeeSplitPage(unittest.TestCase):
+    """A coin whose creator is an ordinary wallet.
+
+    Sampled against Dexscreener's trending Solana tokens on 2026-09-02: 12 of
+    14 were in exactly this state, so it is the page MOST visitors see. It was
+    rendering the failed-observation branch -- "No observation", "a tick that
+    could not read the chain" -- which told them the tool was broken when the
+    read had succeeded and had a definite answer.
+    """
+
+    def _obs(self):
+        o = Observation(mint=CHARLIE, observed_at=1.0)
+        o.error = (
+            f"{CHARLIE}: its creator FZGxxhzHFDQMQqjjjkPNTzGpfbPWkYCXxqXgyRfijFuj "
+            f"{pump.NO_FEE_SPLIT_MARKER} (it is an ordinary creator address). "
+            "There is no split to report"
+        )
+        return o
+
+    def test_marker_matches_the_message_pump_actually_raises(self):
+        """site.py deliberately imports no chain decoder, so it carries its
+        own copy of the phrase. This is what stops the copy from drifting
+        away from the message pump raises and silently reverting every coin
+        in this state back to the failure page.
+        """
+        self.assertEqual(site.NO_FEE_SPLIT_MARKER, pump.NO_FEE_SPLIT_MARKER)
+
+    def test_states_the_finding_not_a_failure(self):
+        h = site.render(self._obs())
+        self.assertIn("does not split its creator fees", h)
+        self.assertIn("not a failure here", h)
+
+    def test_never_says_the_chain_could_not_be_read(self):
+        """The exact wording that shipped, on the exact case it was wrong for."""
+        h = site.render(self._obs())
+        for wrong in ("No observation", "could not read the chain",
+                      "failed observation"):
+            with self.subTest(phrase=wrong):
+                self.assertNotIn(wrong, h)
+
+    def test_names_the_wallet_the_fee_goes_to(self):
+        h = site.render(self._obs())
+        self.assertIn("FZGxxhzHFDQMQqjjjkPNTzGpfbPWkYCXxqXgyRfijFuj", h)
+
+    def test_offers_another_paste(self):
+        h = site.render(self._obs())
+        self.assertIn('action="/verify"', h)
+
+    def test_a_real_read_failure_still_reads_as_one(self):
+        """The other branch must survive. An RPC that never answered is not
+        the same fact and must not borrow this page's reassuring voice.
+        """
+        o = Observation(mint=CHARLIE, observed_at=1.0)
+        o.error = "connection reset by peer"
+        h = site.render(o)
+        self.assertIn("could not read the chain", h)
+        self.assertNotIn("does not split its creator fees", h)
 
 
 class TestNotFoundPage(unittest.TestCase):

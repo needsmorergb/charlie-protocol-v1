@@ -153,6 +153,14 @@ def _cashback_flag(data: bytes) -> bool | None:
     return data[CASHBACK_FLAG_OFFSET] == 1
 
 
+# The phrase that distinguishes "we could not read the chain" from "we read it
+# and this coin has no fee split". Those are opposite facts and were rendering
+# as the same error page: 12 of 14 trending coins sampled on 2026-09-02 have an
+# ordinary creator, so this is the MAJORITY case, and calling it a failed
+# observation told most visitors the tool was broken when it had worked.
+NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
+
+
 # -- sharing config -------------------------------------------------------
 @dataclass(frozen=True)
 class SharingConfig:
@@ -248,8 +256,8 @@ def read_sharing_config(rpc, curve: BondingCurve) -> SharingConfig:
     account = rpc.accounts([curve.creator])[0]
     if not account or account.get("owner") != PUMP_FEE_SHARE_PROGRAM:
         raise DecodeError(
-            f"{curve.mint}: its creator {curve.creator} is not a fee-sharing config "
-            "(it is an ordinary creator address). There is no split to report."
+            f"{curve.mint}: its creator {curve.creator} {NO_FEE_SPLIT_MARKER} "
+            "(it is an ordinary creator address). There is no split to report"
         )
     return decode_sharing_config(curve.creator, account)
 
