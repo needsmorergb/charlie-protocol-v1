@@ -882,8 +882,16 @@ def _results_chart(observation) -> str:
 
 
 def _deflation(observation) -> str:
-    """How much SOL this coin's fees would have taken out of circulation had
-    they been routed to a burn vault instead of a spendable wallet.
+    """How much SOL this coin's fees would have burned, and therefore how much
+    deflation they would have produced, had they gone to a burn vault instead
+    of a spendable wallet.
+
+    ONE WORD FOR IT. A SOL burn IS deflation -- that is the whole of what it
+    does, since SOL sent where no key can spend it can never return to
+    circulation. The page says burn, and says deflation, and says nothing
+    else: "removed from circulation", "locked" and "sealed" are the same
+    event under softer names, and using several names for one thing is how a
+    reader ends up unsure whether they are three different things.
 
     A COUNTERFACTUAL, and labelled as one everywhere it appears. It is not a
     claim that anything was burned, and it must never be read as one.
@@ -923,8 +931,9 @@ def _deflation(observation) -> str:
             '<section id="deflation">'
             "<h2>SOL That Could Have Been Burned</h2>"
             "<p>Not shown. This figure would be the SOL these fees could have "
-            "taken out of circulation had they gone to a burn vault instead of "
-            "a spendable wallet &mdash; but it is only worth stating when the "
+            "burned &mdash; permanent deflation, because burned SOL never "
+            "comes back &mdash; had they gone to a burn vault instead of a "
+            "spendable wallet. It is only worth stating when the "
             f"inflow total behind it is reconciled, and {esc(reasons)}. "
             "An unfinished walk yields a smaller number that looks exactly "
             "like a real one, so this page shows nothing rather than a figure "
@@ -938,16 +947,16 @@ def _deflation(observation) -> str:
         '<section id="deflation">'
         "<h2>SOL That Could Have Been Burned</h2>"
         f'<p class="deflation-value">{sol:,.9f} SOL</p>'
-        "<p><strong>This did not happen.</strong> It is what these recorded "
-        "fee inflows would have removed from circulation had they been routed "
-        "to a vault no key can spend, rather than to a spendable wallet. The "
-        "SOL is not burned, is not sealed, and is not gone: it went where the "
-        "config sent it.</p>"
+        "<p><strong>This did not happen.</strong> It is the deflation these "
+        "recorded fee inflows would have produced had they been burned &mdash; "
+        "sent to a vault no key can spend &mdash; rather than paid to a "
+        "spendable wallet. Nothing here was burned and no deflation occurred: "
+        "the SOL went where the config sent it.</p>"
         f'<p class="meta">Computed from recorded inflows, backed by {esc(backed)}. '
-        "Solana has no instruction that reduces SOL supply, so a burn here "
-        "means SOL sent where no key can reach it &mdash; and the only reason "
-        "this number is shown at all is that the inflows behind it "
-        "reconcile.</p>"
+        "Every SOL burn is deflation and every deflation is a burn: SOL sent "
+        "where no key can spend it never returns to circulation, which is the "
+        "only sense in which SOL can be burned at all. The number is shown "
+        "because the inflows behind it reconcile.</p>"
         "</section>"
     )
 
@@ -965,7 +974,7 @@ def _how_it_works() -> str:
         '<div class="table-scroll"><table class="legs">'
         "<tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr>"
         "<tr><td>SOL burn</td><td>SOL to a vault no key can spend</td>"
-        '<td>"burned", "removed from circulation" — only where '
+        '<td>"burned", "deflationary" — only where '
         "SOL_BURN_UNSPENDABLE passes</td>"
         '<td>"burned" when the destination is spendable</td></tr>'
         "<tr><td>BURN</td><td>SOL buys the token, then an SPL burn</td>"
@@ -2368,7 +2377,7 @@ _LANDING_DESCRIPTION = (
     "Charlie Protocol is a fee-routing and verification standard for pump.fun "
     "coins, naming three destinations for creator fees -- BURN (SOL), BURN (token), OPS -- "
     "and specifying the part nobody else does: what a coin is permitted to "
-    "claim about them in public. Both burn: a SOL burn sends SOL where no key can "
+    "claim about them in public. Both burn: a SOL burn is deflation, SOL sent where no key can "
     "spend it, a BURN destroys token supply. The word is only permitted where "
     "the destination is provably unspendable -- and $CHARLIE's is not."
 )

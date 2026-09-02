@@ -1631,7 +1631,20 @@ class TestDeflationCounterfactual(unittest.TestCase):
                       {"addr": 5_000_000_000})
         h = site._deflation(o)
         self.assertIn("This did not happen", h)
-        self.assertIn("is not burned", h)
+        self.assertIn("Nothing here was burned", h)
+
+    def test_uses_one_word_for_it(self):
+        """A SOL burn IS deflation. The softer synonyms describe the same
+        event, and several names for one thing leave a reader unsure whether
+        they are several things.
+        """
+        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
+                      {"addr": 5_000_000_000})
+        h = site._deflation(o).lower()
+        self.assertIn("deflation", h)
+        for softer in ("removed from circulation", "taken out of circulation", "sealed", "locked"):
+            with self.subTest(phrase=softer):
+                self.assertNotIn(softer, h)
 
     def test_no_zero_is_ever_rendered_as_a_figure(self):
         """A zero would be a claim. With nothing recorded it says so."""

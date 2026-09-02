@@ -23,11 +23,12 @@ never calls them by the same word.
 | Token supply | unchanged | **reduced** | unchanged |
 | Keeper required | no | yes | no |
 | Trust required | none | atomicity | **full** |
-| Permitted claim | "burned", "removed from circulation" — **only if the destination passes `SOL_BURN_UNSPENDABLE`** | "burned", "permanently destroyed" | "funds operations" |
+| Permitted claim | "burned", "deflationary" — **only if the destination passes `SOL_BURN_UNSPENDABLE`** | "burned", "permanently destroyed" | "funds operations" |
 | Forbidden claim | ~~"burned"~~ when the destination is spendable | — | ~~"burned"~~, ~~"funds operations"~~ as a burn |
 
 **Both legs burn.** Solana has no instruction that reduces SOL supply, so a
-SOL burn means SOL sent where no key can ever spend it; a token BURN reduces
+SOL burn is deflation: SOL sent where no key can ever spend it, which never
+returns to circulation. A token BURN reduces
 token supply outright.
 
 **What the protocol enforces is the part everyone else asserts:**
