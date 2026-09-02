@@ -159,8 +159,8 @@ class TestEachPathResolvesToItsOwnRule(unittest.TestCase):
         """
         rule = _first_match(self.rewrites, "/coin/" + MINT + ".json")
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], "/" + site._artifact_name(":mint", ".json"))
-        self.assertTrue(rule["destination"].endswith(".json"))
+        self.assertEqual(rule["destination"], LIVE_ROUTE + "&format=json")
+        self.assertNotEqual(rule["destination"], LIVE_ROUTE)
 
     def test_verify_path_resolves_to_the_same_artifact_as_the_coin_page(self):
         """D-21/D-22: one artifact per coin. /verify is a rewrite onto the

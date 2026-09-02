@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Verify a coin -- Charlie Protocol</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Verify a coin -- Charlie Protocol</title><meta name="description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:title" content="Verify a coin -- Charlie Protocol"><meta property="og:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Verify a coin -- Charlie Protocol"><meta name="twitter:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><style>
 :root {
   --paper: #FAF7F0;
   --panel: #EFEAE0;
@@ -15,6 +15,25 @@
   --sp-2xl: 48px;
   --sp-3xl: 64px;
 }
+.verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  align-items: center; margin: var(--sp-lg) 0; }
+.verify-form label { flex: 1 1 100%; font-size: 14px; }
+.verify-form input {
+  flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 16px;
+  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+}
+.verify-form button {
+  padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 16px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  cursor: pointer; min-height: 44px;
+}
+.verify-form button:hover, .verify-form button:focus-visible {
+  background: var(--accent); border-color: var(--accent);
+}
+.hero-verify { margin: var(--sp-xl) 0 0 0; }
+.hero-verify .meta { margin: 0; }
+
 .scanner {
   display: inline-flex; background: #000; padding: var(--sp-sm);
   margin: var(--sp-md) 0 0 0; line-height: 0;
@@ -74,4 +93,4 @@ a { color: var(--accent); }
 .index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
 .index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
 .index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
-</style></head><body><header><h1>Verify a coin</h1><p>Paste a pump.fun contract address -- the CA, also called the mint address -- and get that coin's page: how its creator fees are split, what each destination actually is, and every check that passed, failed, or was never run, beside the figure it backs.</p></header><main><div class="scanner"><img class="scanning" src="/assets/charlie-scanning.gif" width="320" height="320" alt="Charlie watching the candles" decoding="async"></div><form class="verify-form" method="get" action="/verify"><label for="mint">Contract address (CA)</label><input id="mint" name="mint" type="text" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="paste the CA here" pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required><button type="submit">Verify</button></form><p class="meta">No account, nothing to connect, no wallet signature. You can also go straight to <code>/verify/&lt;CA&gt;</code>.</p><p class="meta">Worked example: <a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</a></p><p><strong>It only answers for coins that have been measured.</strong> Nothing here crawls the chain looking for coins to grade -- a coin is measured because someone asked for it to be. A CA nobody has submitted has no page, and this route will not invent one.</p><p><a href="https://github.com/needsmorergb/charlie-protocol-site/issues/new?title=%5Bcoverage%5D+%3Cpaste+your+mint+address%3E&amp;body=%3C%21--+charlie-protocol%3Asubmission+--%3E%0A%0AMint+address%3A%0A%0A%28paste+the+mint+address+on+the+line+above%2C+nothing+else%29%0A">Submit a CA to be measured</a> -- it opens a public issue, so the request and the answer are both on the record. No account here, no approval from us.</p><p><a href="coins-1.html">Every coin measured so far</a>.</p></main><p class="meta">generated at 2026-09-02 19:55:01Z</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p></body></html>
+</style></head><body><header><h1>Verify a coin</h1><p>Paste a pump.fun contract address -- the CA, also called the mint address -- and get that coin's page: how its creator fees are split, what each destination actually is, and every check that passed, failed, or was never run, beside the figure it backs.</p></header><main><div class="scanner"><img class="scanning" src="/assets/charlie-scanning.gif" width="320" height="320" alt="Charlie watching the candles" decoding="async"></div><form class="verify-form" method="get" action="/verify"><label for="mint">Contract address (CA)</label><input id="mint" name="mint" type="text" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="paste the CA here" pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required><button type="submit">Verify</button></form><p class="meta">No account, nothing to connect, no wallet signature. You can also go straight to <code>/verify/&lt;CA&gt;</code>.</p><p class="meta">Worked example: <a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</a></p><p><strong>It answers for any coin.</strong> If nobody has submitted that CA before, the chain is read while you wait and the answer is built from that reading. Most pump coins pay their creator fee to an ordinary wallet and have no split at all, and the page says so in those words rather than pretending to grade something that is not there.</p><p><a href="https://github.com/needsmorergb/charlie-protocol-site/issues/new?title=%5Bcoverage%5D+%3Cpaste+your+mint+address%3E&amp;body=%3C%21--+charlie-protocol%3Asubmission+--%3E%0A%0AMint+address%3A%0A%0A%28paste+the+mint+address+on+the+line+above%2C+nothing+else%29%0A">Submit a CA for the committed record</a> -- an answer read live is not stored. Submitting opens a public issue, and the coin gets a committed page whose figures are backed by recorded evidence rather than a single reading. No account here, no approval from us.</p><p><a href="coins-1.html">Every coin measured so far</a>.</p></main><p class="meta">generated at 2026-09-02 22:16:49Z</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p></body></html>

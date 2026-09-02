@@ -31,7 +31,7 @@
     },
     {
       "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+).json",
-      "destination": "/:mint.json"
+      "destination": "/api/verify?mint=:mint&format=json"
     },
     {
       "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
