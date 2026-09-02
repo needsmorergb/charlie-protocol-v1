@@ -29,11 +29,12 @@ import urllib.request
 BASE = "https://charlieprotocol.fun"
 MEASURED = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 
-# A syntactically valid mainnet CA that this site has NOT measured. The point
-# of the check is the miss, so it must never be a coin we might later measure
-# into a hit -- an unmeasured coin is the common case under the submit model
-# and its page is the one a stranger is most likely to see.
-UNMEASURED = "A8C3xuqscfmyLrte3VmTqrAq8kgMASius9AFNANwpump"
+# A real mainnet CA with a sharing config that this site has NOT pre-generated
+# a page for. It is the common case: almost every CA anyone pastes is one of
+# these, so it is the path that has to work, and it is the exact path that was
+# returning "The page could not be found" while the post telling people to
+# paste a CA was being retweeted.
+UNMEASURED = "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump"
 
 
 def fetch(url: str) -> tuple[int, str]:
@@ -59,11 +60,19 @@ def main() -> int:
         (f"/verify/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
         (f"/coin/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
         (f"/coin/{MEASURED}.json", 200, ['"mint"'], ["NOT_FOUND"]),
-        # The miss. 404 is the correct STATUS -- what matters is that the body
-        # is our page and not Vercel's, which is exactly what shipped broken.
-        (f"/verify?mint={UNMEASURED}", 404,
-         ["No page for that coin yet", "Submit the CA"],
-         ["The page could not be found"]),
+        # The case that shipped broken twice. A CA with no committed page must
+        # come back as a real answer read from the chain at request time, not
+        # a 404 and not a "we have not measured this" apology.
+        (f"/verify?mint={UNMEASURED}", 200, [UNMEASURED, "Checks"],
+         ["The page could not be found", "No page for that coin yet"]),
+        (f"/verify/{UNMEASURED}", 200, [UNMEASURED], ["The page could not be found"]),
+        (f"/coin/{UNMEASURED}", 200, [UNMEASURED], ["The page could not be found"]),
+        # A coin that IS committed must keep its committed page: it carries
+        # evidence-backed figures a live read cannot reach, so serving the
+        # live version there would be a silent downgrade.
+        (f"/verify?mint={MEASURED}", 200, ["17.584506254 SOL"], []),
+        # Garbage must land on the paste box, never on a coin-shaped page.
+        ("/verify?mint=notavalidmint", 400, ["Verify a coin"], []),
         ("/assets/charlie.png", 200, [], []),
         ("/assets/charlie-scanning.gif", 200, [], []),
         ("/assets/charlie-found.gif", 200, [], []),

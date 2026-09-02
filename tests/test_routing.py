@@ -32,6 +32,8 @@ VERCEL_JSON_PATH = Path(__file__).resolve().parents[1] / "vercel.json"
 # A real mainnet mint, and the one this project is the reference
 # implementation for -- so the fixture is a path that genuinely has to work,
 # not a base58-shaped string invented for the test.
+LIVE_ROUTE = "/api/verify?mint=:mint"
+
 MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 
 
@@ -142,9 +144,13 @@ class TestEachPathResolvesToItsOwnRule(unittest.TestCase):
         self.rewrites = _load_rewrites()
 
     def test_coin_page_path(self):
+        """Resolves to the live function, which serves the committed page when
+        one exists. Pointing this straight at a file 404'd every coin that has
+        no committed page, which is nearly all of them.
+        """
         rule = _first_match(self.rewrites, "/coin/" + MINT)
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], "/" + site._artifact_name(":mint", ".html"))
+        self.assertEqual(rule["destination"], LIVE_ROUTE)
 
     def test_coin_record_path_never_takes_the_page_rule(self):
         """The page rule's character class excludes '.', so a record path
@@ -256,7 +262,7 @@ class TestPastedCaRouting(unittest.TestCase):
     def test_a_pasted_ca_reaches_the_coin_page(self):
         rule = _first_match(self.rewrites, "/verify", {"mint": MINT})
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], "/" + site._artifact_name(":mint", ".html"))
+        self.assertEqual(rule["destination"], LIVE_ROUTE)
 
     def test_the_bare_page_still_wins_with_no_query(self):
         rule = _first_match(self.rewrites, "/verify")
