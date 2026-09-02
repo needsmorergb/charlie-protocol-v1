@@ -1602,61 +1602,56 @@ class TestLaunchModeAndResults(unittest.TestCase):
 
 
 class TestDeflationCounterfactual(unittest.TestCase):
-    """The "SOL that could have been burned" figure is speculative, so it is
-    gated HARDER than a normal figure rather than more loosely.
+    """The SOL figure is a sum of burns already shown on the page, not a new
+    measurement. It must agree with the "SOL spent buying them" counter by
+    construction, because both read `burn_events.sol_spent`.
     """
 
-    def _obs(self, checks, evidence):
+    def _obs(self, rows, complete=True):
         o = Observation(mint=CHARLIE, observed_at=1.0)
-        o.checks = checks
-        o.evidence = evidence
+        o.burn_events = rows
+        o.burn_walk_complete = complete
         return o
 
-    def test_withheld_without_a_passing_inflow_check(self):
-        o = self._obs((invariants._check("OPS_ROUTED", invariants.UNCHECKED, [], "eq", "d"),),
-                      {"addr": 5_000_000_000})
-        h = site._deflation(o)
+    def test_sums_the_recorded_burns(self):
+        h = site._deflation(self._obs([{"sol_spent": 17_584_506_254}, {"sol_spent": 0}]))
+        self.assertIn("17.584506254 SOL", h)
+
+    def test_agrees_with_the_counter_that_shows_the_same_rows(self):
+        """Both read burn_events.sol_spent, so the two can never disagree --
+        which is the whole reason it is computed from them.
+        """
+        rows = [{"sol_spent": 1_500_000_000}, {"sol_spent": 2_500_000_000}]
+        self.assertIn("4.000000000 SOL", site._deflation(self._obs(rows)))
+
+    def test_withheld_while_the_walk_is_unfinished(self):
+        """A partial walk gives a smaller total that looks exactly like a
+        finished one -- and providers were observed returning an empty array
+        rather than an error, so short and failed are indistinguishable.
+        """
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}], complete=False))
         self.assertIn("Not shown", h)
         self.assertNotIn("5.000000000", h)
 
-    def test_shown_when_a_passing_check_backs_the_inflows(self):
-        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
-                      {"addr": 5_000_000_000})
-        h = site._deflation(o)
-        self.assertIn("5.000000000 SOL", h)
+    def test_no_burns_says_so_rather_than_showing_zero(self):
+        h = site._deflation(self._obs([]))
+        self.assertIn("No burn is recorded", h)
+        self.assertNotIn("0.000000000 SOL", h)
 
     def test_says_it_did_not_happen(self):
-        """It must never read as a claim that SOL was burned."""
-        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
-                      {"addr": 5_000_000_000})
-        h = site._deflation(o)
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
         self.assertIn("This did not happen", h)
-        self.assertIn("Nothing here was burned", h)
+        self.assertIn("still circulating", h)
 
     def test_uses_one_word_for_it(self):
-        """A SOL burn IS deflation. The softer synonyms describe the same
-        event, and several names for one thing leave a reader unsure whether
-        they are several things.
-        """
-        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),),
-                      {"addr": 5_000_000_000})
-        h = site._deflation(o).lower()
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
         self.assertIn("deflation", h)
         for softer in ("removed from circulation", "taken out of circulation", "sealed", "locked"):
             with self.subTest(phrase=softer):
                 self.assertNotIn(softer, h)
 
-    def test_no_zero_is_ever_rendered_as_a_figure(self):
-        """A zero would be a claim. With nothing recorded it says so."""
-        o = self._obs((invariants._check("OPS_ROUTED", invariants.PASS, [], "eq", "d"),), {})
-        self.assertIn("Not shown", site._deflation(o))
-
-    def test_the_reason_given_is_the_actual_reason(self):
-        """It once said "not shown, because SOL_BURN_BALANCE is PASS" -- a
-        reason that is not a reason. With a passing check and no recorded
-        inflows, the cause is the absent inflows, and that is what it says.
-        """
-        o = self._obs((invariants._check("SOL_BURN_BALANCE", invariants.PASS, [], "eq", "d"),), {})
-        h = site._deflation(o)
-        self.assertIn("no fee inflow has been recorded", h)
-        self.assertNotIn("is PASS", h)
+    def test_is_not_a_gated_figure(self):
+        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
+        for name in invariants.FIGURES:
+            with self.subTest(figure=name):
+                self.assertNotIn(name, h)

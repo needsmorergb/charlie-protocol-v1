@@ -882,81 +882,70 @@ def _results_chart(observation) -> str:
 
 
 def _deflation(observation) -> str:
-    """How much SOL this coin's fees would have burned, and therefore how much
-    deflation they would have produced, had they gone to a burn vault instead
-    of a spendable wallet.
+    """The SOL that passed through this coin's burns, and the deflation it
+    would have produced had it been burned instead of spent.
 
-    ONE WORD FOR IT. A SOL burn IS deflation -- that is the whole of what it
-    does, since SOL sent where no key can spend it can never return to
-    circulation. The page says burn, and says deflation, and says nothing
-    else: "removed from circulation", "locked" and "sealed" are the same
-    event under softer names, and using several names for one thing is how a
-    reader ends up unsure whether they are three different things.
+    ONE WORD FOR IT. A SOL burn IS deflation -- SOL sent where no key can
+    spend it never returns to circulation, which is the only sense in which
+    SOL can be burned at all. "Removed from circulation", "locked" and
+    "sealed" are the same event under softer names, and several names for one
+    thing leave a reader unsure whether they are several things.
 
-    A COUNTERFACTUAL, and labelled as one everywhere it appears. It is not a
-    claim that anything was burned, and it must never be read as one.
+    Summed from `burn_events.sol_spent` -- the same rows behind the "SOL spent
+    buying them" counter, so this figure and that one can never disagree. It
+    is an observed fact, not a member of `invariants.FIGURES`: it states what
+    the recorded burns cost, and claims nothing about what was routed.
 
-    It is gated harder than a normal figure, not softer, precisely because it
-    is speculative: it renders only when a PASSING check backs the inflow
-    total it is computed from. An unfinished walk produces a smaller number
-    that looks like a real one, and `ankr` and `shyft` were observed
-    answering signature queries with an empty array rather than an error --
-    so "we scanned and found little" and "we could not scan" are
-    indistinguishable downstream unless something upstream refuses to guess.
+    What the arithmetic means. That SOL bought tokens, and the TOKENS were
+    burned; the SOL itself went to whoever sold them and is still circulating.
+    Routed to a burn vault instead, the same SOL would have been destroyed
+    outright. Both destroy something -- the difference is whether the supply
+    that falls is the coin's or Solana's, and only the second is deflation for
+    the chain.
 
-    With no passing backing it says so and shows nothing. A zero here would
-    be a claim.
+    Stated only when the burn walk is COMPLETE. A partial walk yields a
+    smaller total that looks exactly like a finished one, and `ankr` and
+    `shyft` were observed answering signature queries with an empty array
+    rather than an error, so "we scanned and found little" and "we could not
+    scan" are indistinguishable downstream unless something refuses to guess.
     """
-    evidence = getattr(observation, "evidence", None) or {}
-    checks = {c.name: c for c in (getattr(observation, "checks", ()) or ())}
-    backing = [checks.get("SOL_BURN_BALANCE"), checks.get("OPS_ROUTED")]
-    backing = [c for c in backing if c is not None]
-    passing = [c for c in backing if c.status == invariants.PASS]
+    rows = getattr(observation, "burn_events", None) or []
+    complete = bool(getattr(observation, "burn_walk_complete", False))
+    lamports = sum(int(r.get("sol_spent") or 0) for r in rows)
 
-    lamports = sum(v for k, v in evidence.items()
-                   if isinstance(v, int) and k not in ("burn_total", "initial_supply"))
-
-    if not passing or not lamports:
-        # State the ACTUAL reason. An earlier version listed check statuses
-        # whenever anything was missing, which produced "not shown, because
-        # SOL_BURN_BALANCE is PASS" -- a reason that is not a reason, on a
-        # page whose whole claim is that it says what is missing and why.
-        if not passing:
-            reasons = ("; ".join(f"{c.name} is {c.status}" for c in backing)
-                       or "no inflow check ran")
-        else:
-            reasons = ("no fee inflow has been recorded for this coin yet, so "
-                       "there is nothing to have burned")
+    if not complete:
         return (
             '<section id="deflation">'
             "<h2>SOL That Could Have Been Burned</h2>"
-            "<p>Not shown. This figure would be the SOL these fees could have "
-            "burned &mdash; permanent deflation, because burned SOL never "
-            "comes back &mdash; had they gone to a burn vault instead of a "
-            "spendable wallet. It is only worth stating when the "
-            f"inflow total behind it is reconciled, and {esc(reasons)}. "
-            "An unfinished walk yields a smaller number that looks exactly "
-            "like a real one, so this page shows nothing rather than a figure "
-            "it cannot stand behind.</p>"
+            "<p>Not shown. The burn walk for this mint has not finished, and a "
+            "partial walk gives a smaller total that looks exactly like a "
+            "finished one.</p>"
+            "</section>"
+        )
+    if not rows:
+        return (
+            '<section id="deflation">'
+            "<h2>SOL That Could Have Been Burned</h2>"
+            "<p>No burn is recorded against this mint, so no SOL has passed "
+            "through one. The walk finished and found none.</p>"
             "</section>"
         )
 
     sol = lamports / LAMPORTS_PER_SOL
-    backed = ", ".join(c.name for c in passing)
     return (
         '<section id="deflation">'
         "<h2>SOL That Could Have Been Burned</h2>"
         f'<p class="deflation-value">{sol:,.9f} SOL</p>'
-        "<p><strong>This did not happen.</strong> It is the deflation these "
-        "recorded fee inflows would have produced had they been burned &mdash; "
-        "sent to a vault no key can spend &mdash; rather than paid to a "
-        "spendable wallet. Nothing here was burned and no deflation occurred: "
-        "the SOL went where the config sent it.</p>"
-        f'<p class="meta">Computed from recorded inflows, backed by {esc(backed)}. '
-        "Every SOL burn is deflation and every deflation is a burn: SOL sent "
-        "where no key can spend it never returns to circulation, which is the "
-        "only sense in which SOL can be burned at all. The number is shown "
-        "because the inflows behind it reconcile.</p>"
+        "<p><strong>This did not happen.</strong> That SOL bought tokens, and "
+        "the tokens were burned. The SOL itself went to whoever sold them and "
+        "is still circulating. Routed to a burn vault instead, the same SOL "
+        "would have been burned outright &mdash; permanent deflation, because "
+        "burned SOL never comes back.</p>"
+        "<p>Both destroy something. The difference is whether the supply that "
+        "falls is this coin's or Solana's.</p>"
+        f'<p class="meta">Summed from the {len(rows)} recorded burn '
+        f"{'transaction' if len(rows) == 1 else 'transactions'} behind the "
+        "figures above, over a completed walk of this mint.</p>"
         "</section>"
     )
 
