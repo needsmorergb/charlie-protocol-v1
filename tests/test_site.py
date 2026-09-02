@@ -1601,6 +1601,45 @@ class TestLaunchModeAndResults(unittest.TestCase):
                 self.assertNotIn(name, h)
 
 
+class TestNotFoundPage(unittest.TestCase):
+    """A pasted CA for an unmeasured coin was reaching Vercel's own 404:
+    "The page could not be found" and a request id. The visitor did exactly
+    what the site told them to do, so that page has to explain the real
+    reason and give them the next step.
+    """
+
+    def test_says_nothing_is_wrong_with_the_address(self):
+        h = site.render_not_found()
+        self.assertIn("Nothing is wrong with the address", h)
+        self.assertIn("not been measured", h)
+
+    def test_carries_the_submit_link(self):
+        """The only action that turns this page into a measured coin."""
+        self.assertIn(site.esc(site.submit_issue_url()), site.render_not_found())
+
+    def test_carries_a_paste_box_that_needs_no_javascript(self):
+        h = site.render_not_found()
+        self.assertIn('method="get"', h)
+        self.assertIn('action="/verify"', h)
+        self.assertIn('name="mint"', h)
+        self.assertNotIn("<script", h)
+
+    def test_does_not_claim_to_know_which_coin(self):
+        """Static file, no script: the mint is in the address bar and cannot
+        reach the copy. Better to say nothing than to render a placeholder.
+        """
+        h = site.render_not_found()
+        for guess in ("that coin's", "this mint", "{mint}", "%s"):
+            with self.subTest(token=guess):
+                self.assertNotIn(guess, h)
+
+    def test_written_at_the_filename_vercel_serves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = site.write_not_found(tmp)
+            self.assertEqual(path.name, "404.html")
+            self.assertTrue(path.exists())
+
+
 class TestNoEmDashes(unittest.TestCase):
     """No em dash anywhere in rendered copy.
 

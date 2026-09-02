@@ -1,0 +1,8 @@
+{
+  "checks": [],
+  "error": "A8C3xuqscfmyLrte3VmTqrAq8kgMASius9AFNANwpump: its creator 11111111111111111111111111111111 is not a fee-sharing config (it is an ordinary creator address). There is no split to report.",
+  "graduated": true,
+  "mint": "A8C3xuqscfmyLrte3VmTqrAq8kgMASius9AFNANwpump",
+  "observed_at": 1788378361.6085556,
+  "schema": 3
+}

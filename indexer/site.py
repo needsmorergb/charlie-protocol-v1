@@ -2011,6 +2011,67 @@ def render_verify(*, now=None, example_mint=None) -> str:
     return _document("Verify a coin -- Charlie Protocol", body, style=_INDEX_STYLE)
 
 
+# Vercel serves this for any path no rewrite and no file claims. That is
+# where a pasted CA lands whenever the coin has not been measured, which is
+# the overwhelmingly common case under the submit-driven model -- so this is
+# not an error page in practice, it is the second most visited page on the
+# site and has to do a job.
+NOT_FOUND_FILENAME = "404.html"
+
+
+def render_not_found(*, now=None) -> str:
+    """The page a pasted CA reaches when that coin has no page yet.
+
+    Vercel's own 404 was serving this route: "The page could not be found",
+    an id, nothing else. A visitor who did exactly what the site asked got
+    something that reads like the site is broken, when the true answer is
+    "nobody has submitted this coin yet" -- which is a state the model
+    intends, not a fault.
+
+    Cannot name the CA. It is a static file and the site runs no JavaScript
+    to do its job, so the mint stays in the address bar and out of the copy.
+    The page compensates by making the next step unmissable rather than by
+    guessing which coin was asked for.
+    """
+    stamp = _stamp(now() if callable(now) else (now if now is not None else time.time()))
+    href = esc(submit_issue_url())
+    coins = esc(INDEX_FILENAME_TEMPLATE.format(page=1))
+    body = (
+        "<header>"
+        "<h1>No page for that coin yet</h1>"
+        "<p>Nothing is wrong with the address you pasted. It just has not "
+        "been measured.</p>"
+        "</header>"
+        "<main>"
+        "<p>Nothing here crawls the chain looking for coins to grade. A coin "
+        "gets a page because someone asked for it to get one, and this route "
+        "will not invent an answer for a coin nobody has looked at.</p>"
+        f'<p><a href="{href}">Submit the CA to be measured</a>. It opens a '
+        "public issue, so the request and the answer both sit on the record. "
+        "No account here, no approval from us.</p>"
+        '<form class="verify-form" method="get" action="/verify">'
+        '<label for="mint">Or try another contract address (CA)</label>'
+        '<input id="mint" name="mint" type="text" inputmode="latin" '
+        'autocomplete="off" spellcheck="false" '
+        'placeholder="paste the CA here" '
+        'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
+        '<button type="submit">Verify</button>'
+        "</form>"
+        f'<p><a href="{coins}">Every coin measured so far</a>.</p>'
+        f'<p><a href="/{esc(VERIFY_FILENAME)}">Back to Verify</a>.</p>'
+        "</main>"
+        f'<p class="meta">generated at {esc(stamp)}</p>'
+    )
+    return _document("No page for that coin yet -- Charlie Protocol", body, style=_INDEX_STYLE)
+
+
+def write_not_found(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
+    path = Path(out_dir) / NOT_FOUND_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_not_found(now=now), encoding="utf-8")
+    return path
+
+
 def write_verify(out_dir=DEFAULT_OUTPUT_DIR, *, now=None, example_mint=None):
     path = Path(out_dir) / VERIFY_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)

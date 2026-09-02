@@ -1,0 +1,189 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump -- Charlie Protocol</title><style>
+:root {
+  --paper: #FAF7F0;
+  --panel: #EFEAE0;
+  --accent: #1D4E89;
+  --destructive: #A3271F;
+  --unchecked: #7A5A12;
+  --ink: #1A1A1A;
+  --pass-glyph: #6B6558;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+  --sp-2xl: 48px;
+  --sp-3xl: 64px;
+}
+.modes { padding-left: var(--sp-lg); }
+.modes li { margin-bottom: var(--sp-md); line-height: 1.6; }
+.chart { max-width: 100%; height: auto; margin: var(--sp-md) 0; }
+.chart-label { font-size: 13px; fill: var(--ink); font-family: inherit; }
+.chart-value { font-size: 13px; fill: var(--ink); font-family: inherit; font-weight: 700; }
+.bar-pass { fill: var(--pass-glyph); }
+.bar-fail { fill: var(--destructive); }
+.bar-unchecked { fill: none; stroke: var(--unchecked); stroke-width: 1; stroke-dasharray: 3 3; }
+.deflation-value {
+  font-size: clamp(22px, 4vw, 34px); font-weight: 700; margin: 0 0 var(--sp-md) 0;
+  overflow-wrap: anywhere;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin: 0;
+  padding: var(--sp-3xl) var(--sp-lg);
+  /* The page is full of long, unbroken chain-derived strings (addresses,
+     signatures) with no internal spaces to wrap at -- inherited so every
+     descendant wraps a long token rather than forcing the whole document
+     into horizontal scroll at a narrow viewport (the mint-address/config-
+     admin-address backstop). */
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 var(--sp-md) 0; overflow-wrap: anywhere; }
+h2 { font-size: 20px; font-weight: 700; line-height: 1.2; margin: var(--sp-xl) 0 var(--sp-md) 0; }
+.meta { font-size: 14px; font-weight: 400; line-height: 1.5; }
+section { margin-bottom: var(--sp-xl); }
+.figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-sm);
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-lg);
+  border-left: 1px dashed var(--unchecked);
+}
+.figure-row.figure-withheld { border-left: 1px dashed var(--unchecked); }
+.figure-label { font-size: 14px; font-weight: 400; }
+.figure-value { font-size: 16px; font-weight: 400; }
+.figure-backs { font-size: 14px; font-weight: 400; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  padding: 2px 8px;
+}
+.status-pass {
+  color: var(--pass-glyph);
+  background: none;
+  font-size: 14px;
+  font-weight: 400;
+}
+.status-fail {
+  background: var(--destructive);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+}
+.status-unchecked {
+  border: 1px dashed var(--unchecked);
+  color: var(--unchecked);
+  font-size: 14px;
+  font-weight: 400;
+}
+.figure-row.status-fail-row {
+  border-left: 4px solid var(--destructive);
+  background: rgba(163, 39, 31, 0.08);
+}
+a { color: var(--accent); }
+.freshness { margin-bottom: var(--sp-md); }
+.freshness .meta { margin: 0 0 var(--sp-xs) 0; }
+.sol-burn-failure-banner {
+  background: var(--destructive);
+  color: #fff;
+  padding: var(--sp-lg);
+  margin: var(--sp-2xl) 0;
+}
+.banner-headline { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 var(--sp-md) 0; color: #fff; }
+.banner-body { font-size: 16px; font-weight: 400; margin: 0 0 var(--sp-md) 0; }
+.banner-static { font-size: 16px; font-weight: 700; margin: 0; }
+.check-row {
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-md);
+}
+.check-name { font-size: 14px; font-weight: 400; }
+.check-equation { font-size: 14px; font-weight: 400; }
+.check-detail { font-size: 16px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.check-expected-actual { font-size: 14px; font-weight: 400; margin: var(--sp-xs) 0 0 0; }
+.error-state p { font-size: 16px; font-weight: 400; }
+.copy-button {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px dashed var(--unchecked);
+  cursor: pointer;
+  color: var(--ink);
+}
+.copy-status { margin-left: var(--sp-sm); font-size: 14px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.table-scroll { overflow-x: auto; }
+.legs { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.legs th, .legs td {
+  text-align: left;
+  padding: var(--sp-sm);
+  border-bottom: 1px solid var(--panel);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.tx-links { list-style: none; margin: var(--sp-md) 0; padding: 0; }
+.tx-links li { margin-bottom: var(--sp-xs); }
+.risks { padding-left: var(--sp-lg); }
+.raw-record-cta { margin: var(--sp-sm) 0 0 0; }
+.record-limit { font-weight: 700; }
+.history-note pre {
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin: var(--sp-xs) 0 var(--sp-md) 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.history-note code { -webkit-user-select: all; user-select: all; }
+footer a { word-break: break-all; overflow-wrap: anywhere; }
+</style></head><body><header><h1>J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump</h1><button type="button" class="copy-button" data-copy-address="J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump" aria-label="Copy mint address"><svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="18" height="18"><rect x="3" y="3" width="9" height="9" fill="none" stroke="currentColor"/></svg></button><span class="copy-status" aria-live="polite"></span><div class="freshness"><p class="meta">observed at 2026-09-02 19:50:53Z (epoch 1788378653.8022358)</p><p class="meta">age: 37 seconds</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p></div><p class="raw-record-cta"><a href="J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump.json">View the raw observation JSON<span class="visually-hidden"> (opens the raw observation record)</span></a></p></header><section id="cannot-enroll"><p>This coin's sharing config is <code>admin_revoked</code>: permanent, and only pump could ever reset it. It cannot enroll in its own protocol.</p></section><section id="figures"><h2>Figures</h2><div class="figure-row" data-figure="split"><span class="figure-label">split</span><span class="figure-value">SOL burn 0 bps / BURN 0 bps / OPS 10000 bps</span><span class="badge status-pass">PASS</span><span class="figure-backs">backed by: CONFIG_MINT, SPLIT_SUM</span></div><div class="figure-row figure-withheld" data-figure="sol_burn_total"><span class="figure-label">sol_burn_total</span><span class="figure-value">withheld</span><span class="badge status-unchecked">UNCHECKED</span><span class="figure-backs">withheld by: SOL_BURN_UNSPENDABLE (UNCHECKED); SOL_BURN_BALANCE (UNCHECKED)</span></div><div class="figure-row figure-withheld" data-figure="burn_total"><span class="figure-label">burn_total</span><span class="figure-value">withheld</span><span class="badge status-unchecked">UNCHECKED</span><span class="figure-backs">withheld by: BURN_SUPPLY (UNCHECKED); BURN_SPEND (UNCHECKED)</span></div><div class="figure-row figure-withheld" data-figure="ops_total"><span class="figure-label">ops_total</span><span class="figure-value">withheld</span><span class="badge status-unchecked">UNCHECKED</span><span class="figure-backs">withheld by: OPS_ROUTED (UNCHECKED)</span></div><div class="figure-row figure-withheld" data-figure="supply_destroyed"><span class="figure-label">supply_destroyed</span><span class="figure-value">withheld</span><span class="badge status-unchecked">UNCHECKED</span><span class="figure-backs">withheld by: BURN_SUPPLY (UNCHECKED); BURN_ATOMIC (UNCHECKED)</span></div></section><section id="checks"><h2>Checks</h2><div class="check-row" data-check="CONFIG_MINT"><span class="check-name">CONFIG_MINT</span><span class="badge status-pass">PASS</span><span class="check-equation">sharing_config.mint == mint</span><p class="check-detail">the sharing config names this coin</p><p class="check-expected-actual">expected J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump | actual J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump</p></div><div class="check-row" data-check="SPLIT_SUM"><span class="check-name">SPLIT_SUM</span><span class="badge status-pass">PASS</span><span class="check-equation">sol_burn_bps + burn_bps + paid_bps == 10000</span><p class="check-detail">the split accounts for the whole fee stream</p><p class="check-expected-actual">expected 10000 | actual 10000</p></div><div class="check-row" data-check="SOL_BURN_UNSPENDABLE"><span class="check-name">SOL_BURN_UNSPENDABLE</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">is_on_curve(sol_burn_vault) == False</span><p class="check-detail">no SOL burn destination in this split -- nothing to check</p></div><div class="check-row" data-check="SOL_BURN_BALANCE"><span class="check-name">SOL_BURN_BALANCE</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">sum(recorded_inflows) == getBalance(vault)</span><p class="check-detail">no SOL burn destination in this split -- nothing to check</p></div><div class="check-row" data-check="BURN_SUPPLY"><span class="check-name">BURN_SUPPLY</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">initial_supply - sum(burn_amounts) == getMint(mint).supply</span><p class="check-detail">burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it</p><p class="check-expected-actual">observed 1000000000000000</p></div><div class="check-row" data-check="BURN_IRREVERSIBLE"><span class="check-name">BURN_IRREVERSIBLE</span><span class="badge status-pass">PASS</span><span class="check-equation">getMint(mint).mint_authority == None</span><p class="check-detail">the mint authority is revoked: burned supply cannot be reissued</p><p class="check-expected-actual">expected None | actual None</p></div><div class="check-row" data-check="BURN_ATOMIC"><span class="check-name">BURN_ATOMIC</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">swap_instruction.transaction == burn_instruction.transaction</span><p class="check-detail">no burn recorded yet for this mint -- nothing to check</p></div><div class="check-row" data-check="BURN_SPEND"><span class="check-name">BURN_SPEND</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">sum(SOL_spent_on_BURN) &lt;= sum(fees_claimed) * bps_BURN / 10000</span><p class="check-detail">no BURN destination in this split -- the protocol program is not deployed, so a burn pool PDA cannot be derived yet, and this equation has nothing to check</p></div><div class="check-row" data-check="OPS_ROUTED"><span class="check-name">OPS_ROUTED</span><span class="badge status-unchecked">UNCHECKED</span><span class="check-equation">sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))</span><p class="check-detail">the walk of D6dgUXN6sC7P6xmKGawCZuyNjXHvDg81QSRSs77RJmzi is incomplete -- reached no signature yet; the walk of GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52 is incomplete -- reached no signature yet; the walk of yHCxHBEaJW5tbndqC8JciSThr7U1cqLpdcsvHcx6PRe is incomplete -- reached no signature yet</p></div></section><section id="launch-mode"><h2>Launch Mode</h2><p>What pump was configured to do with this coin's creator fees, read from the chain.</p><ul class="modes"><li><strong>Trader Cashback: off.</strong> The creator fee goes where the sharing config sends it.</li></ul></section><section id="results"><h2>Results</h2><p>9 checks ran: 3 pass, 0 fail, 6 unchecked. A failed check is not a footnote here -- it is why a figure above is missing.</p><svg class="chart" viewBox="0 0 444 102" width="444" height="102" role="img" aria-label="9 checks: 3 pass; 0 fail; 6 unchecked"><text x="0" y="17" class="chart-label">PASS</text><rect x="96" y="0" width="150" height="26" class="bar-pass"></rect><text x="254" y="17" class="chart-value">3</text><text x="0" y="51" class="chart-label">FAIL</text><rect x="96" y="34" width="0" height="26" class="bar-fail"></rect><text x="104" y="51" class="chart-value">0</text><text x="0" y="85" class="chart-label">UNCHECKED</text><rect x="96" y="68" width="300" height="26" class="bar-unchecked"></rect><text x="404" y="85" class="chart-value">6</text></svg></section><section id="deflation"><h2>SOL That Could Have Been Burned</h2><p>Not shown. The burn walk for this mint has not finished, and a partial walk gives a smaller total that looks exactly like a finished one.</p></section><section id="how-it-works"><h2>How It Works</h2><p>Three destinations for creator fees. Two of them burn; what they destroy is different, and the third destroys nothing.</p><div class="table-scroll"><table class="legs"><tr><th>Leg</th><th>Action</th><th>Permitted claim</th><th>Forbidden claim</th></tr><tr><td>SOL burn</td><td>SOL to a vault no key can spend</td><td>"burned", "deflationary", only where SOL_BURN_UNSPENDABLE passes</td><td>"burned" when the destination is spendable</td></tr><tr><td>BURN</td><td>SOL buys the token, then an SPL burn</td><td>"burned", "permanently destroyed"</td><td>none</td></tr><tr><td>OPS</td><td>SOL to a spendable wallet</td><td>"funds operations"</td><td>"burned"</td></tr></table></div></section><section id="the-burn"><h2>The Burn</h2><p>No burns are recorded against this coin yet. The moment the evidence store records one, it is attributed here.</p><p class="non-boost">No burn from any other source is recorded against this coin. If one is ever recorded, it is attributed here rather than folded into the total above.</p><p class="no-burns">No burns are recorded for this mint yet.</p><p class="burn-atomic-detail">no burn recorded yet for this mint -- nothing to check</p></section><section id="quiet"><h2>Quiet</h2><p>No protocol program is deployed, so no address can be derived as a burn pool -- no coin has a recognised BURN destination today, and nothing cranks for anyone. There is no crank to pause or resume for this coin, because none has ever run. No burn is recorded against this coin's history.</p></section><section id="log"><h2>Log</h2><h3>No cranks yet</h3><p>The protocol's crank has never run, for any coin, because no program is deployed (see <a href="#risks">Risks</a>). No burn is recorded against this mint yet.</p></section><section id="risks"><h2>Risks</h2><ol class="risks"><li>No program is deployed.</li><li>There is no funding, and Phase 5 is gated on SOL that does not exist yet.</li><li>Revoking upgrade authority is a one-way door.</li><li>SOL_BURN_UNSPENDABLE fails permanently for this coin, not pending.</li><li>The opening-balance mechanism is dormant on live data (D-07).</li><li>The mint-wide burn walk is incomplete, so the residual is not a settled figure -- see the committed reconciliation artifact (state/RECONCILIATION.md), never a number on this page.</li><li id="risk-generator-unverified">The publication sweep proves no ungated figure can leak onto this page. It does not prove the numbers shown are the right ones, because nothing independently checks that this renderer faithfully reflects the record it was generated from.</li></ol></section><section id="raw-record"><h2>Raw Observation JSON</h2><p><a href="J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump.json">View the raw observation JSON<span class="visually-hidden"> (opens the raw observation record)</span></a> -- the exact record this page was generated from. Recompute it yourself rather than trust it.</p><p class="record-limit">This record proves that the page above faithfully renders it. It does not prove that the record itself matches the chain -- that is a different check, and it is the indexer&#x27;s job, not the page&#x27;s. See <a href="#risk-generator-unverified">the generator-unverified risk</a> for the reason this page cannot check itself.</p><div class="history-note"><p>Every build overwrites this page and its record in place -- there is no dated series and no "latest" pointer.</p><p>Every version this page has ever had is in this repository's git history. The command below shows the diff at which a figure moved between published and withheld:</p><pre><code>git log -p web/J4wJv6HHUm5oa9uQC8egiLiM1BJ4q7yP32zcMRBppump.html</code></pre></div><p>Verify the boost transaction list yourself in the committed evidence export: <a href="https://github.com/needsmorergb/charlie-protocol-v1/tree/main/state/evidence">https://github.com/needsmorergb/charlie-protocol-v1/tree/main/state/evidence</a></p></section><footer><p>Spec, code and committed evidence: <a href="https://github.com/needsmorergb/charlie-protocol-v1">https://github.com/needsmorergb/charlie-protocol-v1</a></p><p>Every figure above is recomputable from the record published beside this page.</p></footer><script>
+document.querySelectorAll('.copy-button').forEach(function (btn) {
+  var status = btn.nextElementSibling;
+  var defaultLabel = 'Copy mint address';
+  var successLabel = 'Copied';
+  var failureLabel = 'Copy failed -- select the address to copy it manually';
+  btn.addEventListener('click', function () {
+    var address = btn.getAttribute('data-copy-address');
+    function succeed() {
+      btn.setAttribute('aria-label', successLabel);
+      if (status) { status.textContent = successLabel; }
+      setTimeout(function () {
+        btn.setAttribute('aria-label', defaultLabel);
+        if (status) { status.textContent = ''; }
+      }, 2000);
+    }
+    function fail() {
+      btn.setAttribute('aria-label', failureLabel);
+      if (status) { status.textContent = failureLabel; }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(address).then(succeed, fail);
+    } else {
+      fail();
+    }
+  });
+});
+</script></body></html>
