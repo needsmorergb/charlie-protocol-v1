@@ -22,6 +22,7 @@ Exit status is 0 only when every check passes.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import urllib.error
 import urllib.request
@@ -44,6 +45,44 @@ def fetch(url: str) -> tuple[int, str]:
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
+
+
+GATEWAY = "https://crowd-api-gateway.vercel.app/"
+
+
+def gateway_check() -> tuple[int, str]:
+    """crowd-api answers a real JSON-RPC call, and its admin reload refuses an
+    unauthenticated caller. Both on the public URL the site depends on.
+    """
+    payload = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo",
+        "params": [MEASURED, {"encoding": "base64"}],
+    }).encode()
+    req = urllib.request.Request(GATEWAY, data=payload,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = json.loads(r.read().decode())
+    except Exception as exc:
+        return 0, f"gateway unreachable: {exc}"
+    if "result" not in body:
+        return 0, f"gateway returned no result: {body}"
+
+    # A valid empty JSON body, so the request reaches the auth check instead
+    # of dying in Fastify's body parser -- an unparseable body returns 400
+    # before the token is ever looked at, which would make this check pass
+    # for the wrong reason if 400 were accepted.
+    guard = urllib.request.Request(GATEWAY + "router/reload", data=b"{}",
+                                   headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(guard, timeout=30):
+            return 0, "router/reload accepted an unauthenticated request"
+    except urllib.error.HTTPError as e:
+        if e.code != 401:
+            return 0, f"router/reload returned {e.code}, wanted 401"
+    except Exception as exc:
+        return 0, f"router/reload unreachable: {exc}"
+    return 200, "ok"
 
 
 def main() -> int:
@@ -84,9 +123,17 @@ def main() -> int:
         ("/assets/incinerator-smoke.png", 200, [], []),
     ]
 
+    # The RPC path itself. The site reads the chain through crowd-api; if that
+    # gateway is down every /verify degrades to "could not read the chain",
+    # and the site would still pass every route check above.
+    checks.append(("__gateway__", 200, [], []))
+
     failures = []
     for path, want_status, must, must_not in checks:
-        status, body = fetch(base + path)
+        if path == "__gateway__":
+            status, body = gateway_check()
+        else:
+            status, body = fetch(base + path)
         problems = []
         if status != want_status:
             problems.append(f"status {status}, wanted {want_status}")

@@ -31,6 +31,12 @@ DEFAULT_ENDPOINTS = (
 )
 
 
+# JSON-RPC error codes that mean "the upstream this gateway chose failed",
+# not "your request is wrong". crowd-api returns -32097 for an upstream HTTP
+# error; a retry is routed to a different provider, so these are retryable.
+UPSTREAM_FAILURE_CODES = frozenset({-32097, -32098, -32099})
+
+
 class RpcError(RuntimeError):
     """A JSON-RPC application error: the node answered, it just said no."""
 
@@ -122,7 +128,26 @@ class RpcClient:
             self.calls += 1
             if body.get("error"):
                 err = body["error"]
-                raise RpcError(err.get("code", 0), str(err.get("message", "")), method)
+                code = err.get("code", 0)
+                if code in UPSTREAM_FAILURE_CODES:
+                    # crowd-api reporting that the provider IT chose refused
+                    # the call. That is a fact about one upstream, not about
+                    # the request, and the gateway picks a different provider
+                    # on the next attempt -- so it is retried like a transport
+                    # failure rather than raised as the coin's answer.
+                    #
+                    # Observed live: a trending coin rendered "could not read
+                    # the chain" on an upstream HTTP 400 that the very next
+                    # request answered correctly, because the breaker had
+                    # opened on the bad provider in between.
+                    # Deliberately NOT penalised. The gateway answered; it was
+                    # the upstream it picked that refused. Cooling the gateway
+                    # off would take the only endpoint out of rotation and turn
+                    # one bad provider into a total outage.
+                    last_error = RpcError(code, str(err.get("message", "")), method)
+                    self._sleep(0.15)
+                    continue
+                raise RpcError(code, str(err.get("message", "")), method)
             return body.get("result")
 
         raise RpcUnavailable(f"{method}: all RPC endpoints failed ({last_error})")
