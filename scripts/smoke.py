@@ -73,6 +73,10 @@ def main() -> int:
         (f"/verify?mint={MEASURED}", 200, ["17.584506254 SOL"], []),
         # Garbage must land on the paste box, never on a coin-shaped page.
         ("/verify?mint=notavalidmint", 400, ["Verify a coin"], []),
+        # The raw-record link that every coin page carries, for a coin with no
+        # committed record. It 404'd on the page most visitors see.
+        (f"/coin/{UNMEASURED}.json", 200, ['"mint"', UNMEASURED],
+         ["The page could not be found"]),
         ("/assets/charlie.png", 200, [], []),
         ("/assets/charlie-scanning.gif", 200, [], []),
         ("/assets/charlie-found.gif", 200, [], []),

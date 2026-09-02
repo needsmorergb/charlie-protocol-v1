@@ -61,6 +61,13 @@ def _artifact_name(mint: str, suffix: str) -> str:
 # fails the moment the two drift.
 NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
 
+SITE_ORIGIN = "https://charlieprotocol.fun"
+META_IMAGE_SRC = "/assets/meta-image.png"
+SITE_DESCRIPTION = (
+    "Paste a pump.fun contract address and see where its creator fees go, "
+    "read from the chain, with every check that passed, failed, or was never run."
+)
+
 LANDING_FILENAME = "index.html"
 LAMPORTS_PER_SOL = 1_000_000_000
 COIN_ROUTE_PREFIX = "/coin/"
@@ -1239,7 +1246,32 @@ _TOKENS = """
   --sp-3xl: 64px;
 }"""
 
-_STYLE = _TOKENS + """
+# The paste box appears on four surfaces now -- /verify, the landing hero, the
+# no-split coin page and 404 -- across three stylesheets. Defined once so it
+# cannot be styled on one and unstyled on another, which is what shipped when
+# the box was added to the landing page whose sheet had never carried it.
+_VERIFY_FORM_CSS = """
+.verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  align-items: center; margin: var(--sp-lg) 0; }
+.verify-form label { flex: 1 1 100%; font-size: 14px; }
+.verify-form input {
+  flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 16px;
+  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+}
+.verify-form button {
+  padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 16px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  cursor: pointer; min-height: 44px;
+}
+.verify-form button:hover, .verify-form button:focus-visible {
+  background: var(--accent); border-color: var(--accent);
+}
+.hero-verify { margin: var(--sp-xl) 0 0 0; }
+.hero-verify .meta { margin: 0; }
+"""
+
+_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 .modes { padding-left: var(--sp-lg); }
 .modes li { margin-bottom: var(--sp-md); line-height: 1.6; }
 .chart { max-width: 100%; height: auto; margin: var(--sp-md) 0; }
@@ -1394,7 +1426,7 @@ footer a { word-break: break-all; overflow-wrap: anywhere; }
 # document via `_document(..., style=_LANDING_STYLE)`, so every rule it
 # needs (including the ones the reused `_check_row()` markup depends on --
 # `.check-row`/`.badge`/the three status classes) is declared here too.
-_LANDING_STYLE = _TOKENS + """
+_LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 :root {
   /* Palette taken from the live $CHARLIE site (charlie-incinerator.com):
      near-black ground with the brand green as the single accent. Matching it
@@ -1682,7 +1714,7 @@ footer a { word-break: break-all; overflow-wrap: anywhere; }
 """
 
 
-def _document(title: str, body: str, *, style: str = _STYLE) -> str:
+def _document(title: str, body: str, *, style: str = _STYLE, description: str = "") -> str:
     """Wraps `body` (already-built HTML) in the page shell -- the one place
     `<!doctype html>`/`<head>`/`<style>` are assembled, shared by the coin
     page's normal render path, its page-level error branch, and the landing
@@ -1690,12 +1722,29 @@ def _document(title: str, body: str, *, style: str = _STYLE) -> str:
     it, e.g. `f"{mint} -- Charlie Protocol"`); `style` defaults to the coin
     page's own `_STYLE` so every existing call site is unaffected.
     """
+    summary = description or SITE_DESCRIPTION
     return (
         "<!doctype html>"
         '<html lang="en">'
         "<head>"
         '<meta charset="utf-8">'
+        # Without this a phone lays the page out at ~980px and scales the whole
+        # thing down, so every figure on it arrives too small to read. Most of
+        # the traffic this site is being pointed at is mobile.
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{title}</title>"
+        f'<meta name="description" content="{esc(summary)}">'
+        # A link posted without these renders as a bare URL with no card, which
+        # reads as a dead or unfinished site -- and this site is being shared
+        # by link, in posts, as its primary route in.
+        f'<meta property="og:title" content="{esc(title)}">'
+        f'<meta property="og:description" content="{esc(summary)}">'
+        '<meta property="og:type" content="website">'
+        f'<meta property="og:image" content="{SITE_ORIGIN}{META_IMAGE_SRC}">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        f'<meta name="twitter:title" content="{esc(title)}">'
+        f'<meta name="twitter:description" content="{esc(summary)}">'
+        f'<meta name="twitter:image" content="{SITE_ORIGIN}{META_IMAGE_SRC}">'
         f"<style>{style}</style>"
         "</head>"
         f"<body>{body}</body>"
@@ -2045,13 +2094,17 @@ def render_verify(*, now=None, example_mint=None) -> str:
         '<p class="meta">No account, nothing to connect, no wallet signature. '
         "You can also go straight to <code>/verify/&lt;CA&gt;</code>.</p>"
         + example_block +
-        "<p><strong>It only answers for coins that have been measured.</strong> "
-        "Nothing here crawls the chain looking for coins to grade -- a coin is "
-        "measured because someone asked for it to be. A CA nobody has "
-        "submitted has no page, and this route will not invent one.</p>"
-        f'<p><a href="{href}">Submit a CA to be measured</a> -- it opens a '
-        "public issue, so the request and the answer are both on the record. "
-        "No account here, no approval from us.</p>"
+        "<p><strong>It answers for any coin.</strong> If nobody has submitted "
+        "that CA before, the chain is read while you wait and the answer is "
+        "built from that reading. Most pump coins pay their creator fee to an "
+        "ordinary wallet and have no split at all, and the page says so in "
+        "those words rather than pretending to grade something that is not "
+        "there.</p>"
+        f'<p><a href="{href}">Submit a CA for the committed record</a> -- an '
+        "answer read live is not stored. Submitting opens a public issue, and "
+        "the coin gets a committed page whose figures are backed by recorded "
+        "evidence rather than a single reading. No account here, no approval "
+        "from us.</p>"
         f'<p><a href="{coins}">Every coin measured so far</a>.</p>'
         "</main>"
         f'<p class="meta">generated at {esc(stamp)}</p>'
@@ -2087,19 +2140,13 @@ def render_not_found(*, now=None) -> str:
     coins = esc(INDEX_FILENAME_TEMPLATE.format(page=1))
     body = (
         "<header>"
-        "<h1>No page for that coin yet</h1>"
-        "<p>Nothing is wrong with the address you pasted. It just has not "
-        "been measured.</p>"
+        "<h1>Nothing at this address</h1>"
+        "<p>No page here. If you were trying to check a coin, the box below "
+        "answers for any contract address.</p>"
         "</header>"
         "<main>"
-        "<p>Nothing here crawls the chain looking for coins to grade. A coin "
-        "gets a page because someone asked for it to get one, and this route "
-        "will not invent an answer for a coin nobody has looked at.</p>"
-        f'<p><a href="{href}">Submit the CA to be measured</a>. It opens a '
-        "public issue, so the request and the answer both sit on the record. "
-        "No account here, no approval from us.</p>"
         '<form class="verify-form" method="get" action="/verify">'
-        '<label for="mint">Or try another contract address (CA)</label>'
+        '<label for="mint">Contract address (CA)</label>'
         '<input id="mint" name="mint" type="text" inputmode="latin" '
         'autocomplete="off" spellcheck="false" '
         'placeholder="paste the CA here" '
@@ -2165,7 +2212,7 @@ INDEX_FILENAME_TEMPLATE = "coins-{page}.html"
 
 DEFAULT_INDEX_PAGE_SIZE = 500
 
-_INDEX_STYLE = _TOKENS + """
+_INDEX_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 .scanner {
   display: inline-flex; background: #000; padding: var(--sp-sm);
   margin: var(--sp-md) 0 0 0; line-height: 0;
@@ -2624,6 +2671,22 @@ def render_landing(observation, *, now=None) -> str:
         "</div>"
         "</div>"
         + _scene()
+        # The landing page had no route to /verify at all. Traffic arrives here
+        # from a post about pasting a CA, and the only thing to do on arrival
+        # was read about $CHARLIE. The box goes above the counters because it
+        # is why most people came.
+        + '<div class="hero-verify rise d3">'
+        '<form class="verify-form" method="get" action="/verify">'
+        '<label for="mint">Check a coin. Paste its contract address (CA)</label>'
+        '<input id="mint" name="mint" type="text" inputmode="latin" '
+        'autocomplete="off" spellcheck="false" '
+        'placeholder="paste the CA here" '
+        'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
+        '<button type="submit">Verify</button>'
+        "</form>"
+        '<p class="meta">Any pump.fun coin. No wallet, no signup. The chain is '
+        "read while you wait.</p>"
+        "</div>"
         + '<div class="hero-rule"></div>'
         f'<div class="rise d3">{freshness}</div>'
         "</div>"

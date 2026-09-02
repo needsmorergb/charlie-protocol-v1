@@ -47,6 +47,7 @@ from test_publication import FULL_DETAIL_SURFACES  # noqa: E402
 # it does not -- so a coin nobody has pre-generated still gets an answer.
 LIVE_ROUTE = "/api/verify"
 LIVE_ROUTE_SUFFIX = "?mint=:mint"
+JSON_ROUTE_SUFFIX = "?mint=:mint&format=json"
 
 
 class TestFigureRowOrder(unittest.TestCase):
@@ -1086,7 +1087,7 @@ class TestVercelJson(unittest.TestCase):
 
     def _rules(self, data):
         rewrites = data["rewrites"]
-        json_rewrite = _find_rule(rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=".json")
+        json_rewrite = _find_rule(rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=JSON_ROUTE_SUFFIX)
         html_rewrite = _find_rule(
             rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=LIVE_ROUTE_SUFFIX
         )
@@ -1119,7 +1120,10 @@ class TestVercelJson(unittest.TestCase):
     def test_destinations_and_sources_built_from_artifact_name_and_route_prefix(self):
         data = self._load()
         json_rewrite, html_rewrite, verify_rewrite, coins_rewrite = self._rules(data)
-        self.assertEqual(json_rewrite["destination"], "/" + site._artifact_name(":mint", ".json"))
+        # The record goes through the function too. A live-rendered coin has
+        # no committed .json, so the "View the raw observation JSON" link on
+        # its own page pointed at a file that had never been written.
+        self.assertEqual(json_rewrite["destination"], LIVE_ROUTE + "?mint=:mint&format=json")
         # The page route goes to the live function, NOT straight at a file.
         # A static destination 404s for every coin without a committed page,
         # which is almost every coin under the submit model; the function
@@ -1459,10 +1463,70 @@ class TestSubmitIssueUrl(unittest.TestCase):
         self.assertNotIn("labels=", site.submit_issue_url())
 
 
+class TestPasteBoxIsReachableAndStyled(unittest.TestCase):
+    """The box is the product. Two ways it has already been broken: the
+    landing page carried no route to it at all while a post was pointing
+    traffic at exactly that, and it was added to a page whose stylesheet had
+    never carried its rules, which renders it as bare unstyled inputs.
+    """
+
+    def _landing(self):
+        return site.render_landing(_counters_fixture(), now=1)
+
+    def test_the_landing_page_carries_the_box(self):
+        h = self._landing()
+        self.assertIn('action="/verify"', h)
+        self.assertIn('name="mint"', h)
+
+    def test_every_surface_that_shows_the_box_also_styles_it(self):
+        for name in ("_STYLE", "_LANDING_STYLE", "_INDEX_STYLE"):
+            with self.subTest(stylesheet=name):
+                self.assertIn(".verify-form", getattr(site, name))
+
+    def test_every_page_declares_a_viewport(self):
+        """Without it a phone lays the page out near 980px and scales down,
+        so every figure arrives too small to read.
+        """
+        pages = {
+            "landing": self._landing(),
+            "verify": site.render_verify(now=1),
+            "not_found": site.render_not_found(now=1),
+            "coin": site.render(build_observation()),
+        }
+        for name, html in pages.items():
+            with self.subTest(page=name):
+                self.assertIn('name="viewport"', html)
+                self.assertIn("width=device-width", html)
+
+    def test_every_page_carries_a_social_card(self):
+        """A link posted without these renders as a bare URL and reads as a
+        dead site. Posting a link is this site's primary route in.
+        """
+        pages = (self._landing(), site.render_verify(now=1), site.render(build_observation()))
+        for i, html in enumerate(pages):
+            with self.subTest(page=i):
+                self.assertIn('property="og:image"', html)
+                self.assertIn('name="twitter:card"', html)
+                self.assertIn(site.META_IMAGE_SRC, html)
+
+
 class TestVerifyPage(unittest.TestCase):
-    def test_states_it_only_answers_for_measured_coins(self):
+    def test_states_that_it_answers_for_any_coin(self):
+        """It used to say the opposite, truthfully, before the live route
+        existed. Once /verify started answering for any CA that sentence
+        became a lie printed directly above a box that disproves it.
+        """
         rendered = site.render_verify(now=1)
-        self.assertIn("only answers for coins that have been measured", rendered)
+        self.assertIn("answers for any coin", rendered)
+        self.assertNotIn("only answers for coins that have been measured", rendered)
+
+    def test_says_what_submitting_is_actually_for(self):
+        """Submitting no longer buys you an answer -- the live route gives one
+        free. It buys a COMMITTED page backed by recorded evidence, which is a
+        different and still-real thing.
+        """
+        rendered = site.render_verify(now=1)
+        self.assertIn("committed", rendered)
 
     def test_links_the_submission_issue_and_the_index(self):
         rendered = site.render_verify(now=1)
@@ -1678,14 +1742,15 @@ class TestNotFoundPage(unittest.TestCase):
     reason and give them the next step.
     """
 
-    def test_says_nothing_is_wrong_with_the_address(self):
+    def test_points_a_lost_visitor_at_the_paste_box(self):
+        """Reachable now only for paths that are not a valid CA at all -- a
+        typo, a stale link. It must not still say "this coin has not been
+        measured", which would be a claim about a coin nobody named.
+        """
         h = site.render_not_found()
-        self.assertIn("Nothing is wrong with the address", h)
-        self.assertIn("not been measured", h)
-
-    def test_carries_the_submit_link(self):
-        """The only action that turns this page into a measured coin."""
-        self.assertIn(site.esc(site.submit_issue_url()), site.render_not_found())
+        self.assertIn("Nothing at this address", h)
+        self.assertIn("answers for any contract address", h)
+        self.assertNotIn("not been measured", h)
 
     def test_carries_a_paste_box_that_needs_no_javascript(self):
         h = site.render_not_found()
