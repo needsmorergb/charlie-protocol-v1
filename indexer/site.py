@@ -1755,32 +1755,55 @@ def submit_issue_url(repo: str = SUBMIT_REPO) -> str:
     return f"https://github.com/{repo}/issues/new?{query}"
 
 
-def render_verify(*, now=None) -> str:
+def render_verify(*, now=None, example_mint=None) -> str:
     """`/verify` with no mint after it.
 
-    This page exists because the route was advertised without one. It states
-    what the route does, what it cannot do, and the one action that changes
-    that -- rather than a 404, which tells a visitor nothing and reads as a
-    broken site.
+    Carries a real paste box, and it works with NO JavaScript: a plain GET
+    form submits to `/verify?mint=...`, and `vercel.json` redirects that to
+    `/verify/<mint>`. A redirect rather than a rewrite, so the address the
+    visitor ends up on is the shareable one WEB-05 asks for rather than a
+    query string.
+
+    Says "contract address (CA)" as well as "mint". They are the same 32-byte
+    address, but a pump.fun user copies a thing labelled CA, and a page that
+    only says "mint address" asks them to make that connection themselves.
     """
     stamp = _stamp(now() if callable(now) else (now if now is not None else time.time()))
     href = esc(submit_issue_url())
     coins = esc(INDEX_FILENAME_TEMPLATE.format(page=1))
+    example = example_mint or ""
+    example_block = ""
+    if example:
+        example_block = (
+            f'<p class="meta">Worked example: '
+            f'<a href="{esc(COIN_ROUTE_PREFIX.rstrip("/"))}/{esc(example)}">'
+            f"/coin/{esc(example)}</a></p>"
+        )
     body = (
         "<header>"
         "<h1>Verify a coin</h1>"
-        '<p class="meta">Put a mint address after this URL: '
-        "<code>/verify/&lt;mint&gt;</code></p>"
+        "<p>Paste a pump.fun contract address -- the CA, also called the mint "
+        "address -- and get that coin's page: how its creator fees are split, "
+        "what each destination actually is, and every check that passed, "
+        "failed, or was never run, beside the figure it backs.</p>"
         "</header>"
         "<main>"
-        "<p>That address resolves to the coin's page: its fee split, what that "
-        "split does, and every check that passed, failed, or was never run "
-        "beside the figure it backs.</p>"
+        '<form class="verify-form" method="get" action="/verify">'
+        '<label for="mint">Contract address (CA)</label>'
+        '<input id="mint" name="mint" type="text" inputmode="latin" '
+        'autocomplete="off" spellcheck="false" '
+        'placeholder="paste the CA here" '
+        'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
+        '<button type="submit">Verify</button>'
+        "</form>"
+        '<p class="meta">No account, nothing to connect, no wallet signature. '
+        "You can also go straight to <code>/verify/&lt;CA&gt;</code>.</p>"
+        + example_block +
         "<p><strong>It only answers for coins that have been measured.</strong> "
         "Nothing here crawls the chain looking for coins to grade -- a coin is "
-        "measured because someone asked for it to be. A mint nobody has "
+        "measured because someone asked for it to be. A CA nobody has "
         "submitted has no page, and this route will not invent one.</p>"
-        f'<p><a href="{href}">Submit a mint to be measured</a> -- it opens a '
+        f'<p><a href="{href}">Submit a CA to be measured</a> -- it opens a '
         "public issue, so the request and the answer are both on the record. "
         "No account here, no approval from us.</p>"
         f'<p><a href="{coins}">Every coin measured so far</a>.</p>'
@@ -1791,10 +1814,10 @@ def render_verify(*, now=None) -> str:
     return _document("Verify a coin -- Charlie Protocol", body, style=_INDEX_STYLE)
 
 
-def write_verify(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
+def write_verify(out_dir=DEFAULT_OUTPUT_DIR, *, now=None, example_mint=None):
     path = Path(out_dir) / VERIFY_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_verify(now=now), encoding="utf-8")
+    path.write_text(render_verify(now=now, example_mint=example_mint), encoding="utf-8")
     return path
 
 
@@ -1803,6 +1826,21 @@ INDEX_FILENAME_TEMPLATE = "coins-{page}.html"
 DEFAULT_INDEX_PAGE_SIZE = 500
 
 _INDEX_STYLE = _TOKENS + """
+.verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  align-items: center; margin: var(--sp-lg) 0; }
+.verify-form label { flex: 1 1 100%; font-size: 14px; }
+.verify-form input {
+  flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 15px;
+  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+}
+.verify-form button {
+  padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 15px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  cursor: pointer;
+}
+.verify-form button:hover, .verify-form button:focus-visible { background: var(--accent); border-color: var(--accent); }
+
 * { box-sizing: border-box; }
 body {
   background: var(--paper);

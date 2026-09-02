@@ -24,5 +24,19 @@
       "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
       "destination": "/:mint.html"
     }
+  ],
+  "redirects": [
+    {
+      "source": "/verify",
+      "has": [
+        {
+          "type": "query",
+          "key": "mint",
+          "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
+        }
+      ],
+      "destination": "/verify/:mint",
+      "permanent": false
+    }
   ]
 }

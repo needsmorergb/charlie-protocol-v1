@@ -269,7 +269,11 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # by a command of its own because it is the same surface from the other
     # side: the index says which coins are measured, this says how a coin
     # becomes one. Both callers of this helper therefore keep the two in step.
-    written.append(site.write_verify(out_dir))
+    # The worked example is a real measured coin, chosen from what is on
+    # disk -- never a hardcoded mint, which would outlive the record it
+    # points at and send a visitor to a 404.
+    example = records[0].get("mint") if records else None
+    written.append(site.write_verify(out_dir, example_mint=example))
     return written
 
 

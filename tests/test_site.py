@@ -1460,3 +1460,53 @@ class TestVerifyPage(unittest.TestCase):
 
     def test_ships_no_script(self):
         self.assertNotIn("<script", site.render_verify(now=1))
+
+
+class TestVerifyPasteBox(unittest.TestCase):
+    """The route is only useful if a visitor can act on it.
+
+    Before this, the page said "put a mint address after this URL" with no
+    field to type into -- it asked people to hand-edit the address bar. The
+    form is a plain GET; `vercel.json` redirects /verify?mint=... onto
+    /verify/<mint>, so it works with no JavaScript at all and the visitor
+    lands on the shareable address rather than a query string.
+    """
+
+    def test_has_a_form_and_an_input(self):
+        h = site.render_verify(now=1)
+        self.assertIn("<form", h)
+        self.assertIn("<input", h)
+        self.assertIn('method="get"', h)
+        self.assertIn('action="/verify"', h)
+        self.assertIn('name="mint"', h)
+
+    def test_ships_no_script(self):
+        self.assertNotIn("<script", site.render_verify(now=1))
+
+    def test_input_accepts_only_base58(self):
+        """A pasted CA is untrusted input. The browser-side pattern is
+        convenience, not the boundary -- intake.validate_mint is -- but it
+        stops the obvious paste mistakes before a round trip.
+        """
+        h = site.render_verify(now=1)
+        self.assertIn("[1-9A-HJ-NP-Za-km-z]", h)
+
+    def test_says_contract_address_not_only_mint(self):
+        """A pump.fun user copies a thing labelled CA. A page that only says
+        "mint address" makes them make that connection themselves.
+        """
+        h = site.render_verify(now=1).lower()
+        self.assertIn("contract address", h)
+        self.assertIn("ca", h)
+
+    def test_worked_example_is_a_real_coin_when_one_exists(self):
+        h = site.render_verify(now=1, example_mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump")
+        self.assertIn("8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump", h)
+
+    def test_no_worked_example_rather_than_a_dead_one(self):
+        """With nothing measured there is no example to give. Inventing one
+        would point a visitor at a 404 on the page that exists to tell them
+        what is measured.
+        """
+        h = site.render_verify(now=1)
+        self.assertNotIn("Worked example", h)
