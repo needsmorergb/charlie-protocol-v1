@@ -307,7 +307,7 @@ class TestBurnAtomicProtocolScope(unittest.TestCase):
         record.checks = (
             invariants.config_mint(CHARLIE, record.config),
             invariants.split_sum(split),
-            invariants.sol_burn_unspendable(split),
+            invariants.sol_burn_unspendable(split, make_registry()),
             invariants.sol_burn_balance(),
             burn_check,
             invariants.burn_irreversible(record.mint_state),
@@ -397,6 +397,11 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900,
             return self._balance
 
     destination = SPENDABLE if sol_burn_spendable else GRANDFATHERED
+    # One registry for attribution and for every check that takes one.
+    # `make_registry` grandfathers the destination (attribution) and
+    # recognises nothing beyond the default set, which is what lets a
+    # spendable fixture FAIL SOL_BURN_UNSPENDABLE under its own registry.
+    registry = make_registry(destination)
     split = make_split(destination)
     record = Observation(mint=CHARLIE, observed_at=1.0)
     record.config = type("Cfg", (), {
@@ -425,7 +430,7 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900,
         sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
         record.evidence = {address: evidence.recorded_lamports(address) for address in sol_burn_destinations}
         balances = {address: sol_burn_balance for address in sol_burn_destinations}
-        sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=make_registry(destination))
+        sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=registry)
         burn_rows = evidence.burns_for(CHARLIE)
         walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
         initial_supply_row = evidence.initial_supply_for(CHARLIE)
@@ -437,7 +442,7 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900,
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),
         invariants.split_sum(split),
-        invariants.sol_burn_unspendable(split),
+        invariants.sol_burn_unspendable(split, registry),
         sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),
@@ -617,7 +622,7 @@ def build_all_publishable_sentinel_observation(evidence: Evidence) -> Observatio
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),
         invariants.split_sum(split),
-        invariants.sol_burn_unspendable(split),
+        invariants.sol_burn_unspendable(split, registry),
         sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),
@@ -690,7 +695,7 @@ def build_all_blocked_sentinel_observation(evidence: Evidence) -> Observation:
     record.checks = (
         invariants.config_mint(CHARLIE, record.config),  # FAILS -- backs every FIGURE
         invariants.split_sum(split),
-        invariants.sol_burn_unspendable(split),
+        invariants.sol_burn_unspendable(split, registry),
         sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),

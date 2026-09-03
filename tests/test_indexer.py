@@ -311,18 +311,19 @@ class TestInvariants(unittest.TestCase):
         self.assertEqual(check.actual, "a burn destination")
         self.assertNotIn(BURN_VANITY, check.detail)
 
-    def test_spendable_sol_burn_destination_fails(self):
+    def test_attributed_but_not_recognised_destination_fails(self):
         """The check still has teeth, and this is what they are for.
 
-        `legs.py` only puts a recognised burn address, the incinerator or a
-        derived vault on the sol_burn leg, so on live data with the default
-        registry this branch is unreachable. It is a guard: if attribution
-        ever changed and an ordinary wallet landed on the burn leg, the SOL
-        burn total would be withheld rather than published against an address
-        someone can spend from. Reaching it takes a registry that
-        grandfathers such a wallet.
+        A registry has two sets. `grandfathered_sol_burn` is attribution: an
+        address goes on the sol_burn leg because a coin routes there calling
+        it a burn. `recognised_burn` is recognition: the chain treats the
+        address as a burn. They coincide by default and are separate on
+        purpose. A wallet attributed to the leg without being recognised is
+        the case the check exists to catch, and it is reachable through
+        `observe()` with such a registry, not only by hand-building a split.
         """
         registry = Registry(program_id=None, grandfathered_sol_burn=frozenset({WALLET}))
+        self.assertNotIn(WALLET, registry.recognised_burn)
         rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(WALLET, 10_000)])})
         record = observe(rpc, CHARLIE, registry, now=1.0)
         check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
@@ -330,6 +331,28 @@ class TestInvariants(unittest.TestCase):
         self.assertIn(WALLET, check.actual)
         self.assertIn("can be spent from", check.detail)
         self.assertNotIn(invariants.SOL_BURN_TOTAL, record.verdict.publishable)
+
+    def test_the_check_reads_the_registry_it_was_given(self):
+        """Same wallet, same split; this registry also recognises it. PASS.
+        If the check read a default registry instead of this one, the two
+        tests would be indistinguishable and this one would fail.
+        """
+        registry = Registry(
+            program_id=None,
+            grandfathered_sol_burn=frozenset({WALLET}),
+            recognised_burn=frozenset({WALLET}),
+        )
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(WALLET, 10_000)])})
+        record = observe(rpc, CHARLIE, registry, now=1.0)
+        check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
+        self.assertEqual(check.status, invariants.PASS)
+
+    def test_default_registry_recognises_the_grandfathered_address_and_the_incinerator(self):
+        registry = Registry()
+        self.assertEqual(registry.recognised_burn, registry.grandfathered_sol_burn)
+        self.assertTrue(registry.is_burn_destination(BURN_VANITY))
+        self.assertTrue(registry.is_burn_destination(INCINERATOR))
+        self.assertFalse(registry.is_burn_destination(WALLET))
 
     def test_the_incinerator_is_a_burn_destination(self):
         rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(INCINERATOR, 10_000)])})
