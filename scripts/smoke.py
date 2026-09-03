@@ -94,7 +94,10 @@ def main() -> int:
     checks = [
         ("/", 200, ["Charlie Protocol"], ["NOT_FOUND"]),
         ("/verify", 200, ["Verify a coin", 'name="mint"'], ["NOT_FOUND"]),
-        ("/coins", 200, ["coin observed"], ["NOT_FOUND"]),
+        # "1 coin observed" / "2 coins observed" -- assert the stem, not a
+        # count or a plural, or this check breaks every time a coin is added.
+        ("/coins", 200, ["observed", "Coins are measured when someone submits"],
+         ["NOT_FOUND"]),
         (f"/verify?mint={MEASURED}", 200, [MEASURED, "Results"], ["NOT_FOUND"]),
         (f"/verify/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
         (f"/coin/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
