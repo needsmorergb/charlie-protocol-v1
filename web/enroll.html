@@ -115,7 +115,7 @@ button.primary:hover, button.primary:focus-visible {
 pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
 .warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
   padding: var(--sp-md); margin: var(--sp-md) 0; }
-</style></head><body><header><h1>Set your coin&#x27;s fee split</h1><p>Connect the wallet that administers the coin and send its creator fee wherever you want it to go. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>A destination is an address, and this page does not grade them. Two kinds can be checked afterwards: an address no key can spend is a SOL burn, and SOL sent there is deflation, because burned SOL never comes back. An address that buys the token and destroys it reduces the coin&#x27;s supply. Anything else is an ordinary wallet, and the coin&#x27;s page says so in those words.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-03 05:16:51Z</p><script>
+</style></head><body><header><h1>Set your coin&#x27;s fee split</h1><p>Connect the wallet that administers the coin and send its creator fee wherever you want it to go. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>A destination is an address, and this page does not grade them. Two kinds can be checked afterwards: an address no key can spend is a SOL burn, and SOL sent there is deflation, because burned SOL never comes back. An address that buys the token and destroys it reduces the coin&#x27;s supply. Anything else is an ordinary wallet, and the coin&#x27;s page says so in those words.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-03 05:48:44Z</p><script>
 var state = {wallet: null, mint: null, built: null};
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) { var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || ''); }
@@ -247,12 +247,26 @@ async function send() {
     var sig = (res && (res.signature || res)) || '';
     var n = $('sendNote');
     n.className = 'note good';
-    n.textContent = 'Sent. ';
+    n.textContent = '';
+    var done = document.createElement('p');
+    done.textContent = 'Sent. Your split is set. pump allows this once, so it is now fixed.';
+    var txp = document.createElement('p');
+    var tx = document.createElement('a');
+    tx.href = 'https://solscan.io/tx/' + sig;
+    tx.textContent = sig;
+    txp.textContent = 'Transaction: ';
+    txp.appendChild(tx);
+    // The loop closes here. The dev just changed where the fee goes; the next
+    // thing they want is the page that reads it back off the chain, and it
+    // is the page they will share.
+    var check = document.createElement('p');
     var link = document.createElement('a');
-    link.href = 'https://solscan.io/tx/' + sig;
-    link.textContent = sig;
-    n.appendChild(link);
+    link.href = '/verify/' + state.mint;
+    link.textContent = 'See your coin checked';
+    check.appendChild(link);
+    n.appendChild(done); n.appendChild(txp); n.appendChild(check);
     $('send').hidden = true;
+    $('build').hidden = true;
   } catch (e) {
     say('sendNote', 'Not sent: ' + ((e && e.message) || 'the wallet refused it') + '. Nothing changed.', 'bad');
   }
