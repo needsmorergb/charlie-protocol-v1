@@ -328,10 +328,20 @@ def _intake(args) -> int:
             print("dry run -- no artifact written, no evidence recorded, no reply sent")
             return 0
 
-        outcomes = intake.run(
-            issues, rpc, registry, evidence, out_dir,
-            repo=args.repo, site_url=args.site_url, limit=args.limit,
-        )
+        if args.answer_only:
+            # Reply to what a PREVIOUS run measured, without measuring again.
+            # The two halves have to be separate processes in a scheduled job:
+            # `reply` refuses to close an issue whose verdict link is not live,
+            # and that link cannot be live until the page the measuring run
+            # wrote has been committed and deployed. Without this flag the
+            # second pass re-measures the whole queue to reach the reply step,
+            # paying for every observation twice.
+            outcomes = []
+        else:
+            outcomes = intake.run(
+                issues, rpc, registry, evidence, out_dir,
+                repo=args.repo, site_url=args.site_url, limit=args.limit,
+            )
 
         for outcome in outcomes:
             if outcome.observed:
@@ -548,6 +558,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--answer", action="store_true",
         help="D-23: also reply on GitHub (comment, close) for every unanswered row -- "
              "needs a logged-in gh credential; defaults to off so the read half never requires one",
+    )
+    intake_cmd.add_argument(
+        "--answer-only", action="store_true",
+        help="reply to what a previous run measured, without measuring again -- "
+             "the second half of a scheduled job, after the pages it answers with "
+             "are deployed and their links actually resolve",
     )
     intake_cmd.set_defaults(handler=_intake)
 

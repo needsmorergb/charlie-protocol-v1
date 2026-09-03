@@ -14,6 +14,8 @@ gap in the record indistinguishable from "nothing happened here".
 
 from __future__ import annotations
 
+import time
+
 from . import decode
 from . import pump
 from .rpc import RpcClient
@@ -535,7 +537,7 @@ def classify_atomicity(tx: dict, mint: str) -> str:
     return "PASS" if decode.find_swap_shaped(tx) else "FAIL"
 
 
-def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, limit=DEFAULT_PAGE_LIMIT):
+def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, limit=DEFAULT_PAGE_LIMIT, deadline=None):
     """One bounded walk over the **mint account's** own signature history,
     recording every burn instruction found against it (D-09: every burn
     against the mint, by anyone -- not one known actor's transactions).
@@ -565,6 +567,18 @@ def _walk_burns(rpc, evidence, mint: str, *, until=None, before=None, pages=1, l
     last_error: str | None = None
 
     for record in signatures:
+        # A page is up to 1000 signatures and every one of them costs a
+        # `getTransaction`. On a coin with real trading history that is
+        # minutes of wall clock, which is unbounded as far as a submission
+        # queue or a scheduled job is concerned -- intake hung on exactly
+        # this. Stopping at a deadline leaves `stopped_early` set, so the
+        # walk stays visibly INCOMPLETE and every figure behind it stays
+        # withheld. A slow answer is a partial one; it must not look
+        # finished.
+        if deadline is not None and time.monotonic() >= deadline:
+            stopped_early = True
+            break
+
         signature = record.get("signature")
         if record.get("err") is not None:
             newest_seen = signature
@@ -631,6 +645,7 @@ def scan_burns(
     *,
     pages: int = BACKFILL_PAGES_PER_RUN,
     limit: int = DEFAULT_PAGE_LIMIT,
+    deadline=None,
 ):
     """The mint-wide burn scan (EVID-06/D-09): walks the **mint account's**
     own signature history, not the boost vault's -- RESEARCH.md Q8
@@ -641,6 +656,14 @@ def scan_burns(
     Same forward-catch-up-plus-bounded-backfill shape as `scan_inflows`,
     cursor state owned by `evidence` under `purpose='burn'`. Returns
     `(newest_signature_seen, oldest_signature_seen, backfill_complete)`.
+
+    `deadline` is a `time.monotonic()` value after which the walk stops
+    mid-page. It bounds WALL CLOCK, which pages alone do not: one page is up
+    to 1,000 signatures and each costs a `getTransaction`. A walk cut short
+    by the deadline leaves `backfill_complete` False exactly as a failed
+    fetch does, so the figures behind it stay withheld and the next run
+    resumes from the same cursor. The alternative -- an unbounded walk --
+    hung `intake` on the first coin with real trading history.
 
     WR-02: either walk may stop early on a `DecodeError` (a malformed burn
     field). That failure is recorded against the mint's burn cursor as
@@ -659,7 +682,8 @@ def scan_burns(
 
     if last_signature:
         forward_newest, _forward_oldest, _exhausted, forward_error = _walk_burns(
-            rpc, evidence, mint, until=last_signature, before=None, pages=1_000_000, limit=limit,
+            rpc, evidence, mint, until=last_signature, before=None, pages=1_000_000,
+            limit=limit, deadline=deadline,
         )
         if forward_newest:
             newest_seen = forward_newest
@@ -667,7 +691,8 @@ def scan_burns(
 
     if not backfill_complete:
         backward_newest, backward_oldest, exhausted, backward_error = _walk_burns(
-            rpc, evidence, mint, until=None, before=oldest_signature, pages=pages, limit=limit,
+            rpc, evidence, mint, until=None, before=oldest_signature, pages=pages,
+            limit=limit, deadline=deadline,
         )
         if backward_oldest:
             oldest_seen = backward_oldest
