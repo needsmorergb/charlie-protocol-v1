@@ -112,9 +112,7 @@ not a single-signer wallet.
 
 ## 3. The SOL burn destination
 
-**SOL is burned by destroying it, not by parking it.**
-
-The canonical destination is Solana's incinerator:
+The SOL burn destination is Solana's incinerator:
 
     1nc1nerator11111111111111111111111111111111
 
@@ -123,34 +121,23 @@ From the runtime's own source (`sdk/program/src/incinerator.rs`):
 > Lamports credited to this address will be removed from the total supply
 > (burned) at the end of the current block.
 
-That is the whole standard, and it is the runtime's guarantee rather than
-ours. Nothing has to be deployed, nothing has to be trusted, and no key
-exists anywhere that could undo it.
+SOL routed there leaves the total supply. That is the runtime's guarantee
+rather than ours: nothing is deployed, nothing is trusted, and no key exists
+anywhere that could undo it.
 
-### Why unspendable is not enough
-
-An earlier version of this section required a PDA and reasoned about which
-programs could move lamports out of one. That was the wrong target. An
-address with no private key makes SOL **unspendable**: the lamports still
-exist, the total supply is unchanged, and nobody can touch them. That is a
-freeze, not a burn, and calling it deflation would be false.
-
-Deflation is supply reduction. Only the incinerator delivers it.
-
-This applies to lamports only. Sending an **SPL token** to the incinerator
-does not burn it -- the runtime destroys lamports, not token balances. Token
+This applies to lamports. Sending an **SPL token** to the incinerator does not
+reduce its supply -- the runtime destroys lamports, not token balances. Token
 supply is reduced through the token program's own burn instruction, which is
-the BURN leg, not this one.
+the BURN leg.
 
 ### Attribution
 
-The incinerator is shared by the whole chain, so a coin's burn cannot be
-proven from its balance: that balance is always zero, by design. Attribution
-is per transaction instead, from the transfers into it, which is exact rather
-than cumulative.
+The incinerator is shared by the whole chain, so a coin's burn is attributed
+per transaction, from the transfers into it, rather than from a balance. That
+is exact rather than cumulative.
 
-The zero balance is not a weakness here, it is the evidence. A vault holding
-the SOL would only prove the SOL is sitting there. A balance that stayed at
+The balance is always zero, and the zero is the evidence. A vault holding the
+SOL would prove only that the SOL is sitting there; a balance that stayed at
 zero after lamports were credited proves they left the supply.
 
 `SOL_BURN_BALANCE` therefore asks a different question of this destination
@@ -160,12 +147,10 @@ absence of a reading is not evidence of a burn.
 
 ### $CHARLIE
 
-$CHARLIE routes to the legacy vanity address `burn111…111`, which predates
-this and is shared with other creators. It is unspendable, not burned, so it
-fails the standard above on its own terms. It keeps the weaker `<=`
-attribution invariant for its history, and the protocol publishes no SOL burn
-total for it. New enrollments do not get that exemption and are not offered
-that address.
+$CHARLIE routes to `burn111...111`, a shared vanity address that predates this
+spec. Attribution across the coins sharing it is not possible, so it carries
+the weaker `<=` invariant and the protocol publishes no SOL burn total for it.
+New enrollments use the incinerator.
 
 ---
 

@@ -265,8 +265,7 @@ def _incinerator_result(destination: str, recorded, vault_balance) -> dict:
         "destination": destination,
         "status": PASS,
         "detail": f"{recorded} lamports were routed to Solana's incinerator and its "
-                  "balance is zero: the runtime removed them from the total supply. "
-                  "Not unspendable, destroyed",
+                  "balance is zero: the runtime removed them from the total supply",
         "expected": 0,
         "actual": 0,
     }
@@ -291,13 +290,11 @@ def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Ch
             # The incinerator's balance is ALWAYS zero, because the runtime
             # removes what is credited to it at the end of the block. Asking
             # `sum(inflows) == getBalance(vault)` here would read `X == 0` and
-            # FAIL every coin that burned SOL correctly -- branding the right
-            # answer red.
+            # FAIL every coin that burned correctly, branding the right answer
+            # red.
             #
-            # The zero IS the proof, and it is a stronger one than the equality
-            # this check applies elsewhere: a balance that stayed at zero after
-            # lamports were credited means they left the supply rather than
-            # sitting in an address nobody can spend.
+            # The zero IS the proof: a balance that stayed at zero after
+            # lamports were credited means they left the total supply.
             comparator = "burned"
         if not evidence.is_backfill_complete(destination, "inflow"):
             per_destination.append(
