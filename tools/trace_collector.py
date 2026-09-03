@@ -186,7 +186,7 @@ def render(result: Trace) -> str:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("mints", nargs="+")
+    parser.add_argument("mints", nargs="*")
     parser.add_argument("--rpc", help="comma-separated RPC endpoints (env CHARLIE_RPC_URLS)")
     parser.add_argument(
         "--siblings",
@@ -194,11 +194,25 @@ def main(argv=None) -> int:
         help="also enumerate other coins paying the same sole destination",
     )
     parser.add_argument("--limit", type=int, default=25, help="sibling mints to print")
+    parser.add_argument(
+        "--collector",
+        help="skip the mints and enumerate every config paying THIS address first",
+    )
     args = parser.parse_args(argv)
 
     raw = args.rpc or os.environ.get("CHARLIE_RPC_URLS") or ""
     endpoints = tuple(url.strip() for url in raw.split(",") if url.strip()) or DEFAULT_ENDPOINTS
     rpc = RpcClient(endpoints)
+
+    if args.collector:
+        found = siblings(rpc, args.collector)
+        print(f"coins paying {args.collector} first")
+        print(f"  matched        {len(found['mints']) + found['truncated']}")
+        if found["truncated"]:
+            print(f"  multi-holder   {found['truncated']} (matched, holders not decoded)")
+        for mint in found["mints"][: args.limit]:
+            print(f"    {mint}")
+        return 0
 
     collectors: dict[str, str] = {}
     for mint in args.mints:
