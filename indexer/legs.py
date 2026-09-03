@@ -146,20 +146,16 @@ CLASSIFICATIONS = ("none", "sol_burn-only", "burn-only", "ops-only", "mixed")
 # recognises.
 _DISPLAY_NAME = {SOL_BURN: "sol_burn", BURN: "burn", OPS: "ops"}
 
-# Solana's own incinerator, and the only address on the chain where SOL is
-# genuinely DESTROYED rather than merely made unspendable.
-#
-# From the runtime's own source (sdk/program/src/incinerator.rs):
+# Solana's incinerator. From the runtime's own source
+# (sdk/program/src/incinerator.rs):
 #
 #     "Lamports credited to this address will be removed from the total
 #      supply (burned) at the end of the current block."
 #
-# That distinction is the whole protocol. An address with no private key
-# parks SOL: the supply is unchanged and the lamports still exist, so
-# calling it deflation would be false. The incinerator reduces the supply,
-# which is what deflation means. Checked against mainnet: the account does
-# not exist and its balance is 0, which is what an address whose credits
-# are removed every block looks like.
+# SOL routed here leaves the total supply, which is what the protocol's
+# deflation claim rests on. Checked against mainnet: the account does not
+# exist and its balance is 0, which is what an address whose credits are
+# removed every block looks like.
 #
 # NOTE, because it is the trap next to this one: sending an SPL TOKEN here
 # does not burn it. Only lamports are destroyed by the runtime. Token burns
