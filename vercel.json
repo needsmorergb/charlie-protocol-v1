@@ -7,6 +7,10 @@
     "api/verify.py": {
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 20
+    },
+    "api/enroll.py": {
+      "includeFiles": "{indexer/**,web/**}",
+      "maxDuration": 20
     }
   },
   "rewrites": [
@@ -24,6 +28,10 @@
     {
       "source": "/coins",
       "destination": "/coins-1.html"
+    },
+    {
+      "source": "/enroll",
+      "destination": "/enroll.html"
     },
     {
       "source": "/verify",

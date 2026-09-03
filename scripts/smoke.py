@@ -85,6 +85,49 @@ def gateway_check() -> tuple[int, str]:
     return 200, "ok"
 
 
+# A coin whose split has never been changed, and the wallet that administers
+# it. Read from mainnet; if that coin ever uses its one update, this check
+# starts failing loudly, which is the correct outcome -- it means the fixture
+# no longer tests what it claims to.
+ENROLL_MINT = "JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump"
+ENROLL_ADMIN = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
+BURN_ADDRESS = "burn111111111111111111111111111111111111111"
+
+
+def enroll_check(base: str) -> tuple[int, str]:
+    """The enrollment API builds a transaction AND says it simulated cleanly.
+
+    Checking only that the page loads would pass while every dev who tried to
+    use it got an error, because all the work is behind this call.
+    """
+    ownership = f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
+    status, body = fetch(ownership)
+    try:
+        seen = json.loads(body)
+    except ValueError:
+        return 0, f"ownership check returned non-JSON: {body[:120]}"
+    if status != 200 or not seen.get("owns"):
+        return 0, f"ownership check did not confirm the admin: {body[:160]}"
+
+    build = (f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
+             f"&shares={BURN_ADDRESS}:2000,{ENROLL_ADMIN}:8000")
+    status, body = fetch(build)
+    try:
+        built = json.loads(body)
+    except ValueError:
+        return 0, f"build returned non-JSON: {body[:120]}"
+    if status != 200 or not built.get("simulated") or not built.get("message"):
+        return 0, f"build did not return a simulated transaction: {body[:200]}"
+
+    # A wallet that is not the admin must be refused, or the page would let
+    # anyone try to set anyone's split.
+    status, body = fetch(f"{base}/api/enroll?mint={ENROLL_MINT}"
+                         f"&authority={BURN_ADDRESS}&shares={BURN_ADDRESS}:10000")
+    if status == 200:
+        return 0, "a wallet that is not the admin was NOT refused"
+    return 200, "ok"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=BASE)
@@ -119,6 +162,11 @@ def main() -> int:
         # committed record. It 404'd on the page most visitors see.
         (f"/coin/{UNMEASURED}.json", 200, ['"mint"', UNMEASURED],
          ["The page could not be found"]),
+        # Enrollment: the page, and the API behind it answering for a real
+        # coin. A dev arriving from a post lands here, and a broken build step
+        # would mean a wallet is asked to sign nothing at all.
+        ("/enroll", 200, ["Set your coin", "signAndSendTransaction"], ["NOT_FOUND"]),
+        ("__enroll_api__", 200, [], []),
         ("/assets/charlie.png", 200, [], []),
         ("/assets/charlie-scanning.gif", 200, [], []),
         ("/assets/charlie-found.gif", 200, [], []),
@@ -135,6 +183,8 @@ def main() -> int:
     for path, want_status, must, must_not in checks:
         if path == "__gateway__":
             status, body = gateway_check()
+        elif path == "__enroll_api__":
+            status, body = enroll_check(base)
         else:
             status, body = fetch(base + path)
         problems = []

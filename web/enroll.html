@@ -1,0 +1,270 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Set your fee split -- Charlie Protocol</title><meta name="description" content="Connect the wallet that administers your pump.fun coin and set where its creator fee goes."><meta property="og:title" content="Set your fee split -- Charlie Protocol"><meta property="og:description" content="Connect the wallet that administers your pump.fun coin and set where its creator fee goes."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Set your fee split -- Charlie Protocol"><meta name="twitter:description" content="Connect the wallet that administers your pump.fun coin and set where its creator fee goes."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><style>
+:root {
+  --paper: #FAF7F0;
+  --panel: #EFEAE0;
+  --accent: #1D4E89;
+  --destructive: #A3271F;
+  --unchecked: #7A5A12;
+  --ink: #1A1A1A;
+  --pass-glyph: #6B6558;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+  --sp-2xl: 48px;
+  --sp-3xl: 64px;
+}
+.verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  align-items: center; margin: var(--sp-lg) 0; }
+.verify-form label { flex: 1 1 100%; font-size: 14px; }
+.verify-form input {
+  flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 16px;
+  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+}
+.verify-form button {
+  padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 16px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  cursor: pointer; min-height: 44px;
+}
+.verify-form button:hover, .verify-form button:focus-visible {
+  background: var(--accent); border-color: var(--accent);
+}
+.hero-verify { margin: var(--sp-xl) 0 0 0; }
+.hero-verify .meta { margin: 0; }
+
+.scanner {
+  display: inline-flex; background: #000; padding: var(--sp-sm);
+  margin: var(--sp-md) 0 0 0; line-height: 0;
+  border: 1px solid var(--unchecked);
+}
+.scanner .scanning {
+  image-rendering: pixelated; display: block;
+  width: clamp(132px, 20vw, 188px); height: auto;
+}
+.verify-form { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  align-items: center; margin: var(--sp-lg) 0; }
+.verify-form label { flex: 1 1 100%; font-size: 14px; }
+.verify-form input {
+  flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 15px;
+  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+}
+.verify-form button {
+  padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 15px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+  cursor: pointer;
+}
+.verify-form button:hover, .verify-form button:focus-visible { background: var(--accent); border-color: var(--accent); }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  padding: var(--sp-xl) var(--sp-lg);
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 28px; font-weight: 700; margin: 0 0 var(--sp-md) 0; }
+.meta { font-size: 14px; font-weight: 400; margin: 0 0 var(--sp-xs) 0; }
+a { color: var(--accent); }
+.index-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-xs) var(--sp-md);
+  background: var(--panel);
+  padding: var(--sp-md);
+  margin-bottom: var(--sp-md);
+  border-left: 1px dashed var(--unchecked);
+}
+.index-mint {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.index-split, .index-withheld { font-size: 14px; flex: 2 1 260px; min-width: 0; }
+.index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
+.index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
+.index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
+
+button.primary { padding: var(--sp-sm) var(--sp-lg); font-family: inherit;
+  font-size: 16px; min-height: 44px; border: 1px solid var(--ink);
+  background: var(--ink); color: var(--paper); cursor: pointer; }
+button.primary:hover, button.primary:focus-visible {
+  background: var(--accent); border-color: var(--accent); }
+.share-row { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  margin-bottom: var(--sp-sm); align-items: center; }
+.share-row .share-addr { flex: 1 1 18em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+.share-row .share-bps { flex: 0 0 6em; padding: var(--sp-sm); font-family: inherit;
+  font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+.share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
+  border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
+#total.ok { color: var(--pass-glyph); font-weight: 700; }
+#total.bad { color: var(--destructive); font-weight: 700; }
+.note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note.bad { color: var(--destructive); }
+.note.good { color: var(--pass-glyph); }
+pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
+.warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
+  padding: var(--sp-md); margin: var(--sp-md) 0; }
+</style></head><body><header><h1>Set your coin&#x27;s fee split</h1><p>Connect the wallet that administers the coin and send its creator fee wherever you want it to go. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>A destination is an address, and this page does not grade them. Two kinds can be checked afterwards: an address no key can spend is a SOL burn, and SOL sent there is deflation, because burned SOL never comes back. An address that buys the token and destroys it reduces the coin&#x27;s supply. Anything else is an ordinary wallet, and the coin&#x27;s page says so in those words.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-03 05:16:51Z</p><script>
+var state = {wallet: null, mint: null, built: null};
+function $(id) { return document.getElementById(id); }
+function say(id, msg, kind) { var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || ''); }
+
+function provider() {
+  var p = (window.phantom && window.phantom.solana) || window.solana;
+  if (p && p.isPhantom) { return p; }
+  if (window.solflare && window.solflare.isSolflare) { return window.solflare; }
+  return p || null;
+}
+
+async function connect() {
+  var p = provider();
+  if (!p) { say('walletNote', 'No Solana wallet found in this browser. Install Phantom or Solflare, then reload.', 'bad'); return; }
+  try {
+    var r = await p.connect();
+    var key = (r && r.publicKey) || p.publicKey;
+    state.wallet = key.toString();
+    $('walletAddr').textContent = state.wallet;
+    $('connected').hidden = false;
+    $('connect').hidden = true;
+    say('walletNote', '', '');
+    if ($('mint').value.trim()) { await inspect(); }
+  } catch (e) {
+    say('walletNote', 'Wallet connection was refused. Nothing happened.', 'bad');
+  }
+}
+
+async function inspect() {
+  var mint = $('mint').value.trim();
+  if (!mint) { say('coinNote', 'Paste the coin address first.', 'bad'); return; }
+  if (!state.wallet) { say('coinNote', 'Connect a wallet first.', 'bad'); return; }
+  state.mint = mint;
+  say('coinNote', 'Reading the chain...', '');
+  $('splitBox').hidden = true;
+  try {
+    var r = await fetch('/api/enroll?mint=' + encodeURIComponent(mint) + '&authority=' + encodeURIComponent(state.wallet));
+    var d = await r.json();
+    if (d.error) { say('coinNote', d.error, 'bad'); return; }
+    var rows = (d.current || []).map(function (c) { return (c.bps / 100) + '% ' + c.address; }).join('   ');
+    if (d.admin_revoked) {
+      say('coinNote', 'This split is permanent (admin_revoked). Nobody can change it, including pump-side tools. Current: ' + rows, 'bad');
+      return;
+    }
+    if (!d.owns) {
+      say('coinNote', 'This wallet does not administer that coin. Its config names ' + d.admin + '. Current split: ' + rows, 'bad');
+      return;
+    }
+    say('coinNote', 'You administer this coin. Current split: ' + rows, 'good');
+    $('splitBox').hidden = false;
+  } catch (e) {
+    say('coinNote', 'Could not reach the chain just now. Try again in a moment.', 'bad');
+  }
+}
+
+function total() {
+  var t = 0;
+  document.querySelectorAll('.share-bps').forEach(function (i) {
+    var v = parseFloat(i.value);
+    if (!isNaN(v)) { t += Math.round(v * 100); }
+  });
+  var el = $('total');
+  el.textContent = (t / 100).toFixed(2) + '%';
+  el.className = (t === 10000) ? 'ok' : 'bad';
+  return t;
+}
+
+function addRow(addr, pct) {
+  var row = document.createElement('div');
+  row.className = 'share-row';
+  var a = document.createElement('input');
+  a.className = 'share-addr'; a.placeholder = 'destination address';
+  a.spellcheck = false; a.autocomplete = 'off'; a.value = addr || '';
+  var b = document.createElement('input');
+  b.className = 'share-bps'; b.type = 'number'; b.step = '0.01';
+  b.min = '0'; b.max = '100'; b.placeholder = '%';
+  b.value = (pct === undefined || pct === null) ? '' : pct;
+  var rm = document.createElement('button');
+  rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'remove';
+  rm.onclick = function () { row.remove(); total(); };
+  a.oninput = total; b.oninput = total;
+  row.appendChild(a); row.appendChild(b); row.appendChild(rm);
+  $('shares').appendChild(row);
+  total();
+}
+
+function shareRows() {
+  var out = [];
+  document.querySelectorAll('.share-row').forEach(function (row) {
+    var a = row.querySelector('.share-addr').value.trim();
+    var p = row.querySelector('.share-bps').value.trim();
+    if (a && p !== '') { out.push(a + ':' + Math.round(parseFloat(p) * 100)); }
+  });
+  return out;
+}
+
+async function build() {
+  var shares = shareRows();
+  $('send').hidden = true;
+  state.built = null;
+  if (!shares.length) { say('buildNote', 'Add at least one destination.', 'bad'); return; }
+  say('buildNote', 'Checking this split against pump, before anything is signed...', '');
+  try {
+    var url = '/api/enroll?mint=' + encodeURIComponent(state.mint) +
+              '&authority=' + encodeURIComponent(state.wallet) +
+              '&shares=' + encodeURIComponent(shares.join(','));
+    var r = await fetch(url);
+    var d = await r.json();
+    if (d.error) { say('buildNote', d.error, 'bad'); return; }
+    state.built = d;
+    var lines = d.summary.map(function (s) { return '  ' + (s.bps / 100) + '%   ' + s.address; }).join('\n');
+    say('buildNote', 'Simulated against mainnet: no error. This is exactly what you will sign:\n\n' + lines, 'good');
+    $('send').hidden = false;
+  } catch (e) {
+    say('buildNote', 'Could not check that split just now. Nothing was sent.', 'bad');
+  }
+}
+
+async function send() {
+  if (!state.built) { return; }
+  var p = provider();
+  if (!p || !p.request) {
+    say('sendNote', 'This wallet cannot sign from a page like this. Phantom can.', 'bad');
+    return;
+  }
+  say('sendNote', 'Approve it in your wallet...', '');
+  try {
+    var res = await p.request({method: 'signAndSendTransaction', params: {message: state.built.message}});
+    var sig = (res && (res.signature || res)) || '';
+    var n = $('sendNote');
+    n.className = 'note good';
+    n.textContent = 'Sent. ';
+    var link = document.createElement('a');
+    link.href = 'https://solscan.io/tx/' + sig;
+    link.textContent = sig;
+    n.appendChild(link);
+    $('send').hidden = true;
+  } catch (e) {
+    say('sendNote', 'Not sent: ' + ((e && e.message) || 'the wallet refused it') + '. Nothing changed.', 'bad');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  $('connect').onclick = connect;
+  $('inspect').onclick = inspect;
+  $('addRow').onclick = function () { addRow('', ''); };
+  $('build').onclick = build;
+  $('send').onclick = send;
+  addRow('burn111111111111111111111111111111111111111', 20);
+  addRow('', 80);
+});
+</script></body></html>

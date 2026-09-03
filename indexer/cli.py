@@ -29,7 +29,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import coverage, intake, invariants, publish, site
+from . import coverage, enroll_page, intake, invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
@@ -279,6 +279,10 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # page. Written together so the two can never disagree about how a coin
     # becomes measured.
     written.append(site.write_not_found(out_dir))
+    # The enrollment page. Written with the other surfaces so the site never
+    # advertises a route it has not generated -- /verify was published before
+    # its page existed once already.
+    written.append(enroll_page.write(out_dir))
     return written
 
 
