@@ -201,10 +201,27 @@ class Split:
         return {"sol_burn": self.sol_burn, "burn": self.burn, "paid": self.paid}
 
 
+# Addresses the chain treats as burns: SOL sent to one is out of circulation
+# and stays there. This is a different question from which addresses are
+# ATTRIBUTED to the sol_burn leg (`GRANDFATHERED_SOL_BURN`, above). The two
+# sets coincide today and are kept apart on purpose: a registry may put an
+# address on the sol_burn leg because a coin routes there calling it a burn,
+# without vouching that it is one. `SOL_BURN_UNSPENDABLE` is the check that
+# tells those apart, and it can only do that if the sets are separate.
+RECOGNISED_BURN = frozenset({"burn111111111111111111111111111111111111111"})
+
+
 @dataclass(frozen=True)
 class Registry:
     program_id: str | None = PROGRAM_ID
     grandfathered_sol_burn: frozenset = GRANDFATHERED_SOL_BURN
+    recognised_burn: frozenset = RECOGNISED_BURN
+
+    def is_burn_destination(self, address: str) -> bool:
+        """One SOL does not come back from: the incinerator, where the runtime
+        removes credited lamports from the total supply, or a recognised burn
+        address."""
+        return address == SOL_BURN_INCINERATOR or address in self.recognised_burn
 
     def sol_burn_vault(self, mint: str) -> str | None:
         if not self.program_id:

@@ -105,7 +105,7 @@ def split_sum(split) -> Check:
     )
 
 
-def sol_burn_unspendable(split) -> Check:
+def sol_burn_unspendable(split, registry: Registry | None = None) -> Check:
     """The SOL burn destination is one SOL cannot come back from.
 
     Two ways to satisfy it, and both are real:
@@ -125,7 +125,17 @@ def sol_burn_unspendable(split) -> Check:
     protocol is built on top of $CHARLIE, not run by it. Printing a red FAIL
     on an unenrolled coin for not meeting an enrolled coin's requirement is a
     category error, and this check no longer makes it.
+
+    The recognised set is the REGISTRY'S, the same one the split was
+    attributed under, never a default read here. Attribution
+    (`Registry.grandfathered_sol_burn`) and recognition
+    (`Registry.recognised_burn`) are separate sets on purpose: an address can
+    be put on the sol_burn leg because a coin routes there calling it a burn,
+    without the registry vouching that it is one. That is exactly the case
+    this check exists to catch, and it can only catch it if the check reads
+    the registry it was given rather than assuming the two sets agree.
     """
+    registry = registry or Registry()
     burned = [a for a in split.attributions if a.leg == "sol_burn"]
     if not burned:
         return _check(
@@ -135,10 +145,9 @@ def sol_burn_unspendable(split) -> Check:
             "is_on_curve(sol_burn_vault) == False",
             "no SOL burn destination in this split -- nothing to check",
         )
-    recognised = set(Registry().grandfathered_sol_burn) | {SOL_BURN_INCINERATOR}
     spendable = [
         a.address for a in burned
-        if not a.keyless and a.address not in recognised
+        if not a.keyless and not registry.is_burn_destination(a.address)
     ]
     return _check(
         "SOL_BURN_UNSPENDABLE",

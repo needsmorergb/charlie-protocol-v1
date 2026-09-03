@@ -1418,7 +1418,7 @@ def _other_coin_observation(*, mint=OTHER_MINT_ONE, admin_revoked=True, burn_eve
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
-        invariants.sol_burn_unspendable(split),
+        invariants.sol_burn_unspendable(split, registry),
         sol_burn_check,
         burn_check,
         invariants.burn_irreversible(record.mint_state),

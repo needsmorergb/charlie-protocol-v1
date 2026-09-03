@@ -23,7 +23,7 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 534 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 536 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
 | `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>` | **built and deployed** · `/enroll` remains phase 5 |
 

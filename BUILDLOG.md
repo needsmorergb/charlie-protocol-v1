@@ -195,3 +195,40 @@ regenerates nothing else, and the environment this was built in cannot reach
 the RPC gateway, so the coin page and `index.html` regenerate on the next
 local run of the `site` subcommand, not before. The page is committed
 output; it was not hand-edited to say the right thing sooner.
+
+---
+
+## 2026-09-03 — the check reads the registry it was given
+
+The entry above left one thing open and it did not survive the afternoon.
+`SOL_BURN_UNSPENDABLE` decided what counted as a recognised burn address by
+reading a default `Registry()` inside the check, not the registry the split
+had been attributed under. Two consequences, both bad. On live data the
+check could read PASS or UNCHECKED and never FAIL, because `legs.py` only
+puts a grandfathered address, the incinerator or a derived vault on the
+sol_burn leg, and the default registry recognised every one of those. And
+the test that reached its FAIL branch did so only through a mismatch: a
+fixture registry that grandfathered a wallet, graded by a default registry
+that did not. A check whose only failing path is a disagreement between two
+registries is not a check, it is an accident.
+
+**The registry now has two sets, and they are different questions.**
+`grandfathered_sol_burn` is attribution: this address goes on the sol_burn
+leg because a coin routes there calling it a burn. `recognised_burn` is
+recognition: the chain treats this address as a burn, SOL sent there is out
+of circulation and stays there. They hold the same one address today and are
+kept apart on purpose, because an address attributed to the leg without
+being recognised is precisely the case the check exists to catch. The check
+takes the registry it was observed under and asks it, and `observe()` passes
+that registry through. The same wallet under a registry that attributes it
+but does not recognise it fails; under one that does both, it passes. Two
+tests, one split, and the difference between them is the registry alone.
+
+The coin page's SOL burn risk line, which had picked up the same
+default-registry read yesterday, now reads the attribution the observation
+already carries. The page states the standing the coin was observed under,
+which a registry consulted at render time is not.
+
+**Unchanged, and worth saying.** $CHARLIE still passes: `burn111…111` is in
+both sets. What withholds its SOL burn total is still `SOL_BURN_BALANCE`,
+for the same reason as before.

@@ -277,7 +277,7 @@ def observe(
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
-        invariants.sol_burn_unspendable(split),
+        invariants.sol_burn_unspendable(split, registry),
         sol_burn_check,
         burn_check,
         invariants.burn_irreversible(mint_state),

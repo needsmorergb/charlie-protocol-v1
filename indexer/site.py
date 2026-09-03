@@ -858,12 +858,12 @@ def _sol_burn_risk(observation) -> str:
             "ordinary address someone can spend from, and no SOL burn total will be "
             "published while that is so."
         )
+    # Read from the attribution the observation already carries, not from a
+    # registry consulted here: the page states the standing the coin was
+    # observed under, and a default registry read at render time is not that.
     split = getattr(observation, "split", None)
-    destinations = [a.address for a in getattr(split, "attributions", ()) if a.leg == "sol_burn"]
-    # Through `invariants`, which is where the check itself reads the set:
-    # this module's package imports are `invariants` and `publish`, by rule.
-    grandfathered = invariants.Registry().grandfathered_sol_burn
-    if any(address in grandfathered for address in destinations):
+    attributions = [a for a in getattr(split, "attributions", ()) if a.leg == "sol_burn"]
+    if any("grandfathered" in a.reason for a in attributions):
         return (
             "This coin's SOL burn destination is the shared grandfathered address. "
             "Attribution across the coins sharing it is not possible, so it carries "
