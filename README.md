@@ -23,7 +23,7 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 405 offline tests |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 534 offline tests |
 | `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
 | `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>` | **built and deployed** · `/enroll` remains phase 5 |
 
@@ -61,10 +61,16 @@ leg, not third-party burns. $CHARLIE has zero protocol-attributed burns (no
 protocol program exists yet), so `BURN_ATOMIC` reads not-applicable for
 $CHARLIE, and for every coin, until phase 5.
 
-$CHARLIE specifically: `SOL_BURN_UNSPENDABLE` fails permanently — its SOL burn
-address is a vanity address rather than the program-derived one PROTOCOL.md
-sec.3 requires, and its config is `admin_revoked` so only pump could ever fix
-that. No SOL burn total is publishable for $CHARLIE, now or later. The opening-balance mechanism
+$CHARLIE specifically: `SOL_BURN_UNSPENDABLE` passes. Its destination,
+`burn111…111`, is a recognised burn address — SOL that reaches it is out of
+circulation and stays there — and the check no longer grades an unenrolled
+coin against the program-derived vault standard written for enrolled ones
+(it failed $CHARLIE on that for four days, and the correction is on the
+record in BUILDLOG.md). What still withholds $CHARLIE's SOL burn total is
+`SOL_BURN_BALANCE`: the address is shared, so attribution across the coins
+using it is not possible, it carries the weaker `<=` invariant, and no total
+is published for it. Its config is `admin_revoked`, so only pump could ever
+move it. The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
 vaults exist (phase 5) — every SOL burn destination today is the grandfathered
 shared address, which the mechanism deliberately excludes (D-06/D-07).

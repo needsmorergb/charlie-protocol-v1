@@ -319,6 +319,94 @@ def _scene() -> str:
     )
 
 
+def _sol_coin_svg(cls: str = "payload") -> str:
+    """The thing Charlie is carrying. Drawn rather than an asset so it takes
+    the page's own colours and stays crisp at the size the orbit needs.
+    """
+    return (
+        f'<svg class="{cls}" viewBox="0 0 16 16" width="16" height="16" '
+        'aria-hidden="true" focusable="false">'
+        '<rect x="2" y="2" width="12" height="12" class="coin-body"></rect>'
+        '<rect x="4" y="5" width="8" height="2" class="coin-mark"></rect>'
+        '<rect x="4" y="9" width="8" height="2" class="coin-mark"></rect>'
+        "</svg>"
+    )
+
+
+def _flywheel() -> str:
+    """The loop, running.
+
+    A ring with the incinerator at its hub and Charlie carrying a payload
+    round it. The motion is the point: this is a cycle that feeds itself, and
+    a static diagram of a cycle is a picture of something standing still.
+
+    Two nested elements around Charlie, for the reason `_scene` needs three:
+    one element can carry one `transform` animation. `.fly-orbit` sweeps the
+    full circle, `.fly-rider` counter-sweeps at the same period so he stays
+    upright the whole way round rather than cartwheeling.
+
+    The ordered list below is not a caption for the graphic, it IS the
+    mechanism -- readable with the animation stopped, with images off, and on
+    a phone where the ring is too small for labels. The ring is `aria-hidden`
+    for that reason: a screen reader gets the list, not a description of a
+    circle.
+    """
+    steps = (
+        ("Trading pays a creator fee",
+         "Every buy and every sell on the coin generates one. It accrues "
+         "whether anyone is watching or not."),
+        ("The fee buys the token, and the token is burned",
+         "Supply falls, and it cannot be reissued: the mint authority is "
+         "revoked."),
+        ("Buying is volume, and volume pays more fees",
+         "The burn is funded by the activity it creates. That is the part "
+         "that turns a mechanism into a loop."),
+        ("A share reaches Solana&#x27;s incinerator",
+         "The runtime removes those lamports from the total supply at the "
+         "end of the block. Two supplies fall at once: the coin&#x27;s, and "
+         "Solana&#x27;s."),
+    )
+    items = "".join(
+        f"<li><h3>{title}</h3><p>{body}</p></li>" for title, body in steps
+    )
+    return (
+        '<section id="flywheel">'
+        "<h2>The loop</h2>"
+        "<p>Fees are not collected here. They are spent destroying supply, and "
+        "the destroying is what produces the next fee.</p>"
+        '<figure class="fly">'
+        '<div class="fly-stage" aria-hidden="true">'
+        '<svg class="fly-ring" viewBox="0 0 240 240" focusable="false">'
+        '<circle class="fly-path" cx="120" cy="120" r="92"></circle>'
+        '<g class="fly-ticks">'
+        '<circle cx="120" cy="28" r="5"></circle>'
+        '<circle cx="212" cy="120" r="5"></circle>'
+        '<circle cx="120" cy="212" r="5"></circle>'
+        '<circle cx="28" cy="120" r="5"></circle>'
+        "</g>"
+        "</svg>"
+        '<div class="fly-hub">'
+        '<span class="smoke-drift">'
+        f'<img class="smoke" src="{INCINERATOR_SMOKE_SRC}" alt="" decoding="async">'
+        "</span>"
+        f'<img class="stack" src="{INCINERATOR_STACK_SRC}" alt="" decoding="async">'
+        "</div>"
+        '<div class="fly-orbit"><div class="fly-rider">'
+        + _sol_coin_svg()
+        + f'<img class="charlie" src="{CHARLIE_SRC}" '
+        f'width="{CHARLIE_INTRINSIC[0]}" height="{CHARLIE_INTRINSIC[1]}" '
+        'alt="" decoding="async">'
+        "</div></div>"
+        "</div>"
+        "<figcaption>Charlie carrying it round, and into the fire.</figcaption>"
+        "</figure>"
+        f'<ol class="fly-steps">{items}</ol>'
+        "<p class=\"meta\">Every number this produces is checked before it is "
+        "shown, and withheld when it is not. That is the rest of this site.</p>"
+        "</section>"
+    )
+
+
 def _chart_svg(cls: str = "chart") -> str:
     """A candlestick the slug is watching. Each bar is its own element so the
     CSS can scale them on staggered delays -- the chart moves, which is the
@@ -743,9 +831,49 @@ _RISKS = (
     "No program is deployed.",
     "There is no funding, and Phase 5 is gated on SOL that does not exist yet.",
     "Revoking upgrade authority is a one-way door.",
-    "SOL_BURN_UNSPENDABLE fails permanently for this coin, not pending.",
     "The opening-balance mechanism is dormant on live data (D-07).",
 )
+
+
+def _sol_burn_risk(observation) -> str:
+    """The SOL burn leg's standing, read from this coin's own check.
+
+    This was a template constant: "SOL_BURN_UNSPENDABLE fails permanently
+    for this coin, not pending." It was written for $CHARLIE, rendered on
+    every coin's page, and then stopped being true for $CHARLIE as well when
+    the check stopped grading an unenrolled coin against the enrolled-coin
+    vault standard. Four branches, and which one applies is the
+    observation's to say, not this module's.
+    """
+    checks = {c.name: c for c in getattr(observation, "checks", None) or ()}
+    check = checks.get("SOL_BURN_UNSPENDABLE")
+    if check is None or check.status == invariants.UNCHECKED:
+        return (
+            "This split names no SOL burn destination, so no SOL burn claim is "
+            "available to this coin at all."
+        )
+    if check.status == invariants.FAIL:
+        return (
+            "SOL_BURN_UNSPENDABLE fails for this coin: a SOL burn destination is an "
+            "ordinary address someone can spend from, and no SOL burn total will be "
+            "published while that is so."
+        )
+    split = getattr(observation, "split", None)
+    destinations = [a.address for a in getattr(split, "attributions", ()) if a.leg == "sol_burn"]
+    # Through `invariants`, which is where the check itself reads the set:
+    # this module's package imports are `invariants` and `publish`, by rule.
+    grandfathered = invariants.Registry().grandfathered_sol_burn
+    if any(address in grandfathered for address in destinations):
+        return (
+            "This coin's SOL burn destination is the shared grandfathered address. "
+            "Attribution across the coins sharing it is not possible, so it carries "
+            "the weaker <= invariant and no SOL burn total is published for it."
+        )
+    return (
+        "SOL_BURN_UNSPENDABLE passes. A SOL burn total is still gated on "
+        "SOL_BURN_BALANCE, which reconciles recorded inflows against the live "
+        "balance and stays UNCHECKED until a walk of the destination completes."
+    )
 
 
 def _walk_risk(observation) -> str:
@@ -1212,6 +1340,7 @@ def _sections(observation) -> str:
     own source, never re-typed apart from it.
     """
     risk_items = [f"<li>{esc(text)}</li>" for text in _RISKS]
+    risk_items.append(f"<li>{esc(_sol_burn_risk(observation))}</li>")
     risk_items.append(f"<li>{esc(_walk_risk(observation))}</li>")
     risk_items.append(f'<li id="{RISK_GENERATOR_ANCHOR}">{esc(_GENERATOR_UNVERIFIED)}</li>')
     risks = '<section id="risks"><h2>Risks</h2><ol class="risks">' + "".join(risk_items) + "</ol></section>"
@@ -1220,7 +1349,20 @@ def _sections(observation) -> str:
         (
             _launch_mode(observation),
             _results_chart(observation),
-            _deflation(observation),
+            # `_deflation` is deliberately NOT rendered here.
+            #
+            # It stated a counterfactual: what a coin's recorded burns would
+            # have destroyed had that SOL gone to a burn instead of buying
+            # tokens. No check backs a counterfactual, because nothing
+            # happened for a check to read. Every other figure on this page is
+            # gated on a passing check; that one was gated on nothing, which
+            # is the rule this page exists to enforce.
+            #
+            # It also read as an accusation rather than a measurement. On a
+            # coin whose 17.58 SOL bought and burned 43.58M tokens, the
+            # largest number on the page was a hypothetical printed under the
+            # words "This did not happen".
+
             _how_it_works(),
             _the_burn(observation),
             _quiet(observation),
@@ -1434,6 +1576,98 @@ footer a { word-break: break-all; overflow-wrap: anywhere; }
 # needs (including the ones the reused `_check_row()` markup depends on --
 # `.check-row`/`.badge`/the three status classes) is declared here too.
 _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
+/* -- the flywheel ------------------------------------------------------
+   The ring turns because the loop turns. A still picture of a cycle is a
+   picture of something that has stopped.
+
+   `.fly-orbit` sweeps the full circle and `.fly-rider` counter-sweeps on the
+   same period, so Charlie stays upright the whole way round instead of
+   cartwheeling. One element carries one transform animation; a second on the
+   same element overwrites the first, which is why there are two. */
+.fly { margin: var(--sp-xl) 0; }
+.fly-stage {
+  position: relative;
+  width: min(240px, 74vw);
+  aspect-ratio: 1;
+  margin: 0 auto;
+}
+.fly-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fly-path {
+  fill: none;
+  stroke: var(--unchecked);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+  opacity: 0.75;
+  animation: fly-crawl 5.5s linear infinite;
+}
+@keyframes fly-crawl { to { stroke-dashoffset: -40; } }
+.fly-ticks circle { fill: var(--pass-glyph); opacity: 0.5; }
+.fly-hub {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 30%;
+  display: flex; flex-direction: column; align-items: center;
+  line-height: 0;
+}
+.fly-hub .stack { width: 100%; height: auto; image-rendering: pixelated; }
+.fly-hub .smoke { width: 62%; height: auto; image-rendering: pixelated; }
+.fly-orbit {
+  position: absolute; inset: 0;
+  animation: fly-orbit 18s linear infinite;
+}
+/* The ring is r=92 in a 240 box, so its top sits 28/240 = 11.67% down. The
+   rider is centred ON that point rather than hung off the top edge of the
+   stage -- at the edge he orbited a larger circle than the one drawn and
+   leaned over the hub. Centring means the translate has to be carried into
+   the counter-rotation keyframe too, or the first frame snaps him sideways. */
+.fly-rider {
+  position: absolute;
+  left: 50%; top: 11.67%;
+  width: 15%;
+  transform: translate(-50%, -50%);
+  animation: fly-rider 18s linear infinite;
+  display: flex; align-items: flex-end; justify-content: center; gap: 3px;
+}
+.fly-rider .charlie { width: 100%; height: auto; image-rendering: pixelated; }
+/* Beside him, not above: carried, not hovering. */
+.fly-rider .payload { width: 38%; height: auto; flex: none; }
+.coin-body { fill: var(--accent); }
+.coin-mark { fill: var(--paper); }
+@keyframes fly-orbit { to { transform: rotate(360deg); } }
+@keyframes fly-rider {
+  to { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+.fly figcaption {
+  text-align: center; font-size: 14px; margin-top: var(--sp-md);
+  color: var(--pass-glyph);
+}
+.fly-steps {
+  list-style: none; counter-reset: fly; padding: 0;
+  margin: var(--sp-xl) 0 0 0;
+  display: grid; gap: var(--sp-lg);
+  grid-template-columns: repeat(auto-fit, minmax(15em, 1fr));
+}
+.fly-steps li {
+  counter-increment: fly;
+  border-left: 1px dashed var(--unchecked);
+  padding-left: var(--sp-md);
+}
+.fly-steps li h3 {
+  font-size: 16px; margin: 0 0 var(--sp-xs) 0; line-height: 1.3;
+}
+.fly-steps li h3::before {
+  content: counter(fly) " ";
+  color: var(--pass-glyph); font-weight: 400;
+}
+.fly-steps li p { margin: 0; font-size: 15px; }
+
+/* Motion is decoration here: the list carries the mechanism, so a reader who
+   asks for less of it loses nothing. */
+@media (prefers-reduced-motion: reduce) {
+  .fly-path, .fly-orbit, .fly-rider { animation: none; }
+}
+
 :root {
   /* Palette taken from the live $CHARLIE site (charlie-incinerator.com):
      near-black ground with the brand green as the single accent. Matching it
@@ -2800,6 +3034,11 @@ def render_landing(observation, *, now=None) -> str:
     body = (
         header
         + "<main>"
+        # The loop goes above the counters. A visitor arriving from a link has
+        # to know what the mechanism IS before a column of figures means
+        # anything to them; the counters are the loop's output, and output
+        # shown before the thing that produced it reads as trivia.
+        + _flywheel()
         + counters_section
         + _hand_burn_note(observation)
         + _supply_refusal(observation)

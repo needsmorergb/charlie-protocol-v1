@@ -30,6 +30,10 @@ from indexer.scan import classify_atomicity
 CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 PUMP_AMM_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 GRANDFATHERED = "burn111111111111111111111111111111111111111"
+# An ordinary on-curve address: someone holds its key, so SOL that reaches it
+# can leave again. Fixtures use it where they need SOL_BURN_UNSPENDABLE to FAIL,
+# which a recognised burn address no longer does.
+SPENDABLE = "So11111111111111111111111111111111111111112"
 
 
 # -- fixtures (mirrors tests/test_burns.py's style) --------------------------
@@ -366,18 +370,25 @@ def mint_state(supply=900) -> MintState:
     return MintState(mint=CHARLIE, supply=supply, decimals=6, mint_authority=None, freeze_authority=None, program=TOKEN_2022_PROGRAM)
 
 
-def make_registry() -> Registry:
-    return Registry(program_id=None, grandfathered_sol_burn=frozenset({GRANDFATHERED}))
+def make_registry(sol_burn_address=GRANDFATHERED) -> Registry:
+    """The attributing registry.
+
+    `sol_burn_address` is grandfathered here so `split_of` puts it on the
+    sol_burn leg. That is what makes a spendable destination reachable at all:
+    `legs.py` will not attribute an ordinary wallet to sol_burn on its own.
+    """
+    return Registry(program_id=None, grandfathered_sol_burn=frozenset({sol_burn_address}))
 
 
 def make_split(sol_burn_address=GRANDFATHERED) -> Split:
     return split_of(
         type("Cfg", (), {"mint": CHARLIE, "shareholders": ((sol_burn_address, 10_000),)})(),
-        make_registry(),
+        make_registry(sol_burn_address),
     )
 
 
-def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, config_mismatch=False) -> Observation:
+def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900,
+                     config_mismatch=False, sol_burn_spendable=False) -> Observation:
     class FakeRpc:
         def __init__(self, balance):
             self._balance = balance
@@ -385,7 +396,8 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, con
         def balance(self, address):
             return self._balance
 
-    split = make_split()
+    destination = SPENDABLE if sol_burn_spendable else GRANDFATHERED
+    split = make_split(destination)
     record = Observation(mint=CHARLIE, observed_at=1.0)
     record.config = type("Cfg", (), {
         "mint": CHARLIE if not config_mismatch else "other-mint",
@@ -413,7 +425,7 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, con
         sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
         record.evidence = {address: evidence.recorded_lamports(address) for address in sol_burn_destinations}
         balances = {address: sol_burn_balance for address in sol_burn_destinations}
-        sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=make_registry())
+        sol_burn_check = invariants.sol_burn_balance(split=split, evidence=evidence, balances=balances, registry=make_registry(destination))
         burn_rows = evidence.burns_for(CHARLIE)
         walk_complete = evidence.is_backfill_complete(CHARLIE, "burn")
         initial_supply_row = evidence.initial_supply_for(CHARLIE)
@@ -463,6 +475,52 @@ class TestPublisher(unittest.TestCase):
         publisher = publish.Publisher(observation)
         with self.assertRaises(publish.Withheld):
             publisher.figure(invariants.BURN_TOTAL)
+
+
+class TestNoInflowsIsUncheckedNotZero(unittest.TestCase):
+    """A destination with no recorded inflow has no SOL burn total, not a
+    total of zero.
+
+    The grandfathered address is checked under `<=`, and `0 <= balance` is
+    true for every balance there is. Before this was caught, an evidence
+    store that had never walked the destination passed the check vacuously
+    and the page published "0 lamports" for a coin that has burned SOL, which
+    reads as "this coin burned nothing". Nothing measured is UNCHECKED.
+    """
+
+    def _observation(self, tmp, balance):
+        evidence = evidence_db(tmp)
+        try:
+            # The walk finished and found nothing. An unfinished walk is its
+            # own UNCHECKED, upstream of this one; the case here is the walk
+            # that completes over a destination with no inflow to record.
+            evidence.set_cursor(GRANDFATHERED, "inflow", backfill_complete=1)
+            return build_observation(evidence=evidence, sol_burn_balance=balance)
+        finally:
+            evidence.close()
+
+    def test_sol_burn_balance_is_unchecked_with_nothing_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            observation = self._observation(tmp, balance=178_734_302_038)
+        check = {c.name: c for c in observation.checks}["SOL_BURN_BALANCE"]
+        self.assertEqual(check.status, invariants.UNCHECKED)
+        self.assertIn("no inflows are recorded", check.detail)
+        self.assertIn(GRANDFATHERED, check.detail)
+
+    def test_sol_burn_total_is_withheld_rather_than_published_as_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            observation = self._observation(tmp, balance=178_734_302_038)
+        publisher = publish.Publisher(observation)
+        with self.assertRaises(publish.Withheld) as ctx:
+            publisher.figure(invariants.SOL_BURN_TOTAL)
+        self.assertIn("SOL_BURN_BALANCE", [name for name, _s, _d in ctx.exception.reasons])
+
+    def test_a_zero_balance_is_still_not_a_measurement(self):
+        """The vacuous case exactly: 0 recorded, 0 live. It used to PASS."""
+        with tempfile.TemporaryDirectory() as tmp:
+            observation = self._observation(tmp, balance=0)
+        check = {c.name: c for c in observation.checks}["SOL_BURN_BALANCE"]
+        self.assertEqual(check.status, invariants.UNCHECKED)
 
 
 SENTINEL_PROGRAM = "Charr1eProtoco11111111111111111111111111111"

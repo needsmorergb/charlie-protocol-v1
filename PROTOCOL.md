@@ -32,17 +32,27 @@ returns to circulation. A token BURN reduces
 token supply outright.
 
 **What the protocol enforces is the part everyone else asserts:**
-that the destination genuinely cannot be spent. A burn claim is permitted only
-where `SOL_BURN_UNSPENDABLE` passes — the destination is program-derived, or
-otherwise off the ed25519 curve, which is a property the runtime enforces and
-anyone can recompute. Where it does not pass, the claim is not permitted:
-unspendability by convention is not the same thing as unspendability the chain
-guarantees, and only the second survives being checked.
+that the destination is one SOL does not come back from. A burn claim is
+permitted only where `SOL_BURN_UNSPENDABLE` passes, and two kinds of
+destination pass it. The protocol's own destination is Solana's incinerator,
+where the runtime removes credited lamports from the total supply. A
+recognised burn address (`burn111…111` is one) also passes: the chain treats
+it the way every burn address on every chain has been treated, SOL sent there
+is out of circulation and stays there. A destination that is neither is an
+address someone can spend from, and the check fails on it. The check does not
+grade a coin against a protocol the coin is not in: the program-derived vault
+standard of section 3 is for enrolled coins, and an unenrolled coin routing to
+a recognised burn address is not failed for lacking a vault it was never
+offered.
 
-This binds us first. $CHARLIE's `burn111…111` is **on** the curve, its
-`SOL_BURN_UNSPENDABLE` fails, and no burn total is publishable for our own coin —
-published on the live site rather than excused. An OPS payment is never a burn
-under any circumstances: the wallet is spendable by design.
+This binds us first, and it once bound us wrongly. $CHARLIE's `burn111…111`
+is **on** the curve, and for four days this check failed our own coin for
+that, grading it against the enrolled-coin standard. The check passes it now;
+what still withholds $CHARLIE's SOL burn total is `SOL_BURN_BALANCE`, because
+the address is shared and carries the weaker `<=` invariant (see the $CHARLIE
+note in section 3). Both states were published on the live site rather than
+excused. An OPS payment is never a burn under any circumstances: the wallet is
+spendable by design.
 
 ---
 

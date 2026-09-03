@@ -120,3 +120,78 @@ events, which does the same for `BURN_SUPPLY`.
 address ever carry a SOL burn total, or whether $CHARLIE's own figure stays
 unpublishable until pump resets the config. The code currently says
 unpublishable, which is the harder answer and probably the right one.
+
+---
+
+## 2026-09-03 — the loop, and three changes that lived only in the output repository
+
+Three commits landed overnight in `charlie-protocol-site`, the repository
+whose README says it holds output only and that nothing in it is
+hand-written: the counterfactual came off the coin page, a burn to a burn
+address became a burn, and the landing page gained the loop. Each one
+changed `indexer/site.py` or `indexer/invariants.py` in that repository and
+regenerated the pages there. This repository, the source, had none of them.
+508 tests here, none of them over any of it.
+
+That is the failure the site README warns about, run backwards: not a hand
+edit to the page, but a change to the generator in the place that is
+supposed to receive the generator. Today the source is here, and every one
+of the three ships with a check that can fail. 534 tests.
+
+**A burn to a burn address is a burn.** `SOL_BURN_UNSPENDABLE` failed
+$CHARLIE for four days because `burn111…111` is on the curve and PROTOCOL.md
+section 3 asks for a program-derived vault. That standard is written for a
+coin enrolled in the protocol, and $CHARLIE is not enrolled and cannot be.
+Grading it against a requirement it was never offered was a category error,
+and the red FAIL on the reference coin's own page was its output. The check
+now passes a recognised burn address and the incinerator, and fails an
+ordinary address someone can spend from. PROTOCOL.md section 3 and the
+README said the old thing; both say this now.
+
+What still withholds $CHARLIE's SOL burn total is `SOL_BURN_BALANCE`: the
+address is shared, so attribution across the coins using it is not possible,
+and it carries the weaker `<=` invariant. That has not changed. What has is
+that the withholding names the right check.
+
+**Two things found by writing the tests.** First: `legs.py` puts only a
+recognised burn address, the incinerator or a derived vault on the sol_burn
+leg, so on live data with the default registry `SOL_BURN_UNSPENDABLE` can now
+read PASS or UNCHECKED and never FAIL. It is a guard against attribution
+changing under it, not a check that can fail a real coin today, and the test
+that reaches its FAIL branch says so in its docstring rather than pretending
+otherwise. Second: an evidence store that had completed a walk and recorded
+no inflow used to pass `0 <= balance` vacuously and publish a total of
+0 lamports, which reads as "this coin burned nothing". It is UNCHECKED now.
+Nothing measured is not a measurement of nothing.
+
+**The counterfactual is off the coin page.** It stated what a coin's burns
+would have destroyed had the SOL gone to a burn address instead of buying
+tokens. Nothing happened for a check to read, so no check backed it, and it
+was the largest number on the page, printed under "This did not happen".
+The function still exists and its own tests still hold it to its contract;
+`render()` no longer calls it, and a test reads the source to say so.
+
+**The loop.** The landing page now leads with the mechanism, above the
+counters: trading pays a creator fee, the fee buys the token and the token
+is burned, buying is volume and volume pays the next fee, a share reaches
+the incinerator. A ring turns because a still picture of a cycle is a
+picture of something that has stopped; the ordered list under it is the
+mechanism, readable with the animation off, images off, or a screen reader
+running, and `prefers-reduced-motion` stops all of it. The section takes no
+observation and states no number: it is what the protocol does, not
+something the chain was read for, so there is nothing in it for a check to
+gate.
+
+**One more line that stopped being true.** The coin page's Risks list said
+"`SOL_BURN_UNSPENDABLE` fails permanently for this coin, not pending" as a
+template constant. Written for $CHARLIE, rendered on every coin's page, false
+for every other coin from the start, and false for $CHARLIE from the moment
+the check passed it. It is now read from the coin's own check, the way the
+burn-walk risk already was, in four branches.
+
+**What is not done, stated plainly.** The deployed $CHARLIE page still
+carries that sentence. The intake workflow re-stamps four static pages and
+regenerates nothing else, and the environment this was built in cannot reach
+the RPC gateway, so the coin page and `index.html` regenerate on the next
+local run of the `site` subcommand, not before. The page is committed
+output; it was not hand-edited to say the right thing sooner.

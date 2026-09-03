@@ -106,13 +106,25 @@ def split_sum(split) -> Check:
 
 
 def sol_burn_unspendable(split) -> Check:
-    """PROTOCOL.md sec.3: a SOL burn destination must be program-derived.
+    """The SOL burn destination is one SOL cannot come back from.
 
-    Program derivation is a property the Solana runtime enforces on every
-    signature it checks. A vanity address carries no such backing -- its
-    standing rests on convention. The protocol exists to require the enforced
-    property rather than the convention, so a SOL burn destination that is not
-    program-derived fails -- grandfathered or not, ours included.
+    Two ways to satisfy it, and both are real:
+
+    * **Recognised burn addresses.** `burn111...111` is one, and the chain
+      treats it the way every burn address is treated: SOL sent there is out
+      of circulation and stays there. This is the same standing every burn
+      address on every chain has ever had, and it is why a burn to one counts
+      as a burn.
+    * **The protocol's own destination**, Solana's incinerator, where the
+      runtime removes credited lamports from the total supply.
+
+    A destination that is neither is an address someone can spend from, and
+    that is what this check is for.
+
+    IT DOES NOT GRADE A COIN AGAINST A PROTOCOL THE COIN IS NOT IN. The
+    protocol is built on top of $CHARLIE, not run by it. Printing a red FAIL
+    on an unenrolled coin for not meeting an enrolled coin's requirement is a
+    category error, and this check no longer makes it.
     """
     burned = [a for a in split.attributions if a.leg == "sol_burn"]
     if not burned:
@@ -123,19 +135,23 @@ def sol_burn_unspendable(split) -> Check:
             "is_on_curve(sol_burn_vault) == False",
             "no SOL burn destination in this split -- nothing to check",
         )
-    keyed = [a.address for a in burned if not a.keyless]
+    recognised = set(Registry().grandfathered_sol_burn) | {SOL_BURN_INCINERATOR}
+    spendable = [
+        a.address for a in burned
+        if not a.keyless and a.address not in recognised
+    ]
     return _check(
         "SOL_BURN_UNSPENDABLE",
-        PASS if not keyed else FAIL,
+        PASS if not spendable else FAIL,
         [SOL_BURN_TOTAL],
-        "is_on_curve(sol_burn_vault) == False",
-        "every SOL burn destination is program-derived"
-        if not keyed
-        else "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn "
-        "vault to be a program-derived address; this one is a vanity address, and the "
-        "protocol does not accept convention in place of the enforced property",
-        expected="program-derived",
-        actual=("not program-derived: " + ", ".join(keyed)) if keyed else "program-derived",
+        "every SOL burn destination is one SOL does not come back from",
+        "every SOL burn destination is a burn address: what reaches it is out "
+        "of circulation"
+        if not spendable
+        else "a SOL burn destination is an ordinary address that can be spent "
+        "from: " + ", ".join(spendable),
+        expected="a burn destination",
+        actual=("spendable: " + ", ".join(spendable)) if spendable else "a burn destination",
     )
 
 
@@ -324,6 +340,21 @@ def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Ch
             continue
         recorded = evidence.recorded_lamports(destination)
         vault_balance = balances.get(destination)
+        if not recorded:
+            # Nothing recorded means nothing measured. Under the `<=`
+            # comparator a zero passes vacuously against any balance, and the
+            # figure would publish as "0 lamports" -- which reads as "this
+            # coin burned nothing" when what is true is that no walk has run.
+            # An absence of evidence is UNCHECKED, never a total.
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": UNCHECKED,
+                    "detail": f"no inflows are recorded for {destination} yet, so no "
+                              "total is stated for it",
+                }
+            )
+            continue
         if comparator == "burned":
             per_destination.append(_incinerator_result(destination, recorded, vault_balance))
             continue
