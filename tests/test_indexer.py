@@ -145,12 +145,14 @@ class TestCurve(unittest.TestCase):
         self.assertTrue(is_on_curve(bytes(32)))
 
     def test_burn_vanity_address_is_not_program_derived(self):
-        """Pinned against mainnet 2026-08-29, and it is the finding, not a detail.
+        """Pinned against mainnet 2026-08-29.
 
-        `burn111...111` holds $CHARLIE's entire fee stream and is a vanity address
-        rather than the program-derived SOL burn vault PROTOCOL.md sec.3 requires. That
-        section grandfathers the address for attribution; meeting the SOL-burn-vault
-        standard is separate, and SOL_BURN_UNSPENDABLE fails on it.
+        `burn111...111` holds $CHARLIE's entire fee stream and is a vanity
+        address, not a PDA. That is a fact about the address, and it is still
+        true. What changed is what the protocol makes of it: a recognised burn
+        address is one SOL does not come back from, so SOL_BURN_UNSPENDABLE no
+        longer grades it against the enrolled-coin vault standard. See
+        `TestInvariants.test_recognised_burn_address_is_a_burn_destination`.
         """
         self.assertTrue(is_on_curve(BURN_VANITY))
 
@@ -296,12 +298,43 @@ class TestInvariants(unittest.TestCase):
         self.assertEqual({c.name: c for c in record.checks}["CONFIG_MINT"].status, invariants.FAIL)
         self.assertEqual(record.verdict.publishable, frozenset())
 
-    def test_on_curve_sol_burn_destination_fails(self):
+    def test_recognised_burn_address_is_a_burn_destination(self):
+        """$CHARLIE's own destination passes. It used to fail here for not
+        being program-derived, which graded an unenrolled coin against a
+        requirement written for enrolled ones. `burn111...111` is a burn
+        address in the sense every chain has ever used the phrase: SOL that
+        reaches it is out of circulation, and it stays there.
+        """
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
         check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
+        self.assertEqual(check.status, invariants.PASS)
+        self.assertEqual(check.actual, "a burn destination")
+        self.assertNotIn(BURN_VANITY, check.detail)
+
+    def test_spendable_sol_burn_destination_fails(self):
+        """The check still has teeth, and this is what they are for.
+
+        `legs.py` only puts a recognised burn address, the incinerator or a
+        derived vault on the sol_burn leg, so on live data with the default
+        registry this branch is unreachable. It is a guard: if attribution
+        ever changed and an ordinary wallet landed on the burn leg, the SOL
+        burn total would be withheld rather than published against an address
+        someone can spend from. Reaching it takes a registry that
+        grandfathers such a wallet.
+        """
+        registry = Registry(program_id=None, grandfathered_sol_burn=frozenset({WALLET}))
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(WALLET, 10_000)])})
+        record = observe(rpc, CHARLIE, registry, now=1.0)
+        check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
         self.assertEqual(check.status, invariants.FAIL)
-        self.assertIn(BURN_VANITY, check.actual)
+        self.assertIn(WALLET, check.actual)
+        self.assertIn("can be spent from", check.detail)
         self.assertNotIn(invariants.SOL_BURN_TOTAL, record.verdict.publishable)
+
+    def test_the_incinerator_is_a_burn_destination(self):
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(INCINERATOR, 10_000)])})
+        record = observe(rpc, CHARLIE, now=1.0)
+        self.assertEqual({c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"].status, invariants.PASS)
 
     def test_off_curve_sol_burn_destination_passes(self):
         registry = Registry(program_id=PROGRAM)
