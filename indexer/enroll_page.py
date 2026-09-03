@@ -156,12 +156,26 @@ async function send() {
     var sig = (res && (res.signature || res)) || '';
     var n = $('sendNote');
     n.className = 'note good';
-    n.textContent = 'Sent. ';
+    n.textContent = '';
+    var done = document.createElement('p');
+    done.textContent = 'Sent. Your split is set. pump allows this once, so it is now fixed.';
+    var txp = document.createElement('p');
+    var tx = document.createElement('a');
+    tx.href = 'https://solscan.io/tx/' + sig;
+    tx.textContent = sig;
+    txp.textContent = 'Transaction: ';
+    txp.appendChild(tx);
+    // The loop closes here. The dev just changed where the fee goes; the next
+    // thing they want is the page that reads it back off the chain, and it
+    // is the page they will share.
+    var check = document.createElement('p');
     var link = document.createElement('a');
-    link.href = 'https://solscan.io/tx/' + sig;
-    link.textContent = sig;
-    n.appendChild(link);
+    link.href = '/verify/' + state.mint;
+    link.textContent = 'See your coin checked';
+    check.appendChild(link);
+    n.appendChild(done); n.appendChild(txp); n.appendChild(check);
     $('send').hidden = true;
+    $('build').hidden = true;
   } catch (e) {
     say('sendNote', 'Not sent: ' + ((e && e.message) || 'the wallet refused it') + '. Nothing changed.', 'bad');
   }
