@@ -2185,6 +2185,9 @@ def render_verify(*, now=None, example_mint=None) -> str:
         "evidence rather than a single reading. No account here, no approval "
         "from us.</p>"
         f'<p><a href="{coins}">Every coin measured so far</a>.</p>'
+        '<p><strong>Own a coin?</strong> '
+        '<a href="/enroll">Set where its creator fee goes</a> -- connect the '
+        "wallet that administers it and route the fee yourself.</p>"
         "</main>"
         f'<p class="meta">generated at {esc(stamp)}</p>'
         f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
@@ -2765,6 +2768,8 @@ def render_landing(observation, *, now=None) -> str:
         "</form>"
         '<p class="meta">Any pump.fun coin. No wallet, no signup. The chain is '
         "read while you wait.</p>"
+        '<p class="meta">Own a coin? <a href="/enroll">Set where its creator '
+        "fee goes</a>.</p>"
         "</div>"
         + '<div class="hero-rule"></div>'
         f'<div class="rise d3">{freshness}</div>'

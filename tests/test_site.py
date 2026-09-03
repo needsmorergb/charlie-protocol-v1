@@ -45,6 +45,7 @@ from test_publication import FULL_DETAIL_SURFACES  # noqa: E402
 # The page route no longer points at a file. It points at the live function,
 # which serves the committed page when one exists and observes the chain when
 # it does not -- so a coin nobody has pre-generated still gets an answer.
+VERCEL_JSON = Path(__file__).resolve().parents[1] / "vercel.json"
 LIVE_ROUTE = "/api/verify"
 LIVE_ROUTE_SUFFIX = "?mint=:mint"
 JSON_ROUTE_SUFFIX = "?mint=:mint&format=json"
@@ -1111,6 +1112,7 @@ class TestVercelJson(unittest.TestCase):
         sources = {r["source"] for r in data["rewrites"]}
         self.assertEqual(sources, {
             "/coins",
+            "/enroll",
             "/verify",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
@@ -1461,6 +1463,25 @@ class TestSubmitIssueUrl(unittest.TestCase):
         would lose exactly the submissions that matter.
         """
         self.assertNotIn("labels=", site.submit_issue_url())
+
+
+class TestEnrollIsReachable(unittest.TestCase):
+    """A page nobody can reach is not shipped. /verify was advertised in a
+    post before its route existed once already; this is the same failure in
+    the other direction -- a route that exists and nothing links to.
+    """
+
+    def test_the_landing_page_offers_it(self):
+        h = site.render_landing(_counters_fixture(), now=1)
+        self.assertIn('href="/enroll"', h)
+
+    def test_the_verify_page_offers_it(self):
+        self.assertIn('href="/enroll"', site.render_verify(now=1))
+
+    def test_the_route_is_declared(self):
+        data = json.loads(VERCEL_JSON.read_text(encoding="utf-8"))
+        sources = {r["source"] for r in data["rewrites"]}
+        self.assertIn("/enroll", sources)
 
 
 class TestPasteBoxIsReachableAndStyled(unittest.TestCase):
