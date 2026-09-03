@@ -21,7 +21,10 @@ from indexer.curve import find_program_address  # noqa: E402
 
 MINT = "JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump"
 ADMIN = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
-BURN = "burn111111111111111111111111111111111111111"
+# Solana's incinerator. The runtime removes lamports credited here from the
+# total supply at the end of the block, which is the only address on the chain
+# where SOL is destroyed rather than merely made unspendable.
+BURN = "1nc1nerator11111111111111111111111111111111"
 BLOCKHASH = "11111111111111111111111111111111"
 
 
@@ -35,6 +38,35 @@ class _Config:
 
 def _split():
     return [enroll.Share(BURN, 2000), enroll.Share(ADMIN, 8000)]
+
+
+class TestBurnDestination(unittest.TestCase):
+    """The default destination has to actually burn.
+
+    An address with no private key parks SOL: it cannot be spent, but the
+    supply is unchanged and the lamports still exist. Only the incinerator
+    reduces the supply, and only supply reduction is deflation.
+    """
+
+    def test_the_default_is_the_incinerator(self):
+        from indexer import enroll_page
+        self.assertIn("1nc1nerator11111111111111111111111111111111", enroll_page.render(now=1))
+
+    def test_the_page_does_not_offer_a_merely_unspendable_address(self):
+        from indexer import enroll_page
+        page = enroll_page.render(now=1)
+        self.assertNotIn("burn11111111111111111111111111111111111111", page)
+
+    def test_the_page_says_the_supply_falls_rather_than_the_sol_being_stuck(self):
+        from indexer import enroll_page
+        page = enroll_page.render(now=1)
+        self.assertIn("removed from", page)
+        self.assertIn("total supply", page)
+
+    def test_a_split_to_the_incinerator_builds(self):
+        """Simulated against mainnet with err: None before this was written."""
+        data = enroll.instruction_data([enroll.Share(BURN, 2000), enroll.Share(ADMIN, 8000)])
+        self.assertEqual(data[12:44], pubkey_bytes(BURN))
 
 
 class TestDerivations(unittest.TestCase):

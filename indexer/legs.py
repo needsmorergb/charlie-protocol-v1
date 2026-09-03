@@ -146,6 +146,27 @@ CLASSIFICATIONS = ("none", "sol_burn-only", "burn-only", "ops-only", "mixed")
 # recognises.
 _DISPLAY_NAME = {SOL_BURN: "sol_burn", BURN: "burn", OPS: "ops"}
 
+# Solana's own incinerator, and the only address on the chain where SOL is
+# genuinely DESTROYED rather than merely made unspendable.
+#
+# From the runtime's own source (sdk/program/src/incinerator.rs):
+#
+#     "Lamports credited to this address will be removed from the total
+#      supply (burned) at the end of the current block."
+#
+# That distinction is the whole protocol. An address with no private key
+# parks SOL: the supply is unchanged and the lamports still exist, so
+# calling it deflation would be false. The incinerator reduces the supply,
+# which is what deflation means. Checked against mainnet: the account does
+# not exist and its balance is 0, which is what an address whose credits
+# are removed every block looks like.
+#
+# NOTE, because it is the trap next to this one: sending an SPL TOKEN here
+# does not burn it. Only lamports are destroyed by the runtime. Token burns
+# go through the token program's own burn instruction, which is the BURN
+# leg, not this one.
+SOL_BURN_INCINERATOR = "1nc1nerator11111111111111111111111111111111"
+
 # PROTOCOL.md sec.3: $CHARLIE's vault, shared with other creators, predating the
 # spec. Grandfathered, weaker invariant, no new entries by default -- adding one
 # is a spec decision, not a code change.
@@ -201,6 +222,12 @@ class Registry:
 
 
 def classify(address: str, mint: str, registry: Registry) -> tuple[str, str]:
+    if address == SOL_BURN_INCINERATOR:
+        return SOL_BURN, (
+            "Solana's incinerator: the runtime removes lamports credited here "
+            "from the total supply at the end of the block. Not merely "
+            "unspendable -- destroyed."
+        )
     if address == registry.sol_burn_vault(mint):
         return SOL_BURN, "PDA(['sol_burn', mint]) of the protocol program"
     if address == registry.burn_pool(mint):

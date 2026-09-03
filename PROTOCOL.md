@@ -110,30 +110,62 @@ not a single-signer wallet.
 
 ---
 
-## 3. Vaults
+## 3. The SOL burn destination
 
-A SOL burn vault MUST be a **PDA**, not a vanity address.
+**SOL is burned by destroying it, not by parking it.**
 
-- Program derivation is a property the Solana runtime enforces on every
-  signature it checks. A vanity address carries no such backing — its standing
-  rests on convention.
-- The deriving program MUST have no instruction that transfers from the vault.
-- One vault **per coin**. Shared burn addresses destroy attribution: the moment
-  two coins route to the same address you can no longer prove which lamports
-  are whose, and the reconciliation invariant degrades from `==` to `≤`.
+The canonical destination is Solana's incinerator:
 
-$CHARLIE uses the legacy vanity address `burn111…111`, which is shared with
-other creators and predates this spec. It is grandfathered for **attribution**
-and carries the weaker `<=` invariant. New enrollments do not get that
-exemption.
+    1nc1nerator11111111111111111111111111111111
 
-It is not grandfathered for the derivation requirement, and it fails there:
-`burn111…111` is a vanity address, not a PDA. That is measured, not assumed.
-Grandfathering the attribution invariant does not grandfather this one — a SOL burn
-destination that is not program-derived fails `SOL_BURN_UNSPENDABLE` and the
-protocol publishes no SOL burn total for it, ours included. A burn address that
-meets the standard is perfectly possible; `1nc1nerator111…111` is
-program-derived. Ours simply is not.
+From the runtime's own source (`sdk/program/src/incinerator.rs`):
+
+> Lamports credited to this address will be removed from the total supply
+> (burned) at the end of the current block.
+
+That is the whole standard, and it is the runtime's guarantee rather than
+ours. Nothing has to be deployed, nothing has to be trusted, and no key
+exists anywhere that could undo it.
+
+### Why unspendable is not enough
+
+An earlier version of this section required a PDA and reasoned about which
+programs could move lamports out of one. That was the wrong target. An
+address with no private key makes SOL **unspendable**: the lamports still
+exist, the total supply is unchanged, and nobody can touch them. That is a
+freeze, not a burn, and calling it deflation would be false.
+
+Deflation is supply reduction. Only the incinerator delivers it.
+
+This applies to lamports only. Sending an **SPL token** to the incinerator
+does not burn it -- the runtime destroys lamports, not token balances. Token
+supply is reduced through the token program's own burn instruction, which is
+the BURN leg, not this one.
+
+### Attribution
+
+The incinerator is shared by the whole chain, so a coin's burn cannot be
+proven from its balance: that balance is always zero, by design. Attribution
+is per transaction instead, from the transfers into it, which is exact rather
+than cumulative.
+
+The zero balance is not a weakness here, it is the evidence. A vault holding
+the SOL would only prove the SOL is sitting there. A balance that stayed at
+zero after lamports were credited proves they left the supply.
+
+`SOL_BURN_BALANCE` therefore asks a different question of this destination
+than of any other: **the balance must be zero.** A non-zero reading is the
+anomaly, and a balance that could not be read is `UNCHECKED`, never a pass --
+absence of a reading is not evidence of a burn.
+
+### $CHARLIE
+
+$CHARLIE routes to the legacy vanity address `burn111…111`, which predates
+this and is shared with other creators. It is unspendable, not burned, so it
+fails the standard above on its own terms. It keeps the weaker `<=`
+attribution invariant for its history, and the protocol publishes no SOL burn
+total for it. New enrollments do not get that exemption and are not offered
+that address.
 
 ---
 
