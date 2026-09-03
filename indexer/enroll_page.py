@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function () {
   $('addRow').onclick = function () { addRow('', ''); };
   $('build').onclick = build;
   $('send').onclick = send;
-  addRow('burn111111111111111111111111111111111111111', 20);
+  addRow('1nc1nerator11111111111111111111111111111111', 20);
   addRow('', 80);
 });
 """
@@ -272,12 +272,17 @@ def render(*, now=None) -> str:
         "</section>"
         "<section>"
         "<h2>What a destination means</h2>"
-        "<p>A destination is an address, and this page does not grade them. Two "
-        "kinds can be checked afterwards: an address no key can spend is a SOL "
-        "burn, and SOL sent there is deflation, because burned SOL never comes "
-        "back. An address that buys the token and destroys it reduces the "
-        "coin&#x27;s supply. Anything else is an ordinary wallet, and the "
-        "coin&#x27;s page says so in those words.</p>"
+        "<p>The first row is filled in with "
+        "<code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s "
+        "incinerator. Its source says lamports credited there are removed from "
+        "the total supply at the end of the block. SOL sent there is destroyed, "
+        "not stored, and that is what deflation means.</p>"
+        "<p>An address with no private key is not the same thing. It cannot be "
+        "spent, but the SOL still exists and the supply is unchanged, so this "
+        "page will not call that a burn.</p>"
+        "<p>A destination that buys the token and destroys it reduces the "
+        "coin&#x27;s own supply instead. Anything else is an ordinary wallet, "
+        "and the coin&#x27;s page says so in those words.</p>"
         f'<p><a href="/{esc(site.VERIFY_FILENAME)}">Check any coin</a>.</p>'
         "</section>"
         "</main>"

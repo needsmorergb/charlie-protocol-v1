@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .legs import Registry
+from .legs import SOL_BURN_INCINERATOR, Registry
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -234,6 +234,44 @@ def _incomplete_walk_detail(evidence, destination: str) -> str:
     return f"the walk of {destination} is incomplete -- " + "; ".join(parts)
 
 
+def _incinerator_result(destination: str, recorded, vault_balance) -> dict:
+    """SOL credited to Solana's incinerator is destroyed by the runtime at the
+    end of the block, so its balance is always zero.
+
+    The check is therefore the opposite of the one applied to a vault: a
+    NON-zero balance is the anomaly, because it would mean lamports are
+    sitting there rather than having left the supply. A balance we could not
+    read is UNCHECKED, never a pass -- absence of a reading is not evidence of
+    a burn.
+    """
+    if vault_balance is None:
+        return {
+            "destination": destination,
+            "status": UNCHECKED,
+            "detail": f"{destination} is Solana's incinerator, but its balance "
+                      "was not read this tick, so the burn is not confirmed here",
+        }
+    if int(vault_balance) != 0:
+        return {
+            "destination": destination,
+            "status": FAIL,
+            "detail": f"{destination} is Solana's incinerator and its balance should "
+                      f"always be zero, because the runtime removes what is credited "
+                      f"to it at the end of the block. It reads {vault_balance} lamports",
+            "expected": 0,
+            "actual": int(vault_balance),
+        }
+    return {
+        "destination": destination,
+        "status": PASS,
+        "detail": f"{recorded} lamports were routed to Solana's incinerator and its "
+                  "balance is zero: the runtime removed them from the total supply. "
+                  "Not unspendable, destroyed",
+        "expected": 0,
+        "actual": 0,
+    }
+
+
 def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Check:
     registry = registry or Registry()
     sol_burn_destinations = [a.address for a in split.attributions if a.leg == "sol_burn"]
@@ -249,6 +287,18 @@ def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Ch
     per_destination = []
     for destination in sol_burn_destinations:
         comparator = "<=" if destination in registry.grandfathered_sol_burn else "=="
+        if destination == SOL_BURN_INCINERATOR:
+            # The incinerator's balance is ALWAYS zero, because the runtime
+            # removes what is credited to it at the end of the block. Asking
+            # `sum(inflows) == getBalance(vault)` here would read `X == 0` and
+            # FAIL every coin that burned SOL correctly -- branding the right
+            # answer red.
+            #
+            # The zero IS the proof, and it is a stronger one than the equality
+            # this check applies elsewhere: a balance that stayed at zero after
+            # lamports were credited means they left the supply rather than
+            # sitting in an address nobody can spend.
+            comparator = "burned"
         if not evidence.is_backfill_complete(destination, "inflow"):
             per_destination.append(
                 {
@@ -277,6 +327,9 @@ def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Ch
             continue
         recorded = evidence.recorded_lamports(destination)
         vault_balance = balances.get(destination)
+        if comparator == "burned":
+            per_destination.append(_incinerator_result(destination, recorded, vault_balance))
+            continue
         check = sol_burn_balance(
             destination=destination,
             recorded=recorded,

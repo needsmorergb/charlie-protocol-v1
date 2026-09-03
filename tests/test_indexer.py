@@ -240,11 +240,34 @@ class TestLegs(unittest.TestCase):
         self.assertEqual((split.sol_burn, split.burn, split.paid), (10_000, 0, 0))
 
     def test_unknown_address_is_ops_even_when_keyless(self):
-        """The conservative direction: unproven is OPS, never SOL_BURN."""
-        split = split_of(self.config([(INCINERATOR, 10_000)]), self.registry)
+        """The conservative direction: unproven is OPS, never SOL_BURN.
+
+        The address here is keyless and program-derived and STILL reads as
+        OPS, because being unspendable is not the same as being burned. This
+        test used to use the incinerator as its example, which was wrong:
+        Solana's runtime genuinely destroys lamports credited there, so it is
+        provable and now classifies as SOL_BURN. See the test below.
+        """
+        keyless = find_program_address([b"not-ours"], PUMP_PROGRAM)[0]
+        split = split_of(self.config([(keyless, 10_000)]), self.registry)
         self.assertEqual(split.paid, 10_000)
         self.assertTrue(split.attributions[0].keyless)
         self.assertIn("Not provably burned", split.attributions[0].reason)
+
+    def test_the_incinerator_is_a_sol_burn_because_the_runtime_destroys_it(self):
+        """Not a judgement call. Solana's own source says of this address:
+        "Lamports credited to this address will be removed from the total
+        supply (burned) at the end of the current block."
+
+        An address with no key merely PARKS SOL -- the supply is unchanged, so
+        calling that deflation would be false. This one reduces the supply,
+        which is what the word means.
+        """
+        split = split_of(self.config([(INCINERATOR, 10_000)]), self.registry)
+        self.assertEqual(split.sol_burn, 10_000)
+        self.assertEqual(split.paid, 0)
+        self.assertIn("removes lamports credited here", split.attributions[0].reason)
+        self.assertIn("destroyed", split.attributions[0].reason)
 
     def test_ordinary_wallet_is_ops(self):
         split = split_of(self.config([(WALLET, 10_000)]), self.registry)
