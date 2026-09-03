@@ -374,6 +374,13 @@ class Outcome:
     verdict_url: str | None = None
 
 
+# Wall-clock budget for one submission's burn walk. A submission queue runs
+# on a schedule with a job timeout; an unbounded walk is not a slow answer, it
+# is no answer for every coin behind it. 45s walks a long way and still lets a
+# five-submission run finish inside a few minutes.
+DEFAULT_SCAN_SECONDS = 45.0
+
+
 def run(
     issues,
     rpc,
@@ -384,6 +391,7 @@ def run(
     repo: str = DEFAULT_REPO,
     site_url: str | None = None,
     limit: int = DEFAULT_RUN_LIMIT,
+    scan_seconds: float = DEFAULT_SCAN_SECONDS,
     now=None,
 ) -> list:
     """Measures, writes and records (03-02 Task 2's three verbs). Submissions
@@ -475,7 +483,14 @@ def run(
         # finish looking" beats answering with a total we cannot stand behind.
         if evidence is not None:
             try:
-                scan_burns(rpc, evidence, mint)
+                # Bounded by wall clock, not just pages. Without this a coin
+                # with real trading history walks thousands of transactions
+                # and the run never returns -- one busy coin would stall
+                # every other submission behind it in the queue. A walk cut
+                # short stays incomplete, so its figures stay withheld and
+                # the next run resumes from the same cursor.
+                scan_burns(rpc, evidence, mint,
+                           deadline=time.monotonic() + scan_seconds)
             except Exception:
                 pass
 
