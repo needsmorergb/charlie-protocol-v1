@@ -137,7 +137,44 @@ change because it was never in the account they can write.
 
 ---
 
-## 6. Sequencing, and the part that works before the program exists
+## 6. The recipient must exist, and the incinerator does not
+
+Measured on mainnet through crowd-api on 2026-09-03:
+
+```
+1nc1nerator11111111111111111111111111111111
+  state          UNINITIALIZED -- does not exist
+```
+
+That is not a glitch. The runtime removes lamports credited there at the end
+of the block, so the account never carries a balance, and an account with no
+lamports does not exist. It is the same fact `SOL_BURN_BALANCE` inverts to
+"the balance MUST be zero", seen from the other side.
+
+pump's on-chain IDL then says:
+
+```
+6070 UnableToDistributeCreatorFeesToUninitializedAccount
+6052 UnableToDistributeCreatorFeesToExecutableRecipient
+```
+
+`distribute_creator_fees` pays every shareholder in ONE instruction. If pump
+refuses an uninitialized recipient, then a config naming the incinerator
+cannot be distributed AT ALL: not the burn share, and not the dev's share
+either. The whole coin's fees would sit in the creator vault.
+
+**This is measured for the account and inferred for the failure.** The
+absence is certain; that 6070 fires on it has not been observed yet, and the
+way to settle it is a simulation of `distribute_creator_fees` against a
+config that names the incinerator. Nothing should ship, and no page should
+promise this route, until that simulation has been run.
+
+If it does fire, the collector shape in section 3 is not merely better, it is
+the only one that works: pump only ever pays `collector(mint)`, an account we
+create and keep rent exempt, and the incinerator is reached by an ordinary
+system transfer from our own program, which burns exactly as it always has.
+
+## 7. Sequencing, and what does NOT work before the program exists
 
 PDAs derive from a program id, and a program id is a keypair we can generate
 today and deploy to later. So `collector(mint)` is computable now.
@@ -147,26 +184,29 @@ keyless address that **nobody can spend, including us**, and the moment the
 immutable program is live at that id, `distribute` starts moving everything
 that accumulated.
 
-The risk in that, stated plainly because it is the kind of thing this project
-exists to state: **if the program is never deployed, everything routed to a
-collector is stranded forever.** Not stolen -- unspendable, by anyone, which is
+Two things break that plan, and section 6 is the reason. An unfunded
+collector PDA does not exist either, so it is an uninitialized recipient like
+the incinerator, and a distribution naming it would fail for the whole coin.
+The collector must be created and rent exempt BEFORE a coin routes to it,
+which needs the program, or at least a funded account at that address.
+
+And the risk that remains, stated plainly because it is the kind of thing
+this project exists to state: **if the program is never deployed, everything
+routed to a collector is stranded forever.** Not stolen -- unspendable, by anyone, which is
 exactly what makes it safe and also what makes it final. A dev's ops share is
 in that vault too. Anyone enrolling before deployment is trusting that the
 program ships, and the page must say so in those words.
 
 Two honest options:
 
-1. **Deploy first.** Write the program, revoke upgrade authority, then enrol.
-   `/enroll` keeps the current shape until then.
-2. **Enrol into the collector now**, with the stranding risk on the page, in
-   exchange for not spending anyone's one-shot update twice.
-
-Option 1 is the recommendation. Option 2 is defensible only with the warning
-rendered as loudly as the failure states already are.
+**Deploy first.** Write the program, revoke upgrade authority, create and
+fund the collectors, then enrol. Enrolling into an address that does not yet
+exist is not a trade-off any more, it is a configuration that cannot pay
+anyone.
 
 ---
 
-## 7. What the indexer and the site become
+## 8. What the indexer and the site become
 
 Simpler, not harder.
 
@@ -187,16 +227,16 @@ Simpler, not harder.
 
 ---
 
-## 8. Open questions this design does not settle
+## 9. Open questions this design does not settle
 
 1. **`TOLL_BPS`.** 50, 500 or 1000 (section 1).
-2. **Is pump's split update really one-shot?** `api/enroll.py` states it from an
-   observed `FeeSharesAlreadyUpdated`, and pump's published fee IDL contains no
-   such error and names the instruction `update_fee_shares`, not
-   `update_fee_shares_v2`. The on-chain IDL is newer than the published one and
-   is what the enrol path reads, so the likeliest answer is that v2 added the
-   rule -- but the site warns devs about it before a one-way door, so it is
-   verified against the on-chain IDL's error list before this design ships.
+2. ~~Is pump's split update really one-shot?~~ **Settled, on chain.** The
+   fee-share program's own IDL carries both instructions,
+   `update_fee_shares` (`bd0d8863bba4ed23`) and `update_fee_shares_v2`
+   (`6ffb31064e4e6a12`, the one this project calls), and error
+   `6024 FeeSharesAlreadyUpdated - Reward split can only be updated once`.
+   The warning on `/enroll` is the program's own words. pump's published docs
+   IDL is simply older than the deployed program.
 3. **Migration.** If the rule holds, coins enrolled under the current
    multi-shareholder split cannot be converted to a collector later. They keep
    their frozen split and their existing classification, and the protocol keeps
@@ -205,3 +245,6 @@ Simpler, not harder.
 4. **`get_minimum_distributable_fee`.** pump enforces a floor before creator
    fees can be distributed at all. `distribute` must respect it, and the site
    must not describe a coin under the floor as failing.
+5. **Does 6070 actually fire on the incinerator?** Section 6. This is the
+   most urgent question in this document, because the answer decides whether
+   the SOL burn leg works as `/enroll` currently configures it.
