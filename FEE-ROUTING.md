@@ -137,42 +137,49 @@ change because it was never in the account they can write.
 
 ---
 
-## 6. The recipient must exist, and the incinerator does not
+## 6. The incinerator has no account, and pump pays it anyway
 
-Measured on mainnet through crowd-api on 2026-09-03:
+Both halves measured on mainnet through crowd-api, 2026-09-03.
+
+The account really does not exist:
 
 ```
 1nc1nerator11111111111111111111111111111111
   state          UNINITIALIZED -- does not exist
 ```
 
-That is not a glitch. The runtime removes lamports credited there at the end
-of the block, so the account never carries a balance, and an account with no
-lamports does not exist. It is the same fact `SOL_BURN_BALANCE` inverts to
-"the balance MUST be zero", seen from the other side.
+It cannot. The runtime removes lamports credited there at the end of the
+block, so the balance is always zero, and a zero balance account is no
+account. That is `SOL_BURN_BALANCE`'s inverted invariant seen from the other
+side.
 
-pump's on-chain IDL then says:
+pump's on-chain IDL carries `6070
+UnableToDistributeCreatorFeesToUninitializedAccount`, and
+`distribute_creator_fees` pays every shareholder in one instruction, so the
+obvious reading was that a config naming the incinerator could never be
+distributed at all, taking the dev's share down with the burn.
 
-```
-6070 UnableToDistributeCreatorFeesToUninitializedAccount
-6052 UnableToDistributeCreatorFeesToExecutableRecipient
-```
+**That reading was wrong, and a simulation says so.** `5vxYBj3qbAFCSQr...pump`
+routes 100% to the incinerator, and simulating `distribute_creator_fees`
+against its live config succeeds: the system transfer executes, the program
+returns success, and no error is raised. 6070 does not fire on an address the
+system program owns; whatever it guards, this is not it.
 
-`distribute_creator_fees` pays every shareholder in ONE instruction. If pump
-refuses an uninitialized recipient, then a config naming the incinerator
-cannot be distributed AT ALL: not the burn share, and not the dev's share
-either. The whole coin's fees would sit in the creator vault.
+So the SOL burn leg works exactly as `/enroll` already configures it, with no
+program of ours involved: pump pays the incinerator directly, and the runtime
+burns it at the end of the block. **419 sharing configs on mainnet already
+name the incinerator first**, so this is a well-travelled route, not a
+theory.
 
-**This is measured for the account and inferred for the failure.** The
-absence is certain; that 6070 fires on it has not been observed yet, and the
-way to settle it is a simulation of `distribute_creator_fees` against a
-config that names the incinerator. Nothing should ship, and no page should
-promise this route, until that simulation has been run.
+Two things the same run measured, both of which the crank has to respect:
 
-If it does fire, the collector shape in section 3 is not merely better, it is
-the only one that works: pump only ever pays `collector(mint)`, an account we
-create and keep rent exempt, and the incinerator is reached by an ordinary
-system transfer from our own program, which burns exactly as it always has.
+* **A floor.** `Insufficient fees for distribution. Minimum vault balance
+  needed: 1781760 lamports.` Below roughly 0.00178 SOL the instruction
+  returns success WITHOUT distributing anything. A cranker that does not
+  check first pays a fee to do nothing, and a page that reads that success
+  as a distribution reports a burn that did not happen.
+* **A recipient that is a program still fails**, per `6052`. A collector PDA
+  is a data account and is fine; the program's own address is not.
 
 ## 7. Sequencing, and what does NOT work before the program exists
 
@@ -184,15 +191,14 @@ keyless address that **nobody can spend, including us**, and the moment the
 immutable program is live at that id, `distribute` starts moving everything
 that accumulated.
 
-Two things break that plan, and section 6 is the reason. An unfunded
-collector PDA does not exist either, so it is an uninitialized recipient like
-the incinerator, and a distribution naming it would fail for the whole coin.
-The collector must be created and rent exempt BEFORE a coin routes to it,
-which needs the program, or at least a funded account at that address.
+Section 6 removes the objection that a collector must exist before it can be
+paid: pump pays an address the system program owns whether or not it has ever
+held a lamport. A collector PDA is not that, though. It is program owned, and
+`6052` refuses an executable recipient, so the safe order is still to create
+the account before routing to it rather than to assume.
 
-And the risk that remains, stated plainly because it is the kind of thing
-this project exists to state: **if the program is never deployed, everything
-routed to a collector is stranded forever.** Not stolen -- unspendable, by anyone, which is
+The risk that remains is the one worth printing on the page: **if the program
+is never deployed, everything routed to a collector is stranded forever.** Not stolen -- unspendable, by anyone, which is
 exactly what makes it safe and also what makes it final. A dev's ops share is
 in that vault too. Anyone enrolling before deployment is trusting that the
 program ships, and the page must say so in those words.
@@ -245,6 +251,6 @@ Simpler, not harder.
 4. **`get_minimum_distributable_fee`.** pump enforces a floor before creator
    fees can be distributed at all. `distribute` must respect it, and the site
    must not describe a coin under the floor as failing.
-5. **Does 6070 actually fire on the incinerator?** Section 6. This is the
-   most urgent question in this document, because the answer decides whether
-   the SOL burn leg works as `/enroll` currently configures it.
+5. ~~Does 6070 fire on the incinerator?~~ **Settled by simulation. It does
+   not.** Section 6. The SOL burn leg works as configured today, and the
+   floor of 1781760 lamports is the real constraint on it.
