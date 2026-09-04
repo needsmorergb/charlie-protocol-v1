@@ -201,11 +201,6 @@ class TestMessage(unittest.TestCase):
         with self.assertRaises(enroll.EnrollError):
             enroll.message(MINT, ADMIN, [enroll.Share(BURN, 9999)], BLOCKHASH, current=[ADMIN])
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class _Curve:
     """Only the field the refusal turns on. `cashback` is three-valued in
     `pump.BondingCurve` and the tests below cover all three, because absent
@@ -244,3 +239,6 @@ class TestCashbackIsRefused(unittest.TestCase):
 
     def test_the_curve_is_optional_so_older_callers_still_work(self):
         enroll.preflight(_Config(), ADMIN, _split())
+
+if __name__ == "__main__":
+    unittest.main()

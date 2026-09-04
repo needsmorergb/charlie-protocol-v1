@@ -112,10 +112,14 @@ button.primary:hover, button.primary:focus-visible {
 .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note.bad { color: var(--destructive); }
 .note.good { color: var(--pass-glyph); }
+/* NOT `warn`: `say()` writes class="note <kind>", and `.warn` below is a
+   destructive red callout used for the one-way-door notice. A caution the dev
+   may act on must not wear the styling of a refusal. */
+.note.caution { color: var(--unchecked); }
 pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
 .warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
   padding: var(--sp-md); margin: var(--sp-md) 0; }
-</style></head><body><header><h1>Set your coin&#x27;s fee split</h1><p>Connect the wallet that administers the coin and send its creator fee wherever you want it to go. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>The first row is filled in with <code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s incinerator. Its source says lamports credited there are removed from the total supply at the end of the block. SOL sent there is destroyed, not stored, and that is what deflation means.</p><p>Any other address you put here simply receives the SOL. Only the incinerator reduces the supply, so if that is what you want, keep it in the split.</p><p>A destination that buys the token and destroys it reduces the coin&#x27;s own supply instead. Anything else is an ordinary wallet, and the coin&#x27;s page says so in those words.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-03 06:15:04Z</p><script>
+</style></head><body><header><h1>Set your coin&#x27;s fee split</h1><p>Connect the wallet that administers the coin and send its creator fee wherever you want it to go. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>The first row is filled in with <code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s incinerator. Its source says lamports credited there are removed from the total supply at the end of the block. SOL sent there is destroyed, not stored, and that is what deflation means.</p><p>Any other address you put here simply receives the SOL. Only the incinerator reduces the supply, so if that is what you want, keep it in the split.</p><p>A destination that buys the token and destroys it reduces the coin&#x27;s own supply instead. Anything else is an ordinary wallet, and the coin&#x27;s page says so in those words.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-04 18:26:53Z</p><script>
 var state = {wallet: null, mint: null, built: null};
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) { var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || ''); }
@@ -156,12 +160,25 @@ async function inspect() {
     var d = await r.json();
     if (d.error) { say('coinNote', d.error, 'bad'); return; }
     var rows = (d.current || []).map(function (c) { return (c.bps / 100) + '% ' + c.address; }).join('   ');
+    if (d.cashback === true) {
+      say('coinNote', 'This coin has pump Trader Cashback on, chosen at launch and locked on chain. Its whole creator fee goes to traders, so every share of any split would be zero. Enrolling would spend this coin one permanent change for nothing.', 'bad');
+      return;
+    }
+    if (d.reason === 'no_sharing_config') {
+      say('coinNote', 'This coin has no pump fee-sharing config yet, which is normal for a new launch. There is nothing to update until one exists, and this page cannot create one for you yet. Set fee sharing up on pump first, then come back.', 'bad');
+      return;
+    }
     if (d.admin_revoked) {
-      say('coinNote', 'This split is permanent (admin_revoked). Nobody can change it, including pump-side tools. Current: ' + rows, 'bad');
+      say('coinNote', 'This coin has already used its one change, so the split is permanent. pump allows exactly one update and nothing can alter it now, including us. Current: ' + rows, 'bad');
       return;
     }
     if (!d.owns) {
       say('coinNote', 'This wallet does not administer that coin. Its config names ' + d.admin + '. Current split: ' + rows, 'bad');
+      return;
+    }
+    if (d.cashback === null) {
+      say('coinNote', 'You administer this coin. One thing first: its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change. Current split: ' + rows, 'caution');
+      $('splitBox').hidden = false;
       return;
     }
     say('coinNote', 'You administer this coin. Current split: ' + rows, 'good');

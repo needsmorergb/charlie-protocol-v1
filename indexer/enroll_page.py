@@ -82,7 +82,7 @@ async function inspect() {
       return;
     }
     if (d.cashback === null) {
-      say('coinNote', 'You administer this coin. One thing first: its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change. Current split: ' + rows, 'warn');
+      say('coinNote', 'You administer this coin. One thing first: its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change. Current split: ' + rows, 'caution');
       $('splitBox').hidden = false;
       return;
     }
@@ -224,7 +224,10 @@ button.primary:hover, button.primary:focus-visible {
 .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note.bad { color: var(--destructive); }
 .note.good { color: var(--pass-glyph); }
-.note.warn { color: var(--unchecked); }
+/* NOT `warn`: `say()` writes class="note <kind>", and `.warn` below is a
+   destructive red callout used for the one-way-door notice. A caution the dev
+   may act on must not wear the styling of a refusal. */
+.note.caution { color: var(--unchecked); }
 pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
 .warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
   padding: var(--sp-md); margin: var(--sp-md) 0; }
