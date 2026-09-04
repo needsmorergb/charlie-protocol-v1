@@ -341,10 +341,30 @@ class TestInvariants(unittest.TestCase):
         """
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
         check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
-        for retracted in ("program-derived", "convention", "vanity"):
+        for retracted in ("program-derived", "convention", "vanity", "is_on_curve"):
             with self.subTest(phrase=retracted):
                 self.assertNotIn(retracted, check.detail)
                 self.assertNotIn(retracted, check.equation)
+
+    def test_the_equation_says_the_same_thing_on_every_branch(self):
+        """The UNCHECKED branch kept the retracted equation
+        `is_on_curve(sol_burn_vault) == False` while PASS and FAIL had moved
+        on, so a coin with no SOL burn destination was shown a rule the check
+        no longer applies. The equation is what the row states it tested.
+        """
+        empty = split_of(
+            type("Cfg", (), {"mint": CHARLIE, "shareholders": ((WALLET, 10_000),)})(),
+            Registry(program_id=None, grandfathered_sol_burn=frozenset()),
+        )
+        unchecked = invariants.sol_burn_unspendable(empty)
+        self.assertEqual(unchecked.status, invariants.UNCHECKED)
+
+        passing = invariants.sol_burn_unspendable(
+            split_of(type("Cfg", (), {"mint": CHARLIE,
+                                      "shareholders": ((BURN_VANITY, 10_000),)})(), Registry())
+        )
+        self.assertEqual(passing.status, invariants.PASS)
+        self.assertEqual(unchecked.equation, passing.equation)
 
     def test_a_caller_cannot_grandfather_a_wallet_into_passing(self):
         """The check reads the protocol's own recognised set, not the registry

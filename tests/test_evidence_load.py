@@ -98,6 +98,43 @@ class TestTheCommittedExportLoads(LoadCase):
                     )
 
 
+class TestEveryTableTheStoreHasIsExported(LoadCase):
+    """`EXPORT_TABLES` is a hand-written list, and the `.db` is no longer
+    committed anywhere.
+
+    So a table missing from the list is now data that does not survive a CI
+    run at all -- written by one job and gone by the next. `sharing_config`
+    was missing, and only had no rows yet by luck. Adding a table to
+    `evidence.py` and forgetting the export must fail here rather than
+    quietly lose what that table records.
+    """
+
+    # Not evidence, and deliberately not exported: `schema_version` is the
+    # store's own migration marker and `sqlite_sequence` is SQLite's.
+    NOT_EVIDENCE = {"schema_version", "sqlite_sequence"}
+
+    def test_the_export_covers_the_whole_store(self):
+        evidence = self.store()
+        tables = {
+            row[0] for row in evidence.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")
+        } - self.NOT_EVIDENCE
+        self.assertEqual({table for table, _order in EXPORT_TABLES}, tables)
+
+    def test_every_exported_table_orders_by_columns_it_has(self):
+        """The order is what makes the export deterministic, and an ORDER BY
+        naming a column the table lost would raise only when that table next
+        exported -- in CI, mid-run.
+        """
+        evidence = self.store()
+        for table, order_by in EXPORT_TABLES:
+            columns = {row[1] for row in
+                       evidence.connection.execute(f"PRAGMA table_info({table})")}
+            for column in (c.strip() for c in order_by.split(",")):
+                with self.subTest(table=table, column=column):
+                    self.assertIn(column, columns)
+
+
 class TestALoadNeverRewritesARowTheStoreAlreadyHas(LoadCase):
     """`INSERT OR IGNORE`, which is `evidence.py`'s own rule for every write.
 
@@ -110,8 +147,12 @@ class TestALoadNeverRewritesARowTheStoreAlreadyHas(LoadCase):
     issue it had already answered.
 
     `test_loading_twice_is_the_same_as_loading_once` cannot tell the two
-    apart. These can: with `OR REPLACE` restored, every test in this class
-    fails.
+    apart. Two of the three below can: with `OR REPLACE` restored,
+    `test_an_answered_submission_is_not_reset_to_unanswered` and
+    `test_the_statement_is_the_one_the_store_documents` fail.
+    `test_the_row_count_is_unchanged_either_way` passes either way on
+    purpose -- it is there to stop the reason for `OR IGNORE` being
+    misremembered as the duplicate-rows one.
     """
 
     def _older_export(self, tmp: Path) -> Path:

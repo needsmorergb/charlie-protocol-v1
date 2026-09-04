@@ -372,7 +372,10 @@ def _refresh(args) -> int:
     out_dir = Path(args.out)
     try:
         _refresh_pages(rpc, registry, evidence, out_dir)
-        for path in _write_index(out_dir):
+        # The same count `_intake` folds in, so the two commands cannot render
+        # different index pages from the same store.
+        counts_extra = {"failed": evidence.submission_counts()["failed"]}
+        for path in _write_index(out_dir, extra_counts=counts_extra):
             print(f"wrote {path}")
     finally:
         evidence.close()

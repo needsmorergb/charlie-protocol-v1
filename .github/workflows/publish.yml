@@ -57,6 +57,11 @@ jobs:
       # writes a page whose six counters all read "unknown", reports success,
       # and the commit below would push it over six live figures.
       - name: Regenerate the landing page
+        id: landing
+        # Reported after the commit rather than instead of it -- the refreshed
+        # coin pages above are worth keeping even when the landing page could
+        # not be rendered. The run still ends red, at the last step.
+        continue-on-error: true
         env:
           CHARLIE_RPC_URLS: https://crowd-api-gateway.vercel.app/
         run: |
@@ -74,5 +79,25 @@ jobs:
             echo "the committed pages already match the renderer"
             exit 0
           fi
+          # These pages carry the moment they were generated, and the
+          # landing page carries the moment it was observed, so the diff is
+          # never empty: every run commits at least a timestamp. That is
+          # accepted rather than filtered. A filter would have to tell a
+          # timestamp-only change from a real one, and each page is a single
+          # long line of HTML carrying both -- so the obvious filter (drop
+          # changed lines mentioning the timestamp) drops real changes with
+          # them, which is the one outcome worse than the churn.
           git commit -m "publish: regenerate web/ from the current renderer"
-          git push
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "$GITHUB_REF_NAME" && git push && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "::error::the regenerated pages were not pushed"
+          exit 1
+
+      - name: Was the landing page written
+        if: always() && steps.landing.outcome == 'failure'
+        run: |
+          echo "::error::the landing page was not regenerated -- see the step above."
+          echo "The refreshed coin pages have been committed."
+          exit 1
