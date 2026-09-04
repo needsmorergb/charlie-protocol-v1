@@ -14,6 +14,7 @@ page's real branching is driven and read back.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from indexer import enroll_page  # noqa: E402
 
 NODE = shutil.which("node")
+
+# Skipping is right on a laptop without node and wrong in CI, where a green
+# suite that tested none of the page's branching is the false confidence this
+# file exists to remove. Set CHARLIE_REQUIRE_NODE=1 there and a missing node
+# fails instead of skipping.
+REQUIRE_NODE = os.environ.get("CHARLIE_REQUIRE_NODE") not in (None, "", "0")
 
 # Loads the page script under vm with the smallest DOM it touches, runs
 # inspect() against one canned response, and prints what the dev would read.
@@ -72,8 +79,14 @@ def _response(**overrides) -> dict:
     return body
 
 
-@unittest.skipUnless(NODE, "node is not installed; the page script cannot be executed here")
+@unittest.skipUnless(NODE or REQUIRE_NODE,
+                     "node is not installed; set CHARLIE_REQUIRE_NODE=1 to make that a failure")
 class TestTheDevIsToldTheTruth(unittest.TestCase):
+    def setUp(self):
+        if not NODE:
+            self.fail("CHARLIE_REQUIRE_NODE is set but node is not on PATH, so the "
+                      "page script was never executed")
+
     def drive(self, response: dict) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -110,8 +123,13 @@ class TestTheDevIsToldTheTruth(unittest.TestCase):
     def test_an_unreadable_cashback_flag_warns_but_lets_them_through(self):
         out = self.drive(_response(cashback=None))
         self.assertIn("absent is not the same as off", out["note"])
-        self.assertIn("warn", out["kind"])
         self.assertTrue(out["formShown"])
+        # `say()` writes class="note <kind>". The kind must NOT be `warn`,
+        # because `.warn` is the destructive red callout used for the one-way
+        # door notice: a caution the dev may act on would be dressed as a
+        # refusal, with the form open underneath it.
+        self.assertEqual(out["kind"], "note caution")
+        self.assertNotIn("warn", out["kind"])
 
     def test_a_spent_one_shot_says_which_thing_is_spent(self):
         out = self.drive(_response(admin_revoked=True))

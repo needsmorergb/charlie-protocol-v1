@@ -2666,8 +2666,8 @@ _LANDING_SOON = (
     "yet is our program, so the vaults it would derive, the buy-and-burn "
     "crank and the protocol's own share do not exist either.",
     "$CHARLIE itself cannot enrol. Its config reads admin_revoked, which is "
-    "how pump records that a coin has spent the one change it is permitted to "
-    "those destinations, and only pump can reset it.",
+    "how pump records that a coin has already used the single change it is "
+    "allowed, and only pump can reset it.",
     "It will land in the repository linked below. There is nothing to sign up "
     "for and nothing to buy in order to be ready for it.",
 )
