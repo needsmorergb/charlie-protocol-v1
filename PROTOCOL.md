@@ -33,16 +33,26 @@ token supply outright.
 
 **What the protocol enforces is the part everyone else asserts:**
 that the destination genuinely cannot be spent. A burn claim is permitted only
-where `SOL_BURN_UNSPENDABLE` passes — the destination is program-derived, or
-otherwise off the ed25519 curve, which is a property the runtime enforces and
-anyone can recompute. Where it does not pass, the claim is not permitted:
-unspendability by convention is not the same thing as unspendability the chain
-guarantees, and only the second survives being checked.
+where `SOL_BURN_UNSPENDABLE` passes, and three kinds of destination pass it:
 
-This binds us first. $CHARLIE's `burn111…111` is **on** the curve, its
-`SOL_BURN_UNSPENDABLE` fails, and no burn total is publishable for our own coin —
-published on the live site rather than excused. An OPS payment is never a burn
-under any circumstances: the wallet is spendable by design.
+- **Recognised burn addresses.** `burn111…111` is one. SOL sent there is out
+  of circulation and stays there, which is the standing every burn address on
+  every chain has always had, and it is why a burn to one is a burn.
+- **The incinerator**, `1nc1nerator111…111`, where the runtime removes
+  credited lamports from the total supply at the end of the block. Not merely
+  unspendable: destroyed. This is where the protocol sends its own.
+- **Program-derived vaults** off the ed25519 curve, a property the runtime
+  enforces and anyone can recompute.
+
+A destination that is none of those is an address somebody holds the key to,
+and calling that a burn is the claim this check refuses.
+
+**What this check is not** is a grade against a protocol a coin is not in.
+An earlier version demanded program derivation from everyone and printed a red
+FAIL on coins burning to a burn address for not using a program that does not
+exist yet. That was a category error, and it is retracted: the protocol is
+built on top of $CHARLIE, not run by it. An OPS payment is still never a burn
+under any circumstances — the wallet is spendable by design.
 
 ---
 
@@ -147,10 +157,14 @@ absence of a reading is not evidence of a burn.
 
 ### $CHARLIE
 
-$CHARLIE routes to `burn111...111`, a shared vanity address that predates this
-spec. Attribution across the coins sharing it is not possible, so it carries
-the weaker `<=` invariant and the protocol publishes no SOL burn total for it.
-New enrollments use the incinerator.
+$CHARLIE routes to `burn111...111`, a burn address shared with other coins,
+which predates this spec. It passes `SOL_BURN_UNSPENDABLE`: what reaches it is
+out of circulation and stays there. What it does not allow is attribution --
+several coins pay into it, so a balance cannot be divided between them -- and
+that is why it carries the weaker `<=` invariant rather than `==`. No SOL burn
+total is published for $CHARLIE today because its inflow walk has not run, and
+an absence of evidence is `UNCHECKED`, never a total. New enrollments use the
+incinerator, where the runtime destroys what is credited.
 
 ---
 

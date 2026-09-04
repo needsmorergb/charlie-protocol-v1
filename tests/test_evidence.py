@@ -432,6 +432,51 @@ class TestFalsification(unittest.TestCase):
         )
         return evidence
 
+    def test_a_completed_walk_that_found_nothing_states_no_total(self):
+        """A walk can finish having recorded nothing, and zero recorded is not
+        a measurement of zero.
+
+        The grandfathered destination compares with `<=`, under which a
+        recorded 0 passes vacuously against any balance at all. The figure
+        would then publish as "0 lamports" and read as "this coin burned
+        nothing", when what is true is that nothing was walked. The absence is
+        UNCHECKED, and the figure stays withheld.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.set_cursor(
+                SOL_BURN, "inflow", last_signature="sig-1",
+                oldest_signature="sig-1", backfill_complete=1,
+            )
+            split = sol_burn_split(SOL_BURN)
+            check = invariants.sol_burn_balance(
+                split=split, evidence=evidence, balances={SOL_BURN: 178_734_302_038}
+            )
+            evidence.close()
+        self.assertEqual(check.status, invariants.UNCHECKED)
+        self.assertIn("no inflows are recorded", check.detail)
+        self.assertNotIn("0 lamports", check.detail)
+
+    def test_one_recorded_inflow_is_enough_to_be_checked(self):
+        """The companion: the branch above must not swallow a real, small
+        measurement.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            evidence.record_inflow(
+                signature="sig-1", destination=SOL_BURN, mint=MINT, leg="sol_burn",
+                lamports=500, block_time=1, slot=1,
+            )
+            evidence.set_cursor(
+                SOL_BURN, "inflow", last_signature="sig-1",
+                oldest_signature="sig-1", backfill_complete=1,
+            )
+            check = invariants.sol_burn_balance(
+                split=sol_burn_split(SOL_BURN), evidence=evidence, balances={SOL_BURN: 500}
+            )
+            evidence.close()
+        self.assertEqual(check.status, invariants.PASS)
+
     def test_deleting_a_row_flips_pass_to_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = self._passing_state(tmp)

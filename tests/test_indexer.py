@@ -296,11 +296,50 @@ class TestInvariants(unittest.TestCase):
         self.assertEqual({c.name: c for c in record.checks}["CONFIG_MINT"].status, invariants.FAIL)
         self.assertEqual(record.verdict.publishable, frozenset())
 
-    def test_on_curve_sol_burn_destination_fails(self):
+    def test_the_legacy_burn_address_passes_because_it_is_a_burn_address(self):
+        """SOL sent to `burn111...111` does not come back, and that is the
+        whole question the check asks.
+
+        It used to demand program derivation instead, and printed a red FAIL
+        on a coin burning to a burn address for not using a protocol it was
+        never in. That was a category error, and this is the coin the error
+        was printed on.
+        """
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
+        checks = {c.name: c for c in record.checks}
+        self.assertEqual(checks["SOL_BURN_UNSPENDABLE"].status, invariants.PASS)
+
+        # The figure is still withheld, and by a different check: nothing has
+        # been walked, so no total is measured. Withheld for want of a
+        # measurement is not the same as withheld for a failed standard, and
+        # the page says which.
+        blocking = [name for name, _status, _detail
+                    in record.verdict.blocked[invariants.SOL_BURN_TOTAL]]
+        self.assertEqual(blocking, ["SOL_BURN_BALANCE"])
+
+    def test_the_incinerator_passes_too(self):
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(INCINERATOR, 10_000)])})
+        record = observe(rpc, CHARLIE, now=1.0)
+        self.assertEqual(
+            {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"].status, invariants.PASS
+        )
+
+    def test_a_spendable_destination_on_the_sol_burn_leg_still_fails(self):
+        """The check is now a coupling guard between `legs.classify` and the
+        burn standard, and this is the coupling it guards.
+
+        Nothing in production can reach it today: the only addresses
+        `classify` puts on the sol_burn leg are the incinerator, the
+        protocol's own off-curve PDA, and the grandfathered burn address, and
+        all three are recognised. It fails the moment a fourth is admitted,
+        which is exactly when somebody needs to hear about it.
+        """
+        registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=frozenset({WALLET}))
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(WALLET, 10_000)])})
+        record = observe(rpc, CHARLIE, registry, now=1.0)
         check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
         self.assertEqual(check.status, invariants.FAIL)
-        self.assertIn(BURN_VANITY, check.actual)
+        self.assertIn(WALLET, check.actual)
         self.assertNotIn(invariants.SOL_BURN_TOTAL, record.verdict.publishable)
 
     def test_off_curve_sol_burn_destination_passes(self):

@@ -88,6 +88,19 @@ By way of contrast, `1nc1nerator11111111111111111111111111111111` **is**
 program-derived. A burn address that meets the standard was always possible.
 Ours is not one.
 
+> **Retracted, 2026-09-04.** The entry above is left as written because this
+> is a log, and the reasoning in it was real. The conclusion was wrong. The
+> standard it applied -- program derivation, or the claim is refused --
+> graded every coin against a protocol none of them had joined, and printed a
+> red FAIL on a coin burning to a burn address for not using a program that
+> does not exist. A burn to `burn111...111` is a burn: SOL that reaches it is
+> out of circulation and does not come back, which is the standing every burn
+> address has always had, and it is the question `SOL_BURN_UNSPENDABLE` now
+> asks. It passes for $CHARLIE. The genuine weakness the entry found stands,
+> and is a different one: the address is shared, so inflows cannot be
+> attributed per coin, which is why it carries `<=` rather than `==`. See
+> PROTOCOL.md sec.1.
+
 **`UNCHECKED` blocks publication as hard as `FAIL`.** Four of the seven checks
 cannot be computed yet — inflows are not recorded per signature and burn events
 are not recorded at all. The tempting shortcut is to mark those green, or

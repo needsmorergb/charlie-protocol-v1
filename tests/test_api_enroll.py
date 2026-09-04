@@ -110,7 +110,7 @@ class TestNoSharingConfig(ApiCase):
             _status, body = self.get(mint=MINT, authority=WALLET)
         # Three-valued on purpose: absent is not off.
         self.assertIsNone(body["cashback"])
-        self.assertIn("graduated", body)
+        self.assertIs(body["graduated"], False)
 
 
 class TestFailuresAreNotFacts(ApiCase):
@@ -174,6 +174,40 @@ class TestCashbackNeverReachesAWallet(ApiCase):
             status, body = self.get(mint=MINT, authority=ADMIN)
         self.assertEqual(status, 200)
         self.assertTrue(body["cashback"])
+
+
+class TestGraduationIsReported(ApiCase):
+    """`graduated` was answered by the API and read by nothing for a week.
+
+    It decides whether a dev's creator fee accrues as lamports on the config
+    or as wrapped SOL in an AMM vault, which changes what a payout has to do
+    -- so the page says it, and these pin that the fact survives the wire.
+    """
+
+    def _inspect(self, graduated):
+        with mock.patch.object(api_enroll.pump, "read_bonding_curve",
+                               return_value=_Curve(graduated=graduated)), \
+             mock.patch.object(api_enroll.pump, "read_sharing_config",
+                               return_value=_Config()), \
+             mock.patch.object(api_enroll, "RpcClient"):
+            return self.get(mint=MINT, authority=ADMIN)
+
+    def test_a_graduated_curve_is_reported_as_graduated(self):
+        status, body = self._inspect(True)
+        self.assertEqual(status, 200)
+        self.assertIs(body["graduated"], True)
+
+    def test_a_live_curve_is_reported_as_not_graduated(self):
+        _status, body = self._inspect(False)
+        self.assertIs(body["graduated"], False)
+
+    def test_graduation_is_not_a_refusal(self):
+        """The split can still be set on a graduated coin. If this ever became
+        a 400 the page would stop offering the one thing it exists for.
+        """
+        status, body = self._inspect(True)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["owns"])
 
 
 class TestOrdinaryInspection(ApiCase):

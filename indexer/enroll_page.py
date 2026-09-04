@@ -81,8 +81,15 @@ async function inspect() {
       say('coinNote', 'This wallet does not administer that coin. Its config names ' + d.admin + '. Current split: ' + rows, 'bad');
       return;
     }
+    var cautions = [];
     if (d.cashback === null) {
-      say('coinNote', 'You administer this coin. One thing first: its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change. Current split: ' + rows, 'caution');
+      cautions.push('Its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change.');
+    }
+    if (d.graduated) {
+      cautions.push('It has graduated to the pump AMM, where the creator fee collects as wrapped SOL in a pool vault instead of as lamports on the config. Setting the split still works and still binds. Paying it out takes an extra pump instruction first, and a payout attempted without that instruction moves nothing at all.');
+    }
+    if (cautions.length) {
+      say('coinNote', 'You administer this coin. Before you spend the one change: ' + cautions.join(' ') + ' Current split: ' + rows, 'caution');
       $('splitBox').hidden = false;
       return;
     }

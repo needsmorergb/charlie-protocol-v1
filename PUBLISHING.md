@@ -38,6 +38,10 @@ Then check, before pushing:
 - `git log --all --pretty=format: --name-only | grep '^\.planning'` — empty
 - every markdown link resolves (the filter breaks links into `.planning/`)
 - `CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests` — all pass.
+- `python tools/shared_sync.py --against <deploy checkout>` — the deployed copy
+  of `indexer/`, `api/` and `vercel.json` is this code, byte for byte. Both
+  repositories run this in CI, and it is what caught production running a
+  `site.py` and an `invariants.py` this repository had never tested.
   The page's own script is JavaScript inside a Python string, so it is executed
   under `node` rather than merely rendered. Without that variable a missing
   `node` skips those tests and the suite still says OK, which is the false
@@ -106,6 +110,21 @@ python -m indexer intake --repo needsmorergb/charlie-protocol-site \
   --evidence state/evidence.db --out web --site-url https://charlieprotocol.fun
 # (or, with no open submissions to measure, just rebuild the index:)
 python -m indexer index --out web
+
+# 1b. The landing page. `intake` writes coins-N, verify, 404 and enroll; it
+#     does NOT write index.html, which comes only from this command. Skipping
+#     it is how a correction to the landing copy became source the deployed
+#     site never served.
+#
+#     --require-counters is not optional here. The landing counters are read
+#     from the chain, and an observation whose reads all failed renders a
+#     perfectly valid page with six counters saying "unknown". Without the
+#     flag that page writes, commits and deploys, and the front door goes
+#     blank on a bad RPC day. With it, the command exits 1 and the page
+#     already published stays up.
+python -m indexer site --write --landing --require-counters \
+  --evidence state/evidence.db --out web \
+  8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump
 
 # 2. Clone the deploy target fresh -- do not reuse a stale checkout.
 git clone https://github.com/needsmorergb/charlie-protocol-site.git /tmp/cp-site
