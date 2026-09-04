@@ -160,6 +160,36 @@ class TestTheDevIsToldTheTruth(unittest.TestCase):
         self.assertEqual(out["kind"], "note caution")
         self.assertNotIn("warn", out["kind"])
 
+    def test_a_graduated_coin_is_told_its_fees_sit_somewhere_else(self):
+        """The API had reported `graduated` for a week and no branch read it,
+        so the one dev it matters to was told nothing. A graduated coin's
+        creator fee accrues as wrapped SOL in an AMM vault, and a payout that
+        does not first move it pays out zero.
+        """
+        out = self.drive(_response(graduated=True))
+        self.assertIn("graduated to the pump AMM", out["note"])
+        self.assertIn("moves nothing at all", out["note"])
+        # It is a caution, not a refusal: the split can still be set, and
+        # setting it is still the right thing to do.
+        self.assertEqual(out["kind"], "note caution")
+        self.assertTrue(out["formShown"])
+
+    def test_an_ungraduated_coin_is_not_warned_about_the_amm(self):
+        out = self.drive(_response(graduated=False))
+        self.assertNotIn("AMM", out["note"])
+        self.assertEqual(out["kind"], "note good")
+
+    def test_both_cautions_are_said_once_each_rather_than_one_hiding_the_other(self):
+        """Two independent facts about the same coin. The branch that returned
+        early on the first would have silently dropped the second.
+        """
+        out = self.drive(_response(graduated=True, cashback=None))
+        self.assertIn("absent is not the same as off", out["note"])
+        self.assertIn("graduated to the pump AMM", out["note"])
+        self.assertEqual(out["note"].count("You administer this coin"), 1)
+        self.assertEqual(out["note"].count("Current split:"), 1)
+        self.assertTrue(out["formShown"])
+
     def test_a_spent_one_shot_says_which_thing_is_spent(self):
         out = self.drive(_response(admin_revoked=True))
         self.assertIn("one change", out["note"])

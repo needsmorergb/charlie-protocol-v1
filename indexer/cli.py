@@ -189,6 +189,22 @@ def _site(args) -> int:
     finally:
         evidence.close()
 
+    if args.landing and args.require_counters:
+        # Before anything is written. A landing page whose counters all read
+        # "unknown" renders without error and looks like a successful run, so
+        # the publishing job asks for the figures explicitly and stops rather
+        # than overwrite six live numbers with six absences.
+        missing = site.unknown_counters(record)
+        if missing:
+            print(
+                "refusing to write the landing page: no value for "
+                + ", ".join(missing)
+                + ". The chain reads behind these counters did not come back; "
+                "the page already published is better than this one.",
+                file=sys.stderr,
+            )
+            return 1
+
     if args.write:
         html_path, json_path = site.write(record, Path(args.out))
         print(f"wrote {html_path}")
@@ -607,6 +623,10 @@ def build_parser() -> argparse.ArgumentParser:
     site_cmd.add_argument(
         "--landing", action="store_true",
         help="also emit the landing page (QT-01/QT-02/QT-03) at index.html",
+    )
+    site_cmd.add_argument(
+        "--require-counters", action="store_true",
+        help="exit non-zero rather than emit a landing page whose counters read unknown",
     )
     site_cmd.set_defaults(handler=_site)
 

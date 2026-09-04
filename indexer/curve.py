@@ -39,8 +39,11 @@ def _xrecover(y: int) -> int | None:
 def is_on_curve(candidate) -> bool:
     """Does this 32-byte value decompress to an ed25519 point?
 
-    True  -> an ordinary account, not program-derived. The protocol may not
-             call it a burn.
+    True  -> an ordinary account, not program-derived. Somebody may hold the
+             key. Not a burn destination on its own -- though a recognised
+             burn address is one, on-curve or not, which is
+             `invariants.sol_burn_unspendable`'s question rather than this
+             function's.
     False -> a program-derived address. Only a program that can sign for the
              address may move its lamports -- and if no such program exists, or
              the program that owns it has no instruction that moves them, the
