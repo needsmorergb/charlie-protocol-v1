@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import ast
 import os
+import re
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -22,7 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer.export import EXPORT_TABLES  # noqa: E402
+from indexer import enroll_page, site  # noqa: E402
+from indexer.observe import Observation  # noqa: E402
 from tools import shared_sync  # noqa: E402
 
 # What the deploy repository starts from: `python -m indexer <cmd>` in its
@@ -30,12 +33,11 @@ from tools import shared_sync  # noqa: E402
 ENTRY_POINTS = ("indexer/__main__.py", "api/enroll.py", "api/verify.py")
 
 # Shared but not reachable by import: Vercel reads the routing table, and the
-# evidence export is the record the deployed CI loads its working store from.
-# Derived from `EXPORT_TABLES` rather than listed, so a new table added there
-# has to be copied too.
-NON_PYTHON = ("vercel.json",) + tuple(
-    f"state/evidence/{table}.jsonl" for table, _order in EXPORT_TABLES
-)
+# browser loads the assets. `meta-image.png` is why the assets are here -- it
+# is named by every page's `og:image` and had never existed in the deploy
+# repository at all, so every social preview of every page was a 404 and
+# nothing could have noticed.
+NON_PYTHON = ("vercel.json",)
 
 
 def _module_paths(source: str, origin: Path) -> set[str]:
@@ -73,6 +75,22 @@ def _module_paths(source: str, origin: Path) -> set[str]:
     return found
 
 
+def referenced_assets() -> set[str]:
+    """Every `/assets/...` any rendered surface names, as a shared path."""
+    blank = Observation(mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump", observed_at=1.0)
+    pages = [
+        site.render(blank),
+        site.render_landing(blank),
+        site.render_not_found(),
+        site.render_verify(),
+        enroll_page.render(now=1),
+    ]
+    found = set()
+    for page in pages:
+        found |= {f"web{ref}" for ref in re.findall(r"/assets/[A-Za-z0-9._-]+", page)}
+    return found
+
+
 def closure() -> set[str]:
     seen: set[str] = set()
     queue = list(ENTRY_POINTS)
@@ -90,8 +108,28 @@ def closure() -> set[str]:
 
 class TestTheListIsComplete(unittest.TestCase):
     def test_it_is_exactly_what_the_deploy_repository_runs(self):
-        expected = closure() | set(NON_PYTHON)
+        expected = closure() | set(NON_PYTHON) | referenced_assets()
         self.assertEqual(set(shared_sync.SHARED), expected)
+
+    def test_every_asset_a_page_loads_is_shared_and_present(self):
+        """Read off the rendered pages, not listed. `meta-image.png` is named
+        by every page's `og:image` and had never existed in the deploy
+        repository: a 404 on every social preview, invisible to a test that
+        looked in this repository's own web/ directory.
+        """
+        assets = referenced_assets()
+        self.assertIn("web/assets/meta-image.png", assets)
+        for path in assets:
+            with self.subTest(asset=path):
+                self.assertIn(path, shared_sync.SHARED)
+                self.assertTrue((ROOT / path).exists(), path)
+
+    def test_an_unreferenced_file_is_not_dragged_along(self):
+        """`pixel-fire.svg` is inlined into the stylesheet, so no page loads
+        it. Copying it would put a file in the deployed tree that nothing
+        asks for.
+        """
+        self.assertNotIn("web/assets/pixel-fire.svg", shared_sync.SHARED)
 
     def test_the_entry_points_are_themselves_shared(self):
         for path in ENTRY_POINTS:
@@ -134,7 +172,22 @@ class TestTheComparisonItself(unittest.TestCase):
             return None if path == "api/enroll.py" else shared_sync.ours(path)
 
         wrong = shared_sync.compare(fetch)
-        self.assertEqual(wrong, [("api/enroll.py", "missing from the deploy repository")])
+        self.assertEqual(wrong, [("api/enroll.py", "missing from the other repository")])
+
+    def test_a_file_missing_from_OUR_side_is_reported_rather_than_raised(self):
+        """In the deploy repository's CI, "ours" is the deploy checkout, and a
+        file this list has gained but that checkout has not is exactly the
+        drift being looked for. It used to come out as a FileNotFoundError
+        traceback with nothing else compared.
+        """
+        original = shared_sync.ROOT
+        try:
+            shared_sync.ROOT = Path(tempfile.mkdtemp())
+            wrong = shared_sync.compare(lambda _path: b"anything")
+        finally:
+            shared_sync.ROOT = original
+        self.assertEqual(len(wrong), len(shared_sync.SHARED))
+        self.assertTrue(all(why == "missing from this repository" for _p, why in wrong))
 
 
 SITE_REPO = os.environ.get("CHARLIE_SITE_REPO")

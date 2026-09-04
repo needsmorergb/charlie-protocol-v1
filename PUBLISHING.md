@@ -38,14 +38,16 @@ Then check, before pushing:
 - `git log --all --pretty=format: --name-only | grep '^\.planning'` — empty
 - every markdown link resolves (the filter breaks links into `.planning/`)
 - `CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests` — all pass.
-- `python tools/shared_sync.py --against <deploy checkout>` — the deployed copy
-  of `indexer/`, `api/` and `vercel.json` is this code, byte for byte. Both
-  repositories run this in CI, and it is what caught production running a
-  `site.py` and an `invariants.py` this repository had never tested.
   The page's own script is JavaScript inside a Python string, so it is executed
   under `node` rather than merely rendered. Without that variable a missing
   `node` skips those tests and the suite still says OK, which is the false
   confidence they exist to remove; with it, a missing `node` fails.
+- `python tools/shared_sync.py --against <deploy checkout>` — the deployed copy
+  of `indexer/`, `api/`, `vercel.json` and `web/assets/` is this code, byte for
+  byte. Both repositories run this in CI, and it is what caught production
+  running a `site.py` and an `invariants.py` this repository had never tested.
+  Not the evidence record: the deploy repository is where intake runs, so it
+  measures rows this one has never seen and writes its own export.
 
 Push to `needsmorergb/charlie-protocol-v1`, branch `main`.
 

@@ -46,10 +46,21 @@ def export_table(conn, table: str, order_by: str, path: Path) -> None:
 def import_table(conn, table: str, path: Path) -> int:
     """Load one exported table back, replacing what is there.
 
-    `INSERT OR REPLACE` rather than `INSERT`, so loading the same export twice
-    is the same as loading it once -- the CI job that does this runs on a
-    schedule and must not accumulate duplicate burn rows, which would inflate
-    every figure derived from them.
+    `INSERT OR IGNORE`, which is the store's own rule (`evidence.py`: every
+    write is `INSERT OR IGNORE` keyed on the row's natural identity, never
+    `INSERT OR REPLACE`). Loading the same export twice is therefore the same
+    as loading it once -- the CI job that does this runs on a schedule and
+    must not accumulate duplicate burn rows, which would inflate every figure
+    derived from them.
+
+    `OR REPLACE` would be idempotent too, and wrong. Every table here has a
+    real primary key, so a replace does not add rows; it overwrites the ones
+    already there with the exported version. The columns that would lose are
+    exactly the ones the store documents as the single mutable field on an
+    otherwise immutable row -- `submission.answered_at`, `submission.closed_at`,
+    `burn_event.supply_after`. Loading a stale export in the deploy repository
+    would blank `answered_at` and the next run would comment on and close an
+    already-answered issue.
 
     Column names come from the exported record, and every one is checked
     against the table's own schema before it reaches SQL. A record naming a
@@ -74,7 +85,7 @@ def import_table(conn, table: str, path: Path) -> int:
                 f"{path}: record names {unknown}, which {table} does not have"
             )
         conn.execute(
-            f"INSERT OR REPLACE INTO {table} VALUES ({placeholders})",
+            f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})",
             [record.get(name) for name in known],
         )
         loaded += 1

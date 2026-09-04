@@ -317,12 +317,52 @@ class TestInvariants(unittest.TestCase):
                     in record.verdict.blocked[invariants.SOL_BURN_TOTAL]]
         self.assertEqual(blocking, ["SOL_BURN_BALANCE"])
 
-    def test_the_incinerator_passes_too(self):
+    def test_the_incinerator_passes_by_being_off_the_curve(self):
+        """It passes, and the named set is not what passes it -- the
+        incinerator is program-derived, so the keyless clause has already
+        taken it. Worth stating because the docstring used to count it as one
+        of the ways to satisfy the check, and a reader would look for a test
+        proving the named set carries it. Nothing does; nothing can.
+        """
+        from indexer.curve import is_on_curve
+
+        self.assertFalse(is_on_curve(INCINERATOR))
         rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(INCINERATOR, 10_000)])})
         record = observe(rpc, CHARLIE, now=1.0)
         self.assertEqual(
             {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"].status, invariants.PASS
         )
+
+    def test_the_check_no_longer_demands_program_derivation(self):
+        """The sentence a visitor reads. The retracted version told the owner
+        of a coin burning to a burn address that their destination "is not
+        program-derived" and that "the protocol does not accept convention in
+        place of the enforced property".
+        """
+        record = observe(charlie_rpc(), CHARLIE, now=1.0)
+        check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
+        for retracted in ("program-derived", "convention", "vanity"):
+            with self.subTest(phrase=retracted):
+                self.assertNotIn(retracted, check.detail)
+                self.assertNotIn(retracted, check.equation)
+
+    def test_a_caller_cannot_grandfather_a_wallet_into_passing(self):
+        """The check reads the protocol's own recognised set, not the registry
+        the observation was taken under, and that is deliberate: `classify`
+        decides which leg an address is on, this decides whether what landed
+        there is a burn destination. If this ever started reading the caller's
+        registry the answer would become whatever the caller was willing to
+        call a burn, and the FAIL branch would be unreachable.
+        """
+        registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=frozenset({WALLET}))
+        split = split_of(
+            type("Cfg", (), {"mint": CHARLIE, "shareholders": ((WALLET, 10_000),)})(),
+            registry,
+        )
+        # The caller's registry did put it on the SOL burn leg ...
+        self.assertEqual([a.leg for a in split.attributions], ["sol_burn"])
+        # ... and the check refuses it anyway.
+        self.assertEqual(invariants.sol_burn_unspendable(split).status, invariants.FAIL)
 
     def test_a_spendable_destination_on_the_sol_burn_leg_still_fails(self):
         """The check is now a coupling guard between `legs.classify` and the

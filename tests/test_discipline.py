@@ -92,19 +92,18 @@ class TestSqlIdentifierAllowlist(unittest.TestCase):
         # Pass 0: names whose EVERY binding in the package is a join of "?"
         # literals. `f"... VALUES ({placeholders})"` interpolates no
         # identifier: the expression can produce nothing but `?` and the
-        # separator, whatever it was counting. A name bound to a placeholder
-        # run somewhere and to anything else anywhere is not safe, so the
-        # bindings are collected across every module before deciding.
-        bindings: dict[str, list] = {}
-        for tree in trees.values():
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            bindings.setdefault(target.id, []).append(node.value)
-                elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-                    if isinstance(node.target, ast.Name) and node.value is not None:
-                        bindings.setdefault(node.target.id, []).append(node.value)
+        # separator, whatever it was counting.
+        #
+        # EVERY binding, in every form the language has, is the whole of it. A
+        # first version of this collected only `x = ...` assignments, which
+        # meant any module could bind the same name as a loop variable, a
+        # `with ... as`, a tuple unpacking or a function parameter and
+        # interpolate it straight into SQL with this check saying nothing. All
+        # four were demonstrated against it. So `_bindings` walks every
+        # binding form, and a name bound anywhere by a form that cannot be a
+        # placeholder run -- which is all of them except a plain assignment --
+        # is not safe, package-wide.
+        bindings = _bindings(trees.values())
         for name, values in bindings.items():
             if values and all(_is_placeholder_run(value) for value in values):
                 safe.add(name)
@@ -200,6 +199,64 @@ class TestSqlIdentifierAllowlist(unittest.TestCase):
         self.assertEqual(offenders, [], "; ".join(offenders))
 
 
+# A binding this analysis cannot see the value of. Any name bound by one of
+# these is disqualified outright rather than guessed at.
+_OPAQUE = object()
+
+
+def _bindings(trees) -> dict:
+    """Every name bound anywhere, mapped to the expressions bound to it.
+
+    A plain `x = <expr>` records `<expr>`, which the caller can inspect.
+    Every other binding form -- for-targets, `with ... as`, comprehension
+    targets, walrus, tuple unpacking, function parameters, imports -- records
+    `_OPAQUE`, which no test accepts. The point is not to understand those
+    forms; it is that a name touched by one of them can never be proven to
+    hold only placeholders.
+    """
+    found: dict = {}
+
+    def record(target, value):
+        if isinstance(target, ast.Name):
+            found.setdefault(target.id, []).append(value)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                record(element, _OPAQUE)
+        elif isinstance(target, ast.Starred):
+            record(target.value, _OPAQUE)
+
+    for tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                single = len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                for target in node.targets:
+                    record(target, node.value if single else _OPAQUE)
+            elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                record(node.target, node.value if node.value is not None else _OPAQUE)
+            elif isinstance(node, ast.NamedExpr):
+                record(node.target, _OPAQUE)
+            elif isinstance(node, (ast.For, ast.AsyncFor)):
+                record(node.target, _OPAQUE)
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    if item.optional_vars is not None:
+                        record(item.optional_vars, _OPAQUE)
+            elif isinstance(node, (ast.comprehension,)):
+                record(node.target, _OPAQUE)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = node.args
+                for arg in (list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)
+                            + [a for a in (args.vararg, args.kwarg) if a is not None]):
+                    found.setdefault(arg.arg, []).append(_OPAQUE)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    bound = alias.asname or alias.name.split(".")[0]
+                    found.setdefault(bound, []).append(_OPAQUE)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                found.setdefault(node.name, []).append(_OPAQUE)
+    return found
+
+
 def _is_placeholder_run(node) -> bool:
     """`",".join("?" for _ in xs)` and nothing else.
 
@@ -209,7 +266,7 @@ def _is_placeholder_run(node) -> bool:
     could evaluate to a name -- a variable, a call, an f-string -- is not
     this pattern and is not accepted.
     """
-    if not isinstance(node, ast.Call):
+    if node is _OPAQUE or not isinstance(node, ast.Call):
         return False
     func = node.func
     if not (isinstance(func, ast.Attribute) and func.attr == "join"):
