@@ -35,7 +35,10 @@ trade" is either describing a share of the fee in loose language, or describing
 something their own bot does with its trading, not something pump enforces.
 The protocol states its cut in the unit pump actually uses, and says so.
 
-`TOLL_BPS` below is written as 500 pending that decision.
+**Decided: `TOLL_BPS` is 1000**, ten percent of the creator fee. At 500 a coin
+trading $1M/day sends about $25/day to the burn; at 50 a floor-sized
+distribution yields less toll than the gas required to move it. See `BUILD.md`
+section 3 for the arithmetic and the counterweight.
 
 ---
 
@@ -203,12 +206,23 @@ exactly what makes it safe and also what makes it final. A dev's ops share is
 in that vault too. Anyone enrolling before deployment is trusting that the
 program ships, and the page must say so in those words.
 
-Two honest options:
+Both halves of that turned out to be wrong, and measurement is what corrected
+them.
 
-**Deploy first.** Write the program, revoke upgrade authority, create and
-fund the collectors, then enrol. Enrolling into an address that does not yet
-exist is not a trade-off any more, it is a configuration that cannot pay
-anyone.
+An unfunded collector is NOT an ineligible recipient. Four recipient shapes
+were simulated and scored on lamports moved: an ordinary wallet, a
+non-executable PDA owned by pump, one owned by the fee-share program, and a
+PDA that does not exist at all. All four were paid 49,189,376 lamports, and
+the only refusal in the set was an executable account, at `6052`. So fees do
+accrue at a collector that nothing has created yet.
+
+And deploying frozen first is the wrong order anyway. The graduated-coin path
+in `BUILD.md` section 8 was invisible until it was measured, and freezing
+before it was found would have shipped a permanent bug on the highest-volume
+coins. The order is: deploy upgradeable, run the whole pipeline in production
+against a live coin including a graduated one, then revoke and publish a
+reproducible build. Early enrollers are enrolling into an upgradeable program
+and the page says so.
 
 ---
 
@@ -235,7 +249,7 @@ Simpler, not harder.
 
 ## 9. Open questions this design does not settle
 
-1. **`TOLL_BPS`.** 50, 500 or 1000 (section 1).
+1. ~~`TOLL_BPS`.~~ **Decided: 1000.** Section 1, and `BUILD.md` section 3.
 2. ~~Is pump's split update really one-shot?~~ **Settled, on chain.** The
    fee-share program's own IDL carries both instructions,
    `update_fee_shares` (`bd0d8863bba4ed23`) and `update_fee_shares_v2`
@@ -248,9 +262,25 @@ Simpler, not harder.
    their frozen split and their existing classification, and the protocol keeps
    two classes of coin permanently. Better to know that before onboarding
    anyone into the shape we intend to replace.
-4. **`get_minimum_distributable_fee`.** pump enforces a floor before creator
-   fees can be distributed at all. `distribute` must respect it, and the site
-   must not describe a coin under the floor as failing.
-5. ~~Does 6070 fire on the incinerator?~~ **Settled by simulation. It does
-   not.** Section 6. The SOL burn leg works as configured today, and the
-   floor of 1781760 lamports is the real constraint on it.
+4. ~~`get_minimum_distributable_fee`.~~ **Settled, and it is not a floor.** It
+   is a RETAINED RESERVE: `distributable = balance - minimum_required`, and
+   pump pays out everything above it. The value was 810624 on 2026-09-03 and
+   two other numbers earlier the same day, because it tracks the rent-exempt
+   minimum. Read it per coin, never hardcode it, and never gate on
+   `can_distribute`, which answered True beside `distributable_fees = 0`.
+5. ~~Does 6070 fire on the incinerator?~~ **Settled. It fires on nothing.**
+   The one refusal pump has is `6052`, for an executable recipient. Section 6.
+6. ~~Can a dev escape the toll?~~ **Settled: no.** `reset_fee_sharing_config`
+   refuses the config's own admin with `6016`, charged to pump's `global`
+   account, and answers only to pump's `admin_set_creator_authority`;
+   `transfer_` and `revoke_fee_sharing_authority` are dead at `6023` for
+   everyone. Even a successful reset pays the accrued fees to the outgoing
+   split. `BUILD.md` sections 1 and 11.
+7. ~~Does an enrolled coin keep paying after it graduates?~~ **Only if the
+   crank changes.** `Pool.coin_creator` is the sharing config on 343 of 343
+   graduated coins, so the routing survives, but the money is wSOL in an AMM
+   account that `distribute_creator_fees` cannot see: six coins paid zero
+   alone and their full balances after `transfer_creator_fees_to_pump`.
+   `BUILD.md` section 8.
+8. **Cashback coins pay nothing on every leg** and are refused at enrolment.
+   `BUILD.md` section 6.
