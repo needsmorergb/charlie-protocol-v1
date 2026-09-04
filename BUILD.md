@@ -104,12 +104,51 @@ The program exists for three things:
 TOLL_BPS = 1000                 10% of the creator fee
 ```
 
-Ten percent of a fee that is 0.05% to 0.95% of trade volume, tiered inversely
-to market cap, so a coin doing real volume sits near the low end. A coin trading
-$1M/day sends about $50/day to the $CHARLIE burn; $20M/day of enrolled volume
-burns about $1,000/day. At 500 bps those halve, and at 50 bps a floor-sized
-distribution yields less toll than the gas needed to move it. The dev keeps 90%
-and decides how all of it splits.
+Ten percent of the creator fee, which is not one number. Both schedules were
+read from pump's own `FeeConfig` accounts on 2026-09-04, and they are shaped
+very differently:
+
+**On the bonding curve** — `8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt`, a
+single tier at every market cap:
+
+```
+creator 30 bps        0.30% of volume        toll 0.030% of volume
+```
+
+**After graduation** — `5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx`, 25
+tiers, and the creator fee FALLS as market cap rises:
+
+| market cap | creator fee | toll, as a share of volume |
+|---|---|---|
+| >= 420 SOL | 95 bps | 0.095% |
+| >= 4,420 SOL | 75 bps | 0.075% |
+| >= 19,650 SOL | 60 bps | 0.060% |
+| >= 49,120 SOL | 30 bps | 0.030% |
+| >= 68,770 SOL | 20 bps | 0.020% |
+| >= 88,400 SOL | 10 bps | 0.010% |
+| >= 98,240 SOL | 5 bps | 0.005% |
+
+The famous 0.05% floor is real but it is the LARGE-cap rate, and a coin only
+reaches it above roughly 98,240 SOL of market cap. Everything below that pays
+more, and small caps pay the most.
+
+At $1,000,000 of daily volume:
+
+| where the coin is | creator fee/day | toll/day |
+|---|---|---|
+| on the curve, any size | $3,000 | **$300** |
+| graduated, ~420 to 1,470 SOL mcap | $9,500 | $950 |
+| graduated, ~49,120 SOL mcap | $3,000 | $300 |
+| graduated, above 98,240 SOL mcap | $500 | $50 |
+
+At 500 bps every figure halves. At 50 bps a floor-sized distribution yields
+less toll than the gas needed to move it, which is a property of the lot size
+rather than the tier and does not improve at any market cap.
+
+**The schedule is pump's to change.** Both `FeeConfig` accounts name
+`FFWtrEQ4B4PKQoVuHYzZq8FabGkVatYzDpEVHsK5rrhF` as admin, which is pump's own
+Global authority. Every figure above is today's, not a guarantee, and
+`tools/fee_tiers.py` re-reads them in one account fetch.
 
 **`TOLL_BPS` is also written into `charlie_pool` at initialisation, and
 `distribute` asserts the constant and the stored value agree.** A constant
