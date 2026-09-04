@@ -1,0 +1,141 @@
+"""The enrol page's own script, executed, against the API's own response shapes.
+
+The defect this guards shipped through a full green suite: the API answered a
+coin with no fee-sharing config with `admin: null` and a `reason` the page had
+no branch for, so the browser fell through and told a dev "This wallet does
+not administer that coin. Its config names null." Nothing in Python could see
+it, because the bug was in a JavaScript branch inside a Python string.
+
+So this runs the string. `node` is not a dependency of this project and the
+suite still passes without it -- the test skips -- but where it exists, the
+page's real branching is driven and read back.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from indexer import enroll_page  # noqa: E402
+
+NODE = shutil.which("node")
+
+# Loads the page script under vm with the smallest DOM it touches, runs
+# inspect() against one canned response, and prints what the dev would read.
+HARNESS = r"""
+const fs = require('fs'), vm = require('vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const response = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const els = {};
+const el = (id) => (els[id] = els[id] || {value: '', textContent: '', className: '', hidden: false, style: {}});
+el('mint').value = 'JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump';
+const sandbox = {
+  document: {getElementById: el, addEventListener: () => {}, querySelectorAll: () => [],
+             createElement: () => ({style: {}, classList: {add: () => {}}, appendChild: () => {}})},
+  window: {}, console, setTimeout, encodeURIComponent,
+  fetch: async () => ({json: async () => response}),
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+sandbox.state.wallet = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+sandbox.inspect().then(() => {
+  process.stdout.write(JSON.stringify({
+    note: el('coinNote').textContent,
+    kind: el('coinNote').className,
+    formShown: el('splitBox').hidden === false,
+  }));
+});
+"""
+
+
+def _response(**overrides) -> dict:
+    """The shape `api/enroll.py` returns from its inspection path."""
+    body = {
+        "mint": "JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump",
+        "config": "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj",
+        "admin": "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj",
+        "admin_revoked": False,
+        "owns": True,
+        "current": [{"address": "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj", "bps": 10000}],
+        "reason": None,
+        "cashback": False,
+        "graduated": False,
+    }
+    body.update(overrides)
+    return body
+
+
+@unittest.skipUnless(NODE, "node is not installed; the page script cannot be executed here")
+class TestTheDevIsToldTheTruth(unittest.TestCase):
+    def drive(self, response: dict) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "page.js").write_text(enroll_page._SCRIPT, encoding="utf-8")
+            (root / "harness.js").write_text(HARNESS, encoding="utf-8")
+            (root / "response.json").write_text(json.dumps(response), encoding="utf-8")
+            done = subprocess.run(
+                [NODE, str(root / "harness.js"), str(root / "page.js"), str(root / "response.json")],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return json.loads(done.stdout)
+
+    def test_the_page_script_parses_at_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "page.js"
+            path.write_text(enroll_page._SCRIPT, encoding="utf-8")
+            done = subprocess.run([NODE, "--check", str(path)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_coin_with_no_config_is_never_told_it_is_not_theirs(self):
+        out = self.drive(_response(config=None, admin=None, admin_revoked=None,
+                                   owns=False, current=[], reason="no_sharing_config"))
+        self.assertNotIn("null", out["note"])
+        self.assertNotIn("does not administer", out["note"])
+        self.assertIn("no pump fee-sharing config", out["note"])
+        self.assertFalse(out["formShown"])
+
+    def test_a_cashback_coin_is_stopped_with_its_reason(self):
+        out = self.drive(_response(cashback=True))
+        self.assertIn("Trader Cashback", out["note"])
+        self.assertFalse(out["formShown"])
+
+    def test_an_unreadable_cashback_flag_warns_but_lets_them_through(self):
+        out = self.drive(_response(cashback=None))
+        self.assertIn("absent is not the same as off", out["note"])
+        self.assertIn("warn", out["kind"])
+        self.assertTrue(out["formShown"])
+
+    def test_a_spent_one_shot_says_which_thing_is_spent(self):
+        out = self.drive(_response(admin_revoked=True))
+        self.assertIn("one change", out["note"])
+        self.assertFalse(out["formShown"])
+
+    def test_a_real_stranger_is_still_told_whose_coin_it_is(self):
+        # The fix must not swallow the case the message was written for.
+        other = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+        out = self.drive(_response(owns=False, admin=other))
+        self.assertIn("does not administer", out["note"])
+        self.assertIn(other, out["note"])
+        self.assertFalse(out["formShown"])
+
+    def test_an_ordinary_owned_coin_opens_the_form(self):
+        out = self.drive(_response())
+        self.assertIn("You administer this coin", out["note"])
+        self.assertTrue(out["formShown"])
+
+    def test_a_server_error_is_shown_as_one(self):
+        out = self.drive({"error": "Could not read the chain just now. Try again in a moment."})
+        self.assertIn("Could not read the chain", out["note"])
+        self.assertFalse(out["formShown"])
+
+
+if __name__ == "__main__":
+    unittest.main()
