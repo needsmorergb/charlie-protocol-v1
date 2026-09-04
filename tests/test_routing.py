@@ -246,10 +246,6 @@ class TestNoRuleStealsAnotherRulesPath(unittest.TestCase):
         self.assertNotIn(".planning", raw)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPastedCaRouting(unittest.TestCase):
     """The paste box submits GET /verify?mint=<CA>. Without JavaScript that
     is the only way a form can reach a path, so the has-guarded rewrite is
@@ -278,3 +274,7 @@ class TestPastedCaRouting(unittest.TestCase):
     def test_an_empty_paste_falls_through_to_the_page(self):
         rule = _first_match(self.rewrites, "/verify", {"mint": ""})
         self.assertEqual(rule["destination"], "/" + site.VERIFY_FILENAME)
+
+
+if __name__ == "__main__":
+    unittest.main()

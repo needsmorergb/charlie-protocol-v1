@@ -796,10 +796,6 @@ class TestCOV01ObservationPathHasNoGate(unittest.TestCase):
         self.assertEqual(params, {"rpc", "mint", "registry", "now", "evidence", "config"})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestBurnScanIsWiredIntoIntake(unittest.TestCase):
     """D-37. The scan that finds what a coin actually DOES.
 
@@ -892,3 +888,7 @@ class TestBurnScanIsWiredIntoIntake(unittest.TestCase):
         finally:
             intake.scan_burns = original
         self.assertEqual(calls, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

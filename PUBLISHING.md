@@ -37,7 +37,11 @@ Then check, before pushing:
 - `git log --all --format='%ae' | sort -u` — one address, the noreply one
 - `git log --all --pretty=format: --name-only | grep '^\.planning'` — empty
 - every markdown link resolves (the filter breaks links into `.planning/`)
-- `python -m unittest discover -s tests -t tests` — all pass
+- `CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests` — all pass.
+  The page's own script is JavaScript inside a Python string, so it is executed
+  under `node` rather than merely rendered. Without that variable a missing
+  `node` skips those tests and the suite still says OK, which is the false
+  confidence they exist to remove; with it, a missing `node` fails.
 
 Push to `needsmorergb/charlie-protocol-v1`, branch `main`.
 
