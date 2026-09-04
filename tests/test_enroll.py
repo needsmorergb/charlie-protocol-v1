@@ -204,3 +204,43 @@ class TestMessage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Curve:
+    """Only the field the refusal turns on. `cashback` is three-valued in
+    `pump.BondingCurve` and the tests below cover all three, because absent
+    is not off."""
+
+    def __init__(self, cashback=False):
+        self.mint = MINT
+        self.graduated = False
+        self.cashback = cashback
+
+
+class TestCashbackIsRefused(unittest.TestCase):
+    """pump's Trader Cashback routes the WHOLE creator fee to traders, so a
+    cashback coin's every leg is zero: not just the protocol's share but the
+    SOL burn, the dev's own buy-and-burn and their ops wallet.
+
+    Enrolling one is worse than pointless. pump allows a split to be updated
+    exactly once, so it spends that single permanent change on a split which
+    can never pay out, and leaves the coin `admin_revoked` with no recourse.
+    """
+
+    def test_a_cashback_coin_is_refused_before_a_wallet_opens(self):
+        with self.assertRaises(enroll.EnrollError) as caught:
+            enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve(cashback=True))
+        self.assertIn("Trader Cashback", str(caught.exception))
+
+    def test_a_coin_without_cashback_proceeds(self):
+        enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve(cashback=False))
+
+    def test_an_unreadable_flag_is_not_read_as_off_or_as_on(self):
+        # None means the bonding curve predates the field. Refusing here would
+        # assert cashback from an absent byte, which is the inverse of the
+        # mistake the site's copy already refuses to make; the page warns and
+        # lets the dev, who knows whether fees have ever arrived, decide.
+        enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve(cashback=None))
+
+    def test_the_curve_is_optional_so_older_callers_still_work(self):
+        enroll.preflight(_Config(), ADMIN, _split())

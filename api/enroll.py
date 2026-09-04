@@ -85,7 +85,24 @@ class handler(BaseHTTPRequestHandler):
             curve = pump.read_bonding_curve(rpc, mint)
             try:
                 config = pump.read_sharing_config(rpc, curve)
-            except Exception:
+            except DecodeError as exc:
+                # "This coin has no fee split" and "we could not read this
+                # coin's fee split" are different facts, and only one of them
+                # is about the coin. A bare `except Exception` here reported
+                # every transport failure as the first, and the page turned
+                # that into advice -- the same mistake the verify page made,
+                # which the rest of this module exists to avoid.
+                #
+                # The marker is what read_sharing_config raises when the
+                # creator is an ordinary address, which is the ~95% case for
+                # a fresh launch. Anything else is not an answer.
+                if pump.NO_FEE_SPLIT_MARKER not in str(exc):
+                    return self._fail(
+                        "This coin has a fee-sharing config whose bytes did "
+                        "not decode. That is a fact about the account, not "
+                        "about your wallet, and nothing here can act on it.",
+                        status=502,
+                    )
                 config = None
 
             if not one("shares"):
@@ -100,10 +117,17 @@ class handler(BaseHTTPRequestHandler):
                     "owns": enroll.owns(config, authority),
                     "current": [{"address": a, "bps": b} for a, b in (config.shareholders if config else ())],
                     "reason": None if config else "no_sharing_config",
+                    # Read from the bonding curve, and three-valued on
+                    # purpose: absent is not off. A cashback coin routes its
+                    # whole creator fee to traders, so every leg of every
+                    # split is zero and enrolling spends the coin's one
+                    # permanent change for nothing.
+                    "cashback": curve.cashback,
+                    "graduated": bool(curve.graduated),
                 })
 
             shares = _shares(one("shares"))
-            enroll.preflight(config, authority, shares)
+            enroll.preflight(config, authority, shares, curve=curve)
 
             blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])
             blockhash = blockhash["value"]["blockhash"]
