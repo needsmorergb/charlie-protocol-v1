@@ -38,10 +38,11 @@ trade" is either describing a share of the fee in loose language, or describing
 something their own bot does with its trading, not something pump enforces.
 The protocol states its cut in the unit pump actually uses, and says so.
 
-**Decided: `TOLL_BPS` is 1000**, ten percent of the creator fee. At 500 a coin
-trading $1M/day sends about $25/day to the burn; at 50 a floor-sized
-distribution yields less toll than the gas required to move it. See `BUILD.md`
-section 3 for the arithmetic and the counterweight.
+**Decided: `TOLL_BPS` is 500**, five percent of the creator fee. The earlier
+1000 rested on believing a high-volume coin pays 5 bps; the schedule read from
+the chain says that rate tracks market cap, not volume, so the typical coin
+pays 30 to 95 bps and the base is several times larger than assumed. See
+`BUILD.md` section 3.
 
 ---
 
@@ -252,7 +253,7 @@ Simpler, not harder.
 
 ## 9. Open questions this design does not settle
 
-1. ~~`TOLL_BPS`.~~ **Decided: 1000.** Section 1, and `BUILD.md` section 3.
+1. ~~`TOLL_BPS`.~~ **Decided: 500.** Section 1, and `BUILD.md` section 3.
 2. ~~Is pump's split update really one-shot?~~ **Settled, on chain.** The
    fee-share program's own IDL carries both instructions,
    `update_fee_shares` (`bd0d8863bba4ed23`) and `update_fee_shares_v2`
