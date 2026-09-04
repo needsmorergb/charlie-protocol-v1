@@ -2659,11 +2659,15 @@ _LANDING_SOON = (
     "the program rather than chosen by whoever deploys it. The coin then gets "
     "a page like this one, on which no figure renders unless a passing check "
     "backs it.",
-    "None of that is built yet. What produced every number above exists: the "
-    "checks, the verifier, and the committed record they read from. The "
-    "on-chain program that does the enrolling does not, so no coin can enroll "
-    "today. That includes $CHARLIE, which revoked its own admin and can no "
-    "longer be reconfigured by anyone but pump.",
+    "Part of that is built and part is not. A coin CAN set where its creator "
+    "fee goes today, through pump's own fee-sharing program rather than "
+    "through any program of ours: /enroll builds that transaction, simulates "
+    "it against mainnet first, and your wallet signs it. What does not exist "
+    "yet is our program, so the vaults it would derive, the buy-and-burn "
+    "crank and the protocol's own share do not exist either.",
+    "$CHARLIE itself cannot enrol. Its config reads admin_revoked, which is "
+    "how pump records that a coin has spent the one change it is permitted to "
+    "those destinations, and only pump can reset it.",
     "It will land in the repository linked below. There is nothing to sign up "
     "for and nothing to buy in order to be ready for it.",
 )

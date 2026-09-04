@@ -38,10 +38,16 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 # sha256("global:update_fee_shares_v2")[:8], as published in the program's IDL.
 UPDATE_FEE_SHARES_V2 = bytes.fromhex("6ffb31064e4e6a12")
 
-# pump caps a config at this many shareholders; `pump.MAX_SHAREHOLDERS` is the
-# same bound applied when READING one. Rejecting here means a dev is told the
-# split is too long before a wallet ever opens, rather than by a failed
-# transaction they paid for.
+# What pump's real cap is, nobody outside pump can say: `6011
+# TooManyShareholders` carries the message "format", so the number is
+# interpolated at runtime and the IDL never states it. pump's own UI and SDK
+# say 10.
+#
+# This is OUR bound, deliberately below that, so a dev is told before a wallet
+# opens rather than by a failed transaction they paid for. It is NOT the bound
+# `pump.MAX_SHAREHOLDERS` applies when reading a config, which is 64 and exists
+# to stop a malformed account claiming an absurd length. An earlier comment
+# here claimed the two were the same. They never were.
 MAX_SHAREHOLDERS = 8
 TOTAL_BPS = 10_000
 
@@ -265,15 +271,28 @@ def owns(config, authority: str) -> bool:
     return bool(config) and getattr(config, "admin", None) == authority
 
 
-def preflight(config, authority: str, shares) -> None:
+def preflight(config, authority: str, shares, *, curve=None) -> None:
     """Everything that makes a split un-sendable, checked before a wallet
     opens and phrased for the dev rather than for us.
 
     `FeeSharesAlreadyUpdated` is the one that matters most: **pump allows the
     split to be changed exactly once.** A dev who spends it by accident cannot
     undo it, so this is stated before they sign rather than discovered from a
-    failed transaction.
+    failed transaction. `admin_revoked` is how that spend shows up: pump's
+    `revoke_fee_sharing_authority` answers `6023 DeprecatedInstruction` for
+    every caller, so the flag can no longer arrive any other way.
+
+    `curve` is optional only so the older callers and tests keep working.
+    Pass it: it carries the one refusal that cannot be recovered from.
     """
+    if curve is not None and getattr(curve, "cashback", None) is True:
+        raise EnrollError(
+            "This coin has pump's Trader Cashback on, chosen at launch and "
+            "locked on chain, which routes its whole creator fee to traders. "
+            "Every share of any split would be zero, and enrolling would "
+            "spend this coin's one permanent change on a split that can "
+            "never pay out."
+        )
     if config is None:
         raise EnrollError(
             "This coin has no pump fee-sharing config, so there is no split to "

@@ -65,12 +65,25 @@ async function inspect() {
     var d = await r.json();
     if (d.error) { say('coinNote', d.error, 'bad'); return; }
     var rows = (d.current || []).map(function (c) { return (c.bps / 100) + '% ' + c.address; }).join('   ');
+    if (d.cashback === true) {
+      say('coinNote', 'This coin has pump Trader Cashback on, chosen at launch and locked on chain. Its whole creator fee goes to traders, so every share of any split would be zero. Enrolling would spend this coin one permanent change for nothing.', 'bad');
+      return;
+    }
+    if (d.reason === 'no_sharing_config') {
+      say('coinNote', 'This coin has no pump fee-sharing config yet, which is normal for a new launch. There is nothing to update until one exists, and this page cannot create one for you yet. Set fee sharing up on pump first, then come back.', 'bad');
+      return;
+    }
     if (d.admin_revoked) {
-      say('coinNote', 'This split is permanent (admin_revoked). Nobody can change it, including pump-side tools. Current: ' + rows, 'bad');
+      say('coinNote', 'This coin has already used its one change, so the split is permanent. pump allows exactly one update and nothing can alter it now, including us. Current: ' + rows, 'bad');
       return;
     }
     if (!d.owns) {
       say('coinNote', 'This wallet does not administer that coin. Its config names ' + d.admin + '. Current split: ' + rows, 'bad');
+      return;
+    }
+    if (d.cashback === null) {
+      say('coinNote', 'You administer this coin. One thing first: its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change. Current split: ' + rows, 'warn');
+      $('splitBox').hidden = false;
       return;
     }
     say('coinNote', 'You administer this coin. Current split: ' + rows, 'good');
@@ -211,6 +224,7 @@ button.primary:hover, button.primary:focus-visible {
 .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note.bad { color: var(--destructive); }
 .note.good { color: var(--pass-glyph); }
+.note.warn { color: var(--unchecked); }
 pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
 .warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
   padding: var(--sp-md); margin: var(--sp-md) 0; }
