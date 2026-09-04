@@ -117,6 +117,15 @@ Offline, no network. Every account fed to a decoder is built byte by byte, so a
 layout change in pump's program surfaces as a failing decode rather than as a
 wrong number in a published post.
 
+The enrolment page's own script is JavaScript living inside a Python string, so
+it is executed under `node` rather than merely rendered. `node` is not a
+dependency: without it those tests skip and the rest still run. Before
+publishing, require it, so a skip cannot pass for a pass:
+
+```bash
+CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests
+```
+
 ## Relationship to the other repos
 
 This repository is the whole of the public project. There is one implementation

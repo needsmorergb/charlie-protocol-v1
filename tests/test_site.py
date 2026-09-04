@@ -706,10 +706,6 @@ class TestWrite(unittest.TestCase):
             self.assertTrue(html_path.is_file())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestWalkStateAndNonBoost(unittest.TestCase):
     """Two claims that were template constants and became false against live
     evidence the first time the burn walk ran to completion. Both are now
@@ -1946,3 +1942,7 @@ class TestDeflationCounterfactual(unittest.TestCase):
         for name in invariants.FIGURES:
             with self.subTest(figure=name):
                 self.assertNotIn(name, h)
+
+
+if __name__ == "__main__":
+    unittest.main()

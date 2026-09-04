@@ -79,6 +79,35 @@ def _response(**overrides) -> dict:
     return body
 
 
+class TestTheCautionIsNotStyledAsARefusal(unittest.TestCase):
+    """The class name is pinned by the node tests above; the RULE is pinned
+    here, and needs no node because the stylesheet is rendered by Python.
+
+    Deleting `.note.caution` from the stylesheet left the whole suite green
+    while the caution silently lost its styling. A name with no rule behind it
+    is the same defect as the wrong name, one file over.
+    """
+
+    def setUp(self):
+        self.page = enroll_page.render(now=1)
+
+    def test_the_caution_rule_exists(self):
+        self.assertIn(".note.caution", self.page)
+
+    def test_the_caution_is_amber_rather_than_destructive(self):
+        # `--unchecked` is the colour the checks already use for "not proven
+        # either way", which is exactly what an unreadable cashback flag is.
+        self.assertIn(".note.caution { color: var(--unchecked); }", self.page)
+        self.assertNotIn(".note.caution { color: var(--destructive)", self.page)
+
+    def test_no_note_kind_reuses_the_destructive_callout_name(self):
+        # `say()` writes class="note <kind>", so a kind of `warn` would also
+        # match the standalone `.warn` callout: red border, red ground, the
+        # treatment a refusal wears.
+        self.assertNotIn(".note.warn", self.page)
+        self.assertNotIn("'warn');", self.page)
+
+
 @unittest.skipUnless(NODE or REQUIRE_NODE,
                      "node is not installed; set CHARLIE_REQUIRE_NODE=1 to make that a failure")
 class TestTheDevIsToldTheTruth(unittest.TestCase):

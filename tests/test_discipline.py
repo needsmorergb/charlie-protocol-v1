@@ -1,4 +1,4 @@
-"""Two static guards over the whole `indexer/` package.
+"""Static guards over the `indexer/` package, and one over `tests/` itself.
 
 `python -m unittest discover -s tests -t tests -p "test_discipline.py"`.
 
@@ -10,6 +10,9 @@
 2. Every SQL string passed to `execute`/`executemany` interpolates only
    identifiers that resolve to `export.EXPORT_TABLES` -- values from RPC
    responses reach SQL exclusively through `?` placeholders (T-01-02).
+3. Every test module keeps `unittest.main()` last. Four tests were once
+   appended after it, so running that file directly loaded 24 of 28 and said
+   OK; discovery found all 28, which is precisely why nobody noticed.
 """
 
 from __future__ import annotations
@@ -183,6 +186,27 @@ def _argument_is_safe(call: ast.Call, index: int, safe: set[str], allowed: set[s
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
         return arg.value in allowed
     return False
+
+
+class TestTheMainGuardIsLast(unittest.TestCase):
+    """A test that runs under discovery but not when its own file is executed
+    is a test whose absence looks like success."""
+
+    def test_no_test_module_defines_anything_after_unittest_main(self):
+        offenders = []
+        for path in sorted(Path(__file__).resolve().parent.glob("test_*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            guard = None
+            for index, node in enumerate(tree.body):
+                if (isinstance(node, ast.If)
+                        and isinstance(node.test, ast.Compare)
+                        and isinstance(node.test.left, ast.Name)
+                        and node.test.left.id == "__name__"):
+                    guard = index
+            if guard is not None and guard != len(tree.body) - 1:
+                after = [type(n).__name__ for n in tree.body[guard + 1:]]
+                offenders.append(f"{path.name}: {after} defined after `unittest.main()`")
+        self.assertEqual(offenders, [], "\n".join(offenders))
 
 
 if __name__ == "__main__":
