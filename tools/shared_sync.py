@@ -163,11 +163,18 @@ def main(argv=None) -> int:
 
     if args.copy_to:
         target = Path(args.copy_to).resolve()
+        # Every source checked before the first is copied: a partial write
+        # leaves the other repository in a state neither of us intended, and
+        # it reported only the first path it tripped over.
+        absent = [path for path in SHARED if not (ROOT / path).exists()]
+        if absent:
+            print(f"{len(absent)} shared file(s) are missing here; nothing was copied:",
+                  file=sys.stderr)
+            for path in absent:
+                print(f"  {path}", file=sys.stderr)
+            return 1
         for path in SHARED:
             source = ROOT / path
-            if not source.exists():
-                print(f"MISSING {path}", file=sys.stderr)
-                return 1
             destination = target / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)

@@ -77,10 +77,17 @@ def _module_paths(source: str, origin: Path) -> set[str]:
 
 def referenced_assets() -> set[str]:
     """Every `/assets/...` any rendered surface names, as a shared path."""
-    blank = Observation(mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump", observed_at=1.0)
+    mint = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
+    blank = Observation(mint=mint, observed_at=1.0)
+    # And an observation that FAILED, because a surface reached only on the
+    # error branch could name an asset no other page does, and reading the
+    # references off the pages would then quietly miss it.
+    failed = Observation(mint=mint, observed_at=1.0, error="RPC unavailable")
     pages = [
         site.render(blank),
+        site.render(failed),
         site.render_landing(blank),
+        site.render_landing(failed),
         site.render_not_found(),
         site.render_verify(),
         enroll_page.render(now=1),
@@ -191,6 +198,24 @@ class TestTheComparisonItself(unittest.TestCase):
 
 
 SITE_REPO = os.environ.get("CHARLIE_SITE_REPO")
+
+
+class TestCopyToWritesNothingUntilEverySourceIsThere(unittest.TestCase):
+    """A partial copy leaves the other repository in a state nobody intended:
+    some files updated, some not, and the sync check then reports drift it
+    caused itself."""
+
+    def test_a_missing_source_stops_the_copy_before_the_first_write(self):
+        empty = Path(tempfile.mkdtemp())
+        target = Path(tempfile.mkdtemp())
+        original = shared_sync.ROOT
+        try:
+            shared_sync.ROOT = empty
+            code = shared_sync.main(["--copy-to", str(target)])
+        finally:
+            shared_sync.ROOT = original
+        self.assertEqual(code, 1)
+        self.assertEqual(list(target.iterdir()), [])
 
 
 @unittest.skipUnless(SITE_REPO, "set CHARLIE_SITE_REPO to a deploy checkout to compare against it")

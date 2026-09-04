@@ -142,15 +142,16 @@ def sol_burn_unspendable(split) -> Check:
             "SOL_BURN_UNSPENDABLE",
             UNCHECKED,
             [SOL_BURN_TOTAL],
-            "is_on_curve(sol_burn_vault) == False",
+            "every SOL burn destination is one SOL does not come back from",
             "no SOL burn destination in this split -- nothing to check",
         )
-    # `SOL_BURN_INCINERATOR` is in this set and does no work: the incinerator
-    # is off the curve, so `a.keyless` has already excluded it. It stays named
-    # because the day `is_on_curve` or the incinerator's own address changes
-    # is the day a silent omission here becomes a red FAIL on the protocol's
-    # own destination.
-    recognised = set(Registry().grandfathered_sol_burn) | {SOL_BURN_INCINERATOR}
+    # The incinerator is deliberately NOT named here. It is off the curve, so
+    # the keyless clause below has already taken it, and naming it as well
+    # would be a second mechanism that never runs -- unreachable code with a
+    # test beside it that looks like proof and is not. If `is_on_curve` ever
+    # stopped covering it, `test_the_incinerator_passes_by_being_off_the_curve`
+    # is what says so.
+    recognised = set(Registry().grandfathered_sol_burn)
     spendable = [
         a.address for a in burned
         if not a.keyless and a.address not in recognised

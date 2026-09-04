@@ -1,11 +1,14 @@
 """ed25519 point decompression, and the PDA derivation that depends on it.
 
-This module is the cryptographic core of the SOL burn leg. PROTOCOL.md sec.3 says a
-SOL burn vault must be a program-derived address rather than a vanity address,
-because program derivation is a property the Solana runtime itself enforces,
-whereas a vanity address's standing rests on convention. `is_on_curve` is where
-that derivation is actually computed, so it is written out longhand rather than
-imported.
+This module is the cryptographic core of the SOL burn leg. Program derivation
+is a property the Solana runtime itself enforces -- no key signs for an address
+off the ed25519 curve -- and PROTOCOL.md sec.1 makes it one of the two ways a
+SOL burn destination passes SOL_BURN_UNSPENDABLE. The other is a recognised
+burn address, which this module has nothing to say about: `burn111...111` is on
+the curve and is a burn destination anyway, because SOL that reaches it does
+not come back. An earlier version of the spec demanded derivation from
+everyone and is retracted. `is_on_curve` is where the derivation is actually
+computed, so it is written out longhand rather than imported.
 
 Mirrors curve25519-dalek's `CompressedEdwardsY::decompress`, which is what the
 Solana runtime uses when it rejects a PDA candidate.

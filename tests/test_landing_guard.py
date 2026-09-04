@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -34,6 +35,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from indexer import cli, site  # noqa: E402
+from indexer.evidence import Evidence  # noqa: E402
 from indexer.observe import Observation  # noqa: E402
 
 from test_indexer import CHARLIE  # noqa: E402
@@ -189,6 +191,41 @@ class TestStaleCoinPagesAreRefreshed(CliCase):
         self.assertEqual(page.read_text(encoding="utf-8"), "the good page")
 
 
+class TestRefreshAndIntakeAgreeAboutTheIndex(CliCase):
+    """Both commands rebuild the index from the same store, so both must
+    render the same page from it.
+
+    `intake` folds in the failed-attempt count from the submission store and
+    `refresh` did not, so the two produced different index pages from
+    identical data -- and whichever ran last won, silently.
+    """
+
+    def index_after(self, argv_head):
+        out = Path(tempfile.mkdtemp())
+        site.write(_counters_fixture(), out)
+        # A failed attempt on the record, because that count is the ONLY
+        # thing the two commands disagreed about. With an empty submission
+        # table both render the same page and the difference is invisible.
+        store = Evidence(out / "evidence.db")
+        store.record_submission(repo="owner/repo", issue_number=1, outcome="failed",
+                                mint=None, reason="not_base58", detail="nope")
+        store.close()
+        argv = [*argv_head, "--out", str(out), "--evidence", str(out / "evidence.db")]
+        with mock.patch.object(cli.intake, "open_issues", return_value=[]), \
+             mock.patch.object(cli, "observe", return_value=_counters_fixture()), \
+             mock.patch.object(cli, "RpcClient"), \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(argv), 0)
+        return (out / site.INDEX_FILENAME_TEMPLATE.format(page=1)).read_text(encoding="utf-8")
+
+    def test_the_two_render_the_same_index(self):
+        by_refresh = self.index_after(["refresh"])
+        by_intake = self.index_after(["intake", "--repo", "owner/repo", "--refresh"])
+        # The generation timestamp is the one thing that legitimately differs.
+        strip = lambda page: re.sub(r"generated at [^<]*", "", page)  # noqa: E731
+        self.assertEqual(strip(by_refresh), strip(by_intake))
+
+
 class TestThePublishedCommandAsksForIt(unittest.TestCase):
     """The flag is worth nothing if the job that publishes does not pass it.
 
@@ -218,6 +255,25 @@ class TestThePublishedCommandAsksForIt(unittest.TestCase):
         self.assertIn("--refresh", workflow)
         # And loads the record before it renders anything from it.
         self.assertLess(workflow.index("indexer load"), workflow.index("--require-counters"))
+        self._assert_the_landing_failure_is_reported(workflow)
+
+    def test_this_repository_s_publish_workflow_reports_a_landing_failure(self):
+        self._assert_the_landing_failure_is_reported(
+            (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8"))
+
+    def _assert_the_landing_failure_is_reported(self, workflow: str):
+        """`continue-on-error` on the landing step is what lets the run keep
+        what it measured. It is also what makes `--require-counters`
+        decorative if nothing downstream reports the failure: delete the
+        reporting step and a blank landing page becomes a green run.
+        """
+        self.assertIn("continue-on-error: true", workflow)
+        self.assertIn("id: landing", workflow)
+        self.assertIn("steps.landing.outcome == 'failure'", workflow)
+        # After the commit, or the work it was meant to preserve is discarded
+        # by the very step that reports the failure.
+        self.assertLess(workflow.index("git commit"),
+                        workflow.index("steps.landing.outcome == 'failure'"))
 
 
 if __name__ == "__main__":
