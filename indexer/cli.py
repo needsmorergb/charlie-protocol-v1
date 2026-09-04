@@ -31,7 +31,7 @@ from pathlib import Path
 
 from . import coverage, enroll_page, intake, invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
-from .export import DEFAULT_EXPORT_DIR, export_all
+from .export import DEFAULT_EXPORT_DIR, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
 from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
@@ -395,6 +395,24 @@ def _export(args) -> int:
     return 0
 
 
+def _load(args) -> int:
+    """The committed text export, loaded into a working store.
+
+    The `.db` is a cache of the export, not the record, and it is not
+    committed. The deploy repository therefore had an empty one, so the
+    landing page rendered there had no burns and no initial supply to read
+    and every counter came out "unknown". This is what fills it.
+    """
+    evidence = Evidence(args.db)
+    try:
+        loaded = import_all(evidence, args.source)
+    finally:
+        evidence.close()
+    for table, rows in loaded.items():
+        print(f"loaded {rows} row{'' if rows == 1 else 's'} into {table}")
+    return 0
+
+
 def _stamp(value) -> str:
     """Epoch seconds are what the record stores; humans get UTC to the second."""
     if not isinstance(value, (int, float)):
@@ -593,6 +611,15 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
     export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
     export_cmd.set_defaults(handler=_export)
+
+    load_cmd = sub.add_parser(
+        "load", help="load the committed text export into a working evidence store"
+    )
+    load_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
+    load_cmd.add_argument(
+        "--source", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}"
+    )
+    load_cmd.set_defaults(handler=_load)
 
     reconcile_cmd = sub.add_parser(
         "reconcile", parents=[common],
