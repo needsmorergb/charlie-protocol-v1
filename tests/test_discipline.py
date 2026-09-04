@@ -59,13 +59,16 @@ class TestSqlIdentifierAllowlist(unittest.TestCase):
     -- never a name built from RPC-sourced data (mints, signatures,
     destinations).
 
-    Two things are provably safe by construction and are the only pattern
+    Three things are provably safe by construction and are the only patterns
     this codebase uses:
 
     * a loop variable bound directly from ``for x, y in EXPORT_TABLES:``;
     * a function parameter whose *every* call site in this package passes
       one of those loop variables (or an allowlisted literal) for that
-      parameter position.
+      parameter position;
+    * a name whose every binding in the package is a join of ``"?"``
+      literals -- a run of placeholders, which carries no identifier at all
+      and cannot carry one, whatever the data it stands in for.
 
     Anything else interpolated into a SQL string -- a name that cannot be
     traced to one of these -- is flagged.
@@ -82,8 +85,29 @@ class TestSqlIdentifierAllowlist(unittest.TestCase):
         return allowed
 
     def _safe_names(self, trees: dict[str, ast.AST]) -> set[str]:
-        """Identifier names provably bound only to EXPORT_TABLES-derived values."""
+        """Identifier names provably bound only to EXPORT_TABLES-derived values,
+        or to a run of placeholders."""
         safe = set()
+
+        # Pass 0: names whose EVERY binding in the package is a join of "?"
+        # literals. `f"... VALUES ({placeholders})"` interpolates no
+        # identifier: the expression can produce nothing but `?` and the
+        # separator, whatever it was counting. A name bound to a placeholder
+        # run somewhere and to anything else anywhere is not safe, so the
+        # bindings are collected across every module before deciding.
+        bindings: dict[str, list] = {}
+        for tree in trees.values():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            bindings.setdefault(target.id, []).append(node.value)
+                elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                    if isinstance(node.target, ast.Name) and node.value is not None:
+                        bindings.setdefault(node.target.id, []).append(node.value)
+        for name, values in bindings.items():
+            if values and all(_is_placeholder_run(value) for value in values):
+                safe.add(name)
 
         # Pass 1: loop variables bound directly to `for ... in EXPORT_TABLES:`.
         for tree in trees.values():
@@ -174,6 +198,37 @@ class TestSqlIdentifierAllowlist(unittest.TestCase):
                 elif isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Mod):
                     offenders.append(f"{filename}: uses %-formatting in a SQL call")
         self.assertEqual(offenders, [], "; ".join(offenders))
+
+
+def _is_placeholder_run(node) -> bool:
+    """`",".join("?" for _ in xs)` and nothing else.
+
+    The separator must be a string of only commas and spaces, and every
+    element joined must be the literal `"?"`, so the result is a run of
+    placeholders however long the iterable is. A join over anything that
+    could evaluate to a name -- a variable, a call, an f-string -- is not
+    this pattern and is not accepted.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if not (isinstance(func, ast.Attribute) and func.attr == "join"):
+        return False
+    separator = func.value
+    if not (isinstance(separator, ast.Constant) and isinstance(separator.value, str)):
+        return False
+    if set(separator.value) - {",", " "}:
+        return False
+    if len(node.args) != 1:
+        return False
+    joined = node.args[0]
+    if isinstance(joined, (ast.GeneratorExp, ast.ListComp)):
+        element = joined.elt
+    elif isinstance(joined, (ast.List, ast.Tuple)):
+        return all(isinstance(e, ast.Constant) and e.value == "?" for e in joined.elts)
+    else:
+        return False
+    return isinstance(element, ast.Constant) and element.value == "?"
 
 
 def _argument_is_safe(call: ast.Call, index: int, safe: set[str], allowed: set[str]) -> bool:

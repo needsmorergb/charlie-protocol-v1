@@ -51,9 +51,15 @@ DEPLOY_REPO = "needsmorergb/charlie-protocol-site"
 RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 
 # Every module the deployed repository imports, plus the two serverless
-# functions and the routing table. `tests/test_shared_sync.py` recomputes this
-# from the import graph and fails if it has fallen behind, so a new module is
-# not silently left out of the copy.
+# functions, the routing table, and the committed evidence export.
+# `tests/test_shared_sync.py` recomputes the module list from the import graph
+# and fails if it has fallen behind, so a new module is not silently left out
+# of the copy.
+#
+# The export is here because the deployed repository renders the landing page
+# in CI and the counters on it are measurements. Its own `state/evidence.db`
+# holds nothing -- the `.db` is a cache and is not committed -- so without the
+# export every counter on the front page came out "unknown".
 SHARED = (
     "api/enroll.py",
     "api/verify.py",
@@ -80,6 +86,13 @@ SHARED = (
     "indexer/scan.py",
     "indexer/site.py",
     "indexer/store.py",
+    "state/evidence/burn_event.jsonl",
+    "state/evidence/discrepancy.jsonl",
+    "state/evidence/inflow.jsonl",
+    "state/evidence/initial_supply.jsonl",
+    "state/evidence/opening_balance.jsonl",
+    "state/evidence/scan_cursor.jsonl",
+    "state/evidence/submission.jsonl",
     "vercel.json",
 )
 

@@ -523,6 +523,11 @@ NON_FIGURE_EMITTERS = {
     "indexer.cli:_export": (
         "prints the file paths export_all() wrote -- filenames, not figures"
     ),
+    "indexer.cli:_load": (
+        "prints how many rows each table of the committed export loaded -- a count "
+        "of records read from a file, not a measurement of a coin. Nothing here is "
+        "derived from a chain read and no figure passes through it"
+    ),
     "indexer.cli:_log": (
         "dispatches to _log_lines()/_log_json_lines(), both registered SURFACES "
         "targets; prints their already-gated output verbatim"

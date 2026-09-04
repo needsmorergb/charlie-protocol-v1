@@ -43,6 +43,61 @@ def export_table(conn, table: str, order_by: str, path: Path) -> None:
             handle.write(line + "\n")
 
 
+def import_table(conn, table: str, path: Path) -> int:
+    """Load one exported table back, replacing what is there.
+
+    `INSERT OR REPLACE` rather than `INSERT`, so loading the same export twice
+    is the same as loading it once -- the CI job that does this runs on a
+    schedule and must not accumulate duplicate burn rows, which would inflate
+    every figure derived from them.
+
+    Column names come from the exported record, and every one is checked
+    against the table's own schema before it reaches SQL. A record naming a
+    column the table does not have is a corrupt export, and a corrupt export
+    must not be able to compose an identifier.
+    """
+    if not path.exists():
+        return 0
+    known = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+    # Positional, in the table's own column order, so no column name from the
+    # file ever reaches a SQL string -- `tests/test_discipline.py` allows the
+    # table name and a run of `?`, and nothing else, into one of these.
+    placeholders = ",".join("?" for _ in known)
+    loaded = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        unknown = sorted(set(record) - set(known))
+        if unknown:
+            raise ValueError(
+                f"{path}: record names {unknown}, which {table} does not have"
+            )
+        conn.execute(
+            f"INSERT OR REPLACE INTO {table} VALUES ({placeholders})",
+            [record.get(name) for name in known],
+        )
+        loaded += 1
+    return loaded
+
+
+def import_all(evidence, in_dir=DEFAULT_EXPORT_DIR) -> dict:
+    """The committed export, loaded into a working store.
+
+    The export is the record; the `.db` is a cache of it, and the deploy
+    repository has no other way to hold one. Without this the landing page
+    rendered there had no burns, no initial supply and no walk to read, so
+    every counter came out "unknown" -- correct behaviour on an empty store,
+    and a blank front page.
+    """
+    in_dir = Path(in_dir)
+    loaded = {}
+    for table, _order_by in EXPORT_TABLES:
+        loaded[table] = import_table(evidence.connection, table, in_dir / f"{table}.jsonl")
+    evidence.connection.commit()
+    return loaded
+
+
 def export_all(evidence, out_dir=DEFAULT_EXPORT_DIR) -> list[Path]:
     out_dir = Path(out_dir)
     written = []

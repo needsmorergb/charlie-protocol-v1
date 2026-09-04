@@ -22,14 +22,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from indexer.export import EXPORT_TABLES  # noqa: E402
 from tools import shared_sync  # noqa: E402
 
 # What the deploy repository starts from: `python -m indexer <cmd>` in its
 # GitHub Actions, and the two functions Vercel serves.
 ENTRY_POINTS = ("indexer/__main__.py", "api/enroll.py", "api/verify.py")
 
-# Shared but not reachable by import: Vercel reads it, nothing imports it.
-NON_PYTHON = ("vercel.json",)
+# Shared but not reachable by import: Vercel reads the routing table, and the
+# evidence export is the record the deployed CI loads its working store from.
+# Derived from `EXPORT_TABLES` rather than listed, so a new table added there
+# has to be copied too.
+NON_PYTHON = ("vercel.json",) + tuple(
+    f"state/evidence/{table}.jsonl" for table, _order in EXPORT_TABLES
+)
 
 
 def _module_paths(source: str, origin: Path) -> set[str]:
