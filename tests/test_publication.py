@@ -31,10 +31,14 @@ CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 PUMP_AMM_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 GRANDFATHERED = "burn111111111111111111111111111111111111111"
 
-# An ordinary address somebody holds the key to. SOL_BURN_UNSPENDABLE fails on
-# this and passes on GRANDFATHERED, because a burn address is a burn address
-# and a wallet is not: the check asks whether SOL can come back, not whether
-# the address was derived by a program.
+# An on-curve address that is not a recognised burn address, which is what
+# SOL_BURN_UNSPENDABLE fails on -- it passes on GRANDFATHERED, because a burn
+# address is a burn address and this is not one. The check asks whether SOL
+# can come back, not whether the address was derived by a program.
+#
+# It is wrapped SOL's mint. Nobody holds that key; it is used here only
+# because it is a real 32-byte on-curve value, which is the only property the
+# fixture needs.
 SPENDABLE = "So11111111111111111111111111111111111111112"
 
 

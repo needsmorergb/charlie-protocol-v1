@@ -98,6 +98,71 @@ class TestTheCommittedExportLoads(LoadCase):
                     )
 
 
+class TestALoadNeverRewritesARowTheStoreAlreadyHas(LoadCase):
+    """`INSERT OR IGNORE`, which is `evidence.py`'s own rule for every write.
+
+    `OR REPLACE` is equally idempotent -- every table has a real primary key,
+    so neither adds rows -- and it silently overwrites what is there with the
+    exported version. The columns that lose are exactly the ones the store
+    documents as the single mutable field on an otherwise immutable row. In
+    the deploy repository, loading a stale export would blank
+    `submission.answered_at`, and the next run would comment on and close an
+    issue it had already answered.
+
+    `test_loading_twice_is_the_same_as_loading_once` cannot tell the two
+    apart. These can: with `OR REPLACE` restored, every test in this class
+    fails.
+    """
+
+    def _older_export(self, tmp: Path) -> Path:
+        """The same rows, as they were before anything was filled in."""
+        source = Path(tmp)
+        (source / "submission.jsonl").write_text(json.dumps({
+            "repo": "owner/repo", "issue_number": 7, "mint": MINT,
+            "attempted_at": 100.0, "outcome": "observed", "reason": None,
+            "detail": None, "answered_at": None, "closed_at": None,
+        }) + "\n", encoding="utf-8")
+        return source
+
+    def test_an_answered_submission_is_not_reset_to_unanswered(self):
+        evidence = self.store()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._older_export(Path(tmp))
+            import_table(evidence.connection, "submission", source / "submission.jsonl")
+            evidence.connection.execute(
+                "UPDATE submission SET answered_at = ?, closed_at = ? WHERE issue_number = ?",
+                (200.0, 200.0, 7),
+            )
+            evidence.connection.commit()
+            import_table(evidence.connection, "submission", source / "submission.jsonl")
+        row = evidence.connection.execute(
+            "SELECT answered_at, closed_at FROM submission WHERE issue_number = 7"
+        ).fetchone()
+        self.assertEqual((row["answered_at"], row["closed_at"]), (200.0, 200.0))
+
+    def test_the_row_count_is_unchanged_either_way(self):
+        """Stated so the reason for `OR IGNORE` is not mistaken for the
+        duplicate-rows one: both are idempotent, and only one keeps the row.
+        """
+        evidence = self.store()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._older_export(Path(tmp))
+            import_table(evidence.connection, "submission", source / "submission.jsonl")
+            import_table(evidence.connection, "submission", source / "submission.jsonl")
+        self.assertEqual(
+            evidence.connection.execute("SELECT COUNT(*) FROM submission").fetchone()[0], 1
+        )
+
+    def test_the_statement_is_the_one_the_store_documents(self):
+        """Read from the source, because the defect is one word inside a
+        string and a reviewer's eye slides over it.
+        """
+        source = (ROOT / "indexer" / "export.py").read_text(encoding="utf-8")
+        statement = [line for line in source.splitlines() if "INSERT OR" in line and "f\"" in line]
+        self.assertEqual(len(statement), 1, statement)
+        self.assertIn("INSERT OR IGNORE", statement[0])
+
+
 class TestWhatItRefuses(LoadCase):
     def test_an_absent_file_loads_nothing_rather_than_raising(self):
         """A table with no rows exports an empty file, and a fresh export
@@ -120,6 +185,23 @@ class TestWhatItRefuses(LoadCase):
             with self.assertRaises(ValueError) as caught:
                 import_table(evidence.connection, "initial_supply", path)
         self.assertIn("drop_table", str(caught.exception))
+
+    def test_the_export_never_emits_a_json_boolean(self):
+        """`true` becomes `1` on the way back through SQLite, so a boolean
+        would not survive the round trip the class above pins. `export_all`
+        does not write one -- SQLite has no boolean type and the store's
+        integer columns come back as integers -- and this is what keeps that
+        true, because the round-trip test cannot see a type that never
+        appears in the committed files.
+        """
+        for table, _order in EXPORT_TABLES:
+            path = COMMITTED / f"{table}.jsonl"
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if not line.strip():
+                    continue
+                for key, value in json.loads(line).items():
+                    with self.subTest(table=table, line=number, key=key):
+                        self.assertNotIsInstance(value, bool)
 
     def test_blank_lines_are_skipped(self):
         evidence = self.store()

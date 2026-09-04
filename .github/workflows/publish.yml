@@ -1,0 +1,78 @@
+# This repository's own web/, kept current with the renderer that produces it.
+#
+# The committed pages here were written by a renderer that has since moved: a
+# landing page with no flywheel, and a coin page still carrying the retracted
+# SOL_BURN_UNSPENDABLE banner, the static risk line that went with it, and a
+# section that has been deleted. Nothing regenerated them, because the only
+# publishing automation lives in the deploy repository.
+#
+# That is not a cosmetic staleness. Every coin page tells its visitor:
+#
+#   Every version this page has ever had is in this repository's git history.
+#
+# and links here. A stale copy makes the page wrong about itself, which is the
+# one thing this site refuses to be.
+#
+# Not on push: the deploy repository is what serves the site, and this job
+# costs a chain read per committed coin. Daily, and on demand.
+name: publish
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No install step. Standard library only, on purpose.
+
+      # The record is state/evidence/*.jsonl; the .db is a working store
+      # rebuilt from it and never committed (D-01/D-03/D-04).
+      - name: Load the committed evidence record
+        run: python -m indexer load --db state/evidence.db --source state/evidence
+
+      - name: Re-render every committed coin page
+        env:
+          CHARLIE_RPC_URLS: https://crowd-api-gateway.vercel.app/
+        run: |
+          python -m indexer refresh --evidence state/evidence.db --out web
+
+      # --require-counters, because the landing counters are read from the
+      # walk and the chain. Measured: with either unavailable the same command
+      # writes a page whose six counters all read "unknown", reports success,
+      # and the commit below would push it over six live figures.
+      - name: Regenerate the landing page
+        env:
+          CHARLIE_RPC_URLS: https://crowd-api-gateway.vercel.app/
+        run: |
+          python -m indexer site --write --landing --require-counters \
+            --evidence state/evidence.db \
+            --out web \
+            8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump
+
+      - name: Commit what changed
+        run: |
+          git config user.name  "charlie-publish"
+          git config user.email "needsmorergb@users.noreply.github.com"
+          git add web
+          if git diff --cached --quiet; then
+            echo "the committed pages already match the renderer"
+            exit 0
+          fi
+          git commit -m "publish: regenerate web/ from the current renderer"
+          git push

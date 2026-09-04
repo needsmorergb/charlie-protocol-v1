@@ -1,6 +1,6 @@
 # The suite, run.
 #
-# 564 tests lived in this repository and nothing ran them anywhere but a
+# The whole suite lived in this repository and nothing ran it anywhere but a
 # laptop. Two consequences, both real rather than hypothetical:
 #
 #   * `tests/test_enroll_page_js.py` executes the enrol page's JavaScript

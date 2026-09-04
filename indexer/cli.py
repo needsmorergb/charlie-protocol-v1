@@ -314,6 +314,71 @@ def _index(args) -> int:
     return 0
 
 
+def _refresh_pages(rpc, registry, evidence, out_dir: Path) -> list[Path]:
+    """Every coin page already on disk, rendered again from a fresh
+    observation.
+
+    A committed page is a snapshot of a renderer that has since moved. Twice
+    that left a live page contradicting itself: a risk line reading
+    "SOL_BURN_UNSPENDABLE fails permanently for this coin" printed above a
+    check row on the same page reading PASS. Nothing regenerated a coin page
+    unless its submission was measured again, and a submission is measured
+    once.
+    """
+    records, _known = _index_inputs(out_dir)
+    # `_index_inputs` skips a record it cannot parse, which for the index is
+    # right -- a corrupt file is not a page. Here it would mean a coin quietly
+    # never refreshed again, so the gap is counted and said out loud.
+    unreadable = len(list(out_dir.glob("*.json"))) - len(records)
+    if unreadable > 0:
+        print(f"{unreadable} record(s) under {out_dir} did not parse and were not refreshed")
+    written = []
+    for record in records:
+        try:
+            # The same boundary the submission path crosses, on the same
+            # grounds. A mint read back off disk is not more trustworthy than
+            # one read off an issue: `site.write` composes a filename from it,
+            # and `../PWNED` in a committed record wrote outside `--out`
+            # before this.
+            mint = intake.validate_mint(record.get("mint"))
+        except intake.InvalidMint as exc:
+            print(f"skipped a record whose mint is not one: {exc}")
+            continue
+        observation = observe(rpc, mint, registry, evidence=evidence)
+        if observation.error:
+            # Never overwrite a measured page with a page that says the chain
+            # could not be read. The one on disk is better.
+            print(f"kept {mint}  (not re-read: {observation.error})")
+            continue
+        html_path, _json_path = site.write(observation, out_dir)
+        written.append(html_path)
+        print(f"refreshed {html_path}")
+    return written
+
+
+def _refresh(args) -> int:
+    """`intake --refresh` without the issue queue.
+
+    This repository has no submission queue -- the deployed one does -- and
+    its own `web/` was committed by a renderer that has since moved: a landing
+    page with no flywheel, a coin page still carrying the retracted
+    SOL_BURN_UNSPENDABLE banner and a section that was deleted. The page tells
+    a visitor that every version it has ever had is in THIS repository's git
+    history, so a stale copy here is the page lying about itself.
+    """
+    rpc = RpcClient(_endpoints(args.rpc))
+    registry = _registry(args.program)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    out_dir = Path(args.out)
+    try:
+        _refresh_pages(rpc, registry, evidence, out_dir)
+        for path in _write_index(out_dir):
+            print(f"wrote {path}")
+    finally:
+        evidence.close()
+    return 0
+
+
 def _intake(args) -> int:
     """D-34: the front door. Reads the public issue queue (no credential),
     measures every submission up to the per-run cap, writes the artifacts
@@ -370,28 +435,7 @@ def _intake(args) -> int:
                 print(f"issue #{outcome.issue_number}  {outcome.mint or '(no mint)'}  failed  {outcome.reason}")
 
         if args.refresh:
-            # Every coin page already on disk, rendered again from a fresh
-            # observation.
-            #
-            # A committed page is a snapshot of a renderer that has since
-            # moved. Twice now that left a live page contradicting itself:
-            # a risk line reading "SOL_BURN_UNSPENDABLE fails permanently for
-            # this coin" printed above a check row on the same page reading
-            # PASS. Nothing regenerated a coin page unless its submission was
-            # measured again, and a submission is measured once.
-            records, _known = _index_inputs(out_dir)
-            for record in records:
-                mint = record.get("mint")
-                if not mint:
-                    continue
-                observation = observe(rpc, mint, registry, evidence=evidence)
-                if observation.error:
-                    # Never overwrite a measured page with a page that says
-                    # the chain could not be read. The one on disk is better.
-                    print(f"kept {mint}  (not re-read: {observation.error})")
-                    continue
-                html_path, _json_path = site.write(observation, out_dir)
-                print(f"refreshed {html_path}")
+            _refresh_pages(rpc, registry, evidence, out_dir)
 
         counts_extra = {"failed": evidence.submission_counts()["failed"]}
         written = _write_index(out_dir, extra_counts=counts_extra)
@@ -640,6 +684,18 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
     export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
     export_cmd.set_defaults(handler=_export)
+
+    refresh_cmd = sub.add_parser(
+        "refresh", parents=[common],
+        help="re-render every coin page already under --out, and rebuild the index",
+    )
+    refresh_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}"
+    )
+    refresh_cmd.add_argument(
+        "--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}"
+    )
+    refresh_cmd.set_defaults(handler=_refresh)
 
     load_cmd = sub.add_parser(
         "load", help="load the committed text export into a working evidence store"

@@ -12,7 +12,7 @@ time, against production:
   * `indexer/site.py` -- the deployed copy had an entire animated section
     (the flywheel, ~200 lines) that this repository had never seen, and had
     stopped rendering a section this repository still rendered. Every one of
-    the 545 tests here passed against neither.
+    every test here passed against neither.
   * `indexer/invariants.py` -- the deployed copy had rewritten what
     SOL_BURN_UNSPENDABLE means (a burn address passes; program derivation is
     no longer demanded) and added an UNCHECKED branch to SOL_BURN_BALANCE.
@@ -51,15 +51,18 @@ DEPLOY_REPO = "needsmorergb/charlie-protocol-site"
 RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 
 # Every module the deployed repository imports, plus the two serverless
-# functions, the routing table, and the committed evidence export.
+# functions, the routing table, and the static assets every page loads.
 # `tests/test_shared_sync.py` recomputes the module list from the import graph
 # and fails if it has fallen behind, so a new module is not silently left out
 # of the copy.
 #
-# The export is here because the deployed repository renders the landing page
-# in CI and the counters on it are measurements. Its own `state/evidence.db`
-# holds nothing -- the `.db` is a cache and is not committed -- so without the
-# export every counter on the front page came out "unknown".
+# NOT the evidence record. `state/evidence/*.jsonl` was seeded there from here
+# -- without it the deployed landing page had no walk to read and every
+# counter came out "unknown" -- but the deploy repository is where intake runs
+# in production, so it measures rows this repository has never seen and writes
+# its own export on every run. Requiring the two to match would fail the
+# moment production measured anything. Code is shared; what production
+# measured belongs to production.
 SHARED = (
     "api/enroll.py",
     "api/verify.py",
@@ -86,14 +89,13 @@ SHARED = (
     "indexer/scan.py",
     "indexer/site.py",
     "indexer/store.py",
-    "state/evidence/burn_event.jsonl",
-    "state/evidence/discrepancy.jsonl",
-    "state/evidence/inflow.jsonl",
-    "state/evidence/initial_supply.jsonl",
-    "state/evidence/opening_balance.jsonl",
-    "state/evidence/scan_cursor.jsonl",
-    "state/evidence/submission.jsonl",
     "vercel.json",
+    "web/assets/charlie-found.gif",
+    "web/assets/charlie-scanning.gif",
+    "web/assets/charlie.png",
+    "web/assets/incinerator-smoke.png",
+    "web/assets/incinerator-stack.png",
+    "web/assets/meta-image.png",
 )
 
 
@@ -101,8 +103,19 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
+class Missing(Exception):
+    """A shared file is absent from THIS repository."""
+
+
 def ours(path: str) -> bytes:
-    return (ROOT / path).read_bytes()
+    target = ROOT / path
+    if not target.exists():
+        # Reported, never raised out of `compare`: in the deploy
+        # repository's CI "ours" is the deploy checkout, and a file this list
+        # has gained but that checkout has not is exactly the drift being
+        # looked for. It used to come out as a FileNotFoundError traceback.
+        raise Missing(path)
+    return target.read_bytes()
 
 
 def theirs_local(directory: Path, path: str) -> bytes | None:
@@ -125,10 +138,14 @@ def compare(fetch) -> list[tuple[str, str]]:
     """`(path, what is wrong)` for every shared file that is not identical."""
     wrong = []
     for path in SHARED:
-        mine = ours(path)
+        try:
+            mine = ours(path)
+        except Missing:
+            wrong.append((path, "missing from this repository"))
+            continue
         yours = fetch(path)
         if yours is None:
-            wrong.append((path, "missing from the deploy repository"))
+            wrong.append((path, "missing from the other repository"))
         elif yours != mine:
             wrong.append((path, f"differs (here {digest(mine)}, there {digest(yours)})"))
     return wrong
@@ -147,9 +164,13 @@ def main(argv=None) -> int:
     if args.copy_to:
         target = Path(args.copy_to).resolve()
         for path in SHARED:
+            source = ROOT / path
+            if not source.exists():
+                print(f"MISSING {path}", file=sys.stderr)
+                return 1
             destination = target / path
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / path, destination)
+            shutil.copyfile(source, destination)
             print(f"copied {path}")
         return 0
 

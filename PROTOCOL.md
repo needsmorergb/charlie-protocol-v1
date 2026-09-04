@@ -33,19 +33,22 @@ token supply outright.
 
 **What the protocol enforces is the part everyone else asserts:**
 that the destination genuinely cannot be spent. A burn claim is permitted only
-where `SOL_BURN_UNSPENDABLE` passes, and three kinds of destination pass it:
+where `SOL_BURN_UNSPENDABLE` passes, and two things pass it:
 
-- **Recognised burn addresses.** `burn111…111` is one. SOL sent there is out
-  of circulation and stays there, which is the standing every burn address on
-  every chain has always had, and it is why a burn to one is a burn.
-- **The incinerator**, `1nc1nerator111…111`, where the runtime removes
-  credited lamports from the total supply at the end of the block. Not merely
-  unspendable: destroyed. This is where the protocol sends its own.
-- **Program-derived vaults** off the ed25519 curve, a property the runtime
-  enforces and anyone can recompute.
+- **Any address off the ed25519 curve** — program-derived, a property the
+  runtime enforces and anyone can recompute, so no key signs for it. This is
+  what passes the protocol's own vaults, and it is also what passes the
+  incinerator, `1nc1nerator111…111`, where the runtime removes credited
+  lamports from the total supply at the end of the block. Not merely
+  unspendable: destroyed. That is where the protocol sends its own.
+- **A recognised burn address.** `burn111…111` is the one there is. SOL sent
+  there is out of circulation and stays there, which is the standing every
+  burn address on every chain has always had, and it is why a burn to one is
+  a burn. It is on the curve, so this clause is the only thing that passes it,
+  and the set is named in `legs.GRANDFATHERED_SOL_BURN` rather than inferred.
 
-A destination that is none of those is an address somebody holds the key to,
-and calling that a burn is the claim this check refuses.
+A destination that is neither is an address somebody holds the key to, and
+calling that a burn is the claim this check refuses.
 
 **What this check is not** is a grade against a protocol a coin is not in.
 An earlier version demanded program derivation from everyone and printed a red

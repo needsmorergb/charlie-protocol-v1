@@ -20,6 +20,8 @@ built -- a window only the CLI can get wrong.
 from __future__ import annotations
 
 import io
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -154,6 +156,24 @@ class TestStaleCoinPagesAreRefreshed(CliCase):
         self.run_intake(out, _counters_fixture())
         self.assertEqual(page.read_text(encoding="utf-8"), "left alone")
 
+    def test_a_record_naming_a_path_is_skipped_rather_than_written(self):
+        """A mint read off disk is not more trustworthy than one read off a
+        GitHub issue: `site.write` composes a filename from it. The submission
+        path has validated for exactly this since it was written; the refresh
+        path went straight to the renderer, and `../PWNED` in a committed
+        record wrote outside `--out`.
+        """
+        out = self.out_with_a_page()
+        escape = Path(tempfile.mkdtemp())
+        (out / "evil.json").write_text(
+            json.dumps({"mint": f"../{escape.name}/escaped"}), encoding="utf-8")
+        code, output = self.run_intake(out, _counters_fixture(), "--refresh")
+        self.assertEqual(code, 0)
+        self.assertIn("not one", output)
+        # The directory the traversal aimed at, and only it: /tmp carries
+        # everyone else's leavings.
+        self.assertEqual(list(escape.iterdir()), [])
+
     def test_a_chain_that_could_not_be_read_leaves_the_page_alone(self):
         """The refresh must not turn a measured page into an error page
         because an endpoint was down for the minute the job ran.
@@ -170,13 +190,34 @@ class TestStaleCoinPagesAreRefreshed(CliCase):
 
 
 class TestThePublishedCommandAsksForIt(unittest.TestCase):
-    """The flag is worth nothing if the job that publishes does not pass it,
-    and that job's command is documented here as the one to run."""
+    """The flag is worth nothing if the job that publishes does not pass it.
 
-    def test_publishing_documents_the_flag(self):
+    An earlier version of this class checked that PUBLISHING.md mentioned the
+    flags, which is prose about a job rather than the job. The job that
+    publishes the deployed site lives in the OTHER repository, so it is
+    checked when a checkout of it is on hand, and this repository's own
+    publishing workflow is checked always.
+    """
+
+    def test_publishing_documents_the_flags(self):
         text = (ROOT / "PUBLISHING.md").read_text(encoding="utf-8")
         self.assertIn("--require-counters", text)
         self.assertIn("--refresh", text)
+
+    def test_this_repository_s_publish_workflow_passes_them(self):
+        workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+        self.assertIn("--require-counters", workflow)
+        self.assertIn("indexer refresh", workflow)
+
+    @unittest.skipUnless(os.environ.get("CHARLIE_SITE_REPO"),
+                         "set CHARLIE_SITE_REPO to check the deployed job itself")
+    def test_the_deployed_job_passes_them(self):
+        site_repo = Path(os.environ["CHARLIE_SITE_REPO"])
+        workflow = (site_repo / ".github" / "workflows" / "intake.yml").read_text(encoding="utf-8")
+        self.assertIn("--require-counters", workflow)
+        self.assertIn("--refresh", workflow)
+        # And loads the record before it renders anything from it.
+        self.assertLess(workflow.index("indexer load"), workflow.index("--require-counters"))
 
 
 if __name__ == "__main__":
