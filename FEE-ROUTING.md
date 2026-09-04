@@ -13,8 +13,11 @@ written.
 
 "0.5% of every trade" cannot be expressed on pump, by us or by anyone.
 
-pump's creator fee is itself a fraction of the trade, and a variable one:
-roughly **0.05% to 0.95% of volume**, tiered by market cap. The sharing config
+pump's creator fee is itself a fraction of the trade, and a variable one.
+Read from the chain on 2026-09-04: a flat **30 bps** on the bonding curve, and
+after graduation a 25-tier schedule that FALLS with market cap, **95 bps** at
+420 SOL down to **5 bps** above 98,240 SOL. The 0.05% figure everyone quotes is
+the large-cap rate, not the typical one. The sharing config
 allocates **that fee** and nothing else -- a flat list of `(pubkey, bps)`
 summing to 10000, where the bps are shares OF THE CREATOR FEE.
 
