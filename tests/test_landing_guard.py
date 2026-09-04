@@ -1,4 +1,6 @@
-"""The landing page will not be replaced by a page that knows nothing.
+"""A published page is never replaced by one that knows less than it did.
+
+Two commands write over live artifacts, and both had the same hole.
 
 `intake` regenerates `index.html` on every run, from the chain. The failure
 mode this guards is quiet: when every chain read comes back empty, the
@@ -108,6 +110,65 @@ class TestThePublishingJobRefusesABlankPage(CliCase):
         self.assertIn(site.LANDING_FILENAME, {p.name for p in out.iterdir()})
 
 
+class TestStaleCoinPagesAreRefreshed(CliCase):
+    """A committed coin page is a snapshot of a renderer that has since moved.
+
+    Twice now that left a live page contradicting itself: a risk line reading
+    "SOL_BURN_UNSPENDABLE fails permanently for this coin" printed above a
+    check row on the same page reading PASS. Nothing regenerated a coin page
+    unless its submission was measured again, and a submission is measured
+    once. `--refresh` re-renders what is already on disk.
+    """
+
+    def out_with_a_page(self) -> Path:
+        out = Path(tempfile.mkdtemp())
+        observation = _counters_fixture()
+        site.write(observation, out)
+        return out
+
+    def run_intake(self, out: Path, observation, *flags):
+        argv = ["intake", "--repo", "owner/repo", "--out", str(out),
+                "--evidence", str(out / "evidence.db"), *flags]
+        stdout = io.StringIO()
+        with mock.patch.object(cli.intake, "open_issues", return_value=[]), \
+             mock.patch.object(cli, "observe", return_value=observation), \
+             mock.patch.object(cli, "RpcClient"), \
+             redirect_stdout(stdout):
+            code = cli.main(argv)
+        return code, stdout.getvalue()
+
+    def test_a_committed_page_is_rendered_again(self):
+        out = self.out_with_a_page()
+        page = out / f"{CHARLIE}.html"
+        page.write_text("a page an older renderer wrote", encoding="utf-8")
+        code, output = self.run_intake(out, _counters_fixture(), "--refresh")
+        self.assertEqual(code, 0)
+        self.assertIn("refreshed", output)
+        self.assertNotEqual(page.read_text(encoding="utf-8"),
+                            "a page an older renderer wrote")
+
+    def test_without_the_flag_nothing_on_disk_is_touched(self):
+        out = self.out_with_a_page()
+        page = out / f"{CHARLIE}.html"
+        page.write_text("left alone", encoding="utf-8")
+        self.run_intake(out, _counters_fixture())
+        self.assertEqual(page.read_text(encoding="utf-8"), "left alone")
+
+    def test_a_chain_that_could_not_be_read_leaves_the_page_alone(self):
+        """The refresh must not turn a measured page into an error page
+        because an endpoint was down for the minute the job ran.
+        """
+        out = self.out_with_a_page()
+        page = out / f"{CHARLIE}.html"
+        page.write_text("the good page", encoding="utf-8")
+        failed = Observation(mint=CHARLIE, observed_at=1.0, error="RPC unavailable")
+        code, output = self.run_intake(out, failed, "--refresh")
+        self.assertEqual(code, 0)
+        self.assertIn("kept", output)
+        self.assertIn("RPC unavailable", output)
+        self.assertEqual(page.read_text(encoding="utf-8"), "the good page")
+
+
 class TestThePublishedCommandAsksForIt(unittest.TestCase):
     """The flag is worth nothing if the job that publishes does not pass it,
     and that job's command is documented here as the one to run."""
@@ -115,6 +176,7 @@ class TestThePublishedCommandAsksForIt(unittest.TestCase):
     def test_publishing_documents_the_flag(self):
         text = (ROOT / "PUBLISHING.md").read_text(encoding="utf-8")
         self.assertIn("--require-counters", text)
+        self.assertIn("--refresh", text)
 
 
 if __name__ == "__main__":

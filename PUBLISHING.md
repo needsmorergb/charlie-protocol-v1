@@ -106,8 +106,12 @@ exists to make visible.
 
 ```bash
 # 1. Generate everything current HEAD can produce.
-python -m indexer intake --repo needsmorergb/charlie-protocol-site \
+python -m indexer intake --repo needsmorergb/charlie-protocol-site --refresh \
   --evidence state/evidence.db --out web --site-url https://charlieprotocol.fun
+#     --refresh re-renders every coin page already under web/. Without it a
+#     page stays as whatever renderer wrote it, which is how a live page came
+#     to print "SOL_BURN_UNSPENDABLE fails permanently for this coin" above a
+#     check row on the same page reading PASS.
 # (or, with no open submissions to measure, just rebuild the index:)
 python -m indexer index --out web
 

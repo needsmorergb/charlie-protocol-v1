@@ -369,6 +369,30 @@ def _intake(args) -> int:
             else:
                 print(f"issue #{outcome.issue_number}  {outcome.mint or '(no mint)'}  failed  {outcome.reason}")
 
+        if args.refresh:
+            # Every coin page already on disk, rendered again from a fresh
+            # observation.
+            #
+            # A committed page is a snapshot of a renderer that has since
+            # moved. Twice now that left a live page contradicting itself:
+            # a risk line reading "SOL_BURN_UNSPENDABLE fails permanently for
+            # this coin" printed above a check row on the same page reading
+            # PASS. Nothing regenerated a coin page unless its submission was
+            # measured again, and a submission is measured once.
+            records, _known = _index_inputs(out_dir)
+            for record in records:
+                mint = record.get("mint")
+                if not mint:
+                    continue
+                observation = observe(rpc, mint, registry, evidence=evidence)
+                if observation.error:
+                    # Never overwrite a measured page with a page that says
+                    # the chain could not be read. The one on disk is better.
+                    print(f"kept {mint}  (not re-read: {observation.error})")
+                    continue
+                html_path, _json_path = site.write(observation, out_dir)
+                print(f"refreshed {html_path}")
+
         counts_extra = {"failed": evidence.submission_counts()["failed"]}
         written = _write_index(out_dir, extra_counts=counts_extra)
         for path in written:
@@ -596,6 +620,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--answer", action="store_true",
         help="D-23: also reply on GitHub (comment, close) for every unanswered row -- "
              "needs a logged-in gh credential; defaults to off so the read half never requires one",
+    )
+    intake_cmd.add_argument(
+        "--refresh", action="store_true",
+        help="also re-render every coin page already under --out, so a page committed "
+             "by an older renderer cannot keep contradicting the current one",
     )
     intake_cmd.add_argument(
         "--answer-only", action="store_true",
