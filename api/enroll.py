@@ -232,4 +232,11 @@ def _explain(value) -> str:
                 "and the connected wallet is not that key.")
     if "ConstraintHasOne" in logs or "Unauthorized" in logs:
         return "The connected wallet is not allowed to change this coin's split."
+    if "Program 11111111111111111111111111111111 failed: custom program error: 0x1" in logs:
+        # The system program's error 1 is insufficient funds. Seen creating a
+        # config for a graduated coin whose creator held 0.003 SOL: the
+        # config's rent is about 0.0073 SOL, paid by the creator.
+        return ("The connected wallet holds too little SOL. Creating the fee-sharing "
+                "config costs about 0.0073 SOL of rent plus the network fee, paid by "
+                "the wallet that signs. Top it up and try again.")
     return "pump refused this split. Nothing was sent and nothing changed."
