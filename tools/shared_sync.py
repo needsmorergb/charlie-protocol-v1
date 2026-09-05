@@ -80,6 +80,7 @@ SHARED = (
     "indexer/ed25519.py",
     "indexer/enroll.py",
     "indexer/enroll_page.py",
+    "indexer/enrolled.py",
     "indexer/evidence.py",
     "indexer/export.py",
     "indexer/intake.py",
