@@ -40,6 +40,7 @@ HARNESS = r"""
 const fs = require('fs'), vm = require('vm');
 const source = fs.readFileSync(process.argv[2], 'utf8');
 const response = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const scenario = process.argv[4] || 'inspect';
 const els = {};
 const rows = [];
 const el = (id) => (els[id] = els[id] || {value: '', textContent: '', className: '', hidden: false, style: {},
@@ -48,33 +49,67 @@ el('mint').value = 'JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump';
 // An element that keeps what is appended to it and what is set on it, so a
 // share row can be read back: its inputs, and whether they are read-only.
 function fakeElement() {
-  const node = {style: {}, classList: {add: () => {}}, children: [], className: '', value: '',
+  const node = {style: {}, classList: {add: () => {}}, children: [], className: '',
                 readOnly: false, disabled: false, textContent: ''};
+  // An input's value is a string whatever is assigned to it, as in a browser:
+  // the page writes a number into the percentage box and reads a string back.
+  let value = '';
+  Object.defineProperty(node, 'value', {get: () => value, set: (v) => { value = String(v); }});
   node.appendChild = (child) => { node.children.push(child); };
   node.querySelector = (sel) => node.children.find((c) => ('.' + c.className) === sel) || null;
   return node;
 }
+// What the wallet was handed, if the scenario signs.
+let handed = null;
+const phantom = {isPhantom: true, request: async (req) => { handed = req; return {signature: 'sig111'}; }};
 const sandbox = {
-  document: {getElementById: el, addEventListener: () => {}, querySelectorAll: () => [],
+  document: {getElementById: el, addEventListener: () => {},
+             querySelectorAll: (sel) => sel === '.share-row' ? rows
+               : sel === '.share-bps' ? rows.map((r) => r.querySelector('.share-bps')) : [],
              createElement: () => fakeElement()},
-  window: {}, console, setTimeout, encodeURIComponent,
-  fetch: async () => ({json: async () => response}),
+  window: {phantom: {solana: phantom}}, console, setTimeout, encodeURIComponent,
+  fetch: async (url) => { sandbox.__fetched = url; return {json: async () => response}; },
 };
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
 sandbox.state.wallet = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
-sandbox.inspect().then(() => {
+const readRows = () => rows.map((r) => ({
+  address: r.querySelector('.share-addr').value,
+  pct: String(r.querySelector('.share-bps').value),
+  locked: r.className.indexOf('locked') !== -1 && r.querySelector('.share-addr').readOnly,
+  caption: (r.querySelector('.share-what') || {}).textContent || '',
+  hint: r.querySelector('.share-addr').placeholder || '',
+}));
+(async () => {
+  await sandbox.inspect();
+  // The inspect is a fetch of its own; what the scenario records is whether
+  // the build made another.
+  sandbox.__fetched = null;
+  if (scenario === 'send') {
+    // The build already happened; this is the page's own send with what
+    // the API answers.
+    sandbox.state.built = response;
+    await sandbox.send();
+  } else if (scenario === 'half-row') {
+    // The buy-back row given a share and no wallet, then checked.
+    rows[1].querySelector('.share-bps').value = '20';
+    await sandbox.build();
+  } else if (scenario === 'blank-row') {
+    // The buy-back row left alone, then checked: it must not be sent.
+    await sandbox.build();
+  }
   process.stdout.write(JSON.stringify({
     note: el('coinNote').textContent,
     kind: el('coinNote').className,
     formShown: el('splitBox').hidden === false,
-    rows: rows.map((r) => ({
-      address: r.querySelector('.share-addr').value,
-      pct: String(r.querySelector('.share-bps').value),
-      locked: r.className.indexOf('locked') !== -1 && r.querySelector('.share-addr').readOnly,
-    })),
+    rows: readRows(),
+    buildNote: el('buildNote').textContent,
+    sendNote: el('sendNote').textContent,
+    sendKind: el('sendNote').className,
+    handed: handed,
+    fetched: sandbox.__fetched || null,
   }));
-});
+})();
 """
 
 
@@ -139,14 +174,14 @@ class TestTheDevIsToldTheTruth(unittest.TestCase):
             self.fail("CHARLIE_REQUIRE_NODE is set but node is not on PATH, so the "
                       "page script was never executed")
 
-    def drive(self, response: dict) -> dict:
+    def drive(self, response: dict, scenario: str = "inspect") -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "page.js").write_text(enroll_page._SCRIPT, encoding="utf-8")
             (root / "harness.js").write_text(HARNESS, encoding="utf-8")
             (root / "response.json").write_text(json.dumps(response), encoding="utf-8")
             done = subprocess.run(
-                [NODE, str(root / "harness.js"), str(root / "page.js"), str(root / "response.json")],
+                [NODE, str(root / "harness.js"), str(root / "page.js"), str(root / "response.json"), scenario],
                 capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(done.returncode, 0, done.stderr)
@@ -264,8 +299,58 @@ class TestTheDevIsToldTheTruth(unittest.TestCase):
 
     def test_the_defaults_total_one_hundred_with_the_connected_wallet_last(self):
         out = self.drive(_response())
-        self.assertAlmostEqual(sum(float(r["pct"]) for r in out["rows"]), 100.0)
+        filled = [r for r in out["rows"] if r["pct"] != ""]
+        self.assertAlmostEqual(sum(float(r["pct"]) for r in filled), 100.0)
         self.assertEqual(out["rows"][-1]["address"], "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
+
+    # -- the BURN leg has a row -----------------------------------------------
+    def test_the_buy_back_and_burn_row_is_offered_blank_and_explained(self):
+        """A dev read the three default rows and could not see where the
+        buy-back-and-burn leg was; it was a sentence under them. Now it is a
+        row: blank, because the wallet is one they hold, with what it does
+        written on it."""
+        out = self.drive(_response())
+        burn = out["rows"][1]
+        self.assertEqual(burn["address"], "")
+        self.assertEqual(burn["pct"], "")
+        self.assertFalse(burn["locked"])
+        self.assertIn("Buy back and burn", burn["caption"])
+        self.assertIn("runs the keeper", burn["caption"])
+        self.assertIn("leave this row blank", burn["caption"])
+        self.assertIn("keeper", burn["hint"])
+        # Every row says what it does, the incinerator and the dev's own included.
+        self.assertIn("burns it", out["rows"][0]["caption"])
+        self.assertIn("destroyed", out["rows"][2]["caption"])
+        self.assertIn("simply yours", out["rows"][3]["caption"])
+
+    def test_a_blank_buy_back_row_is_not_sent(self):
+        out = self.drive(_response(summary=[]), "blank-row")
+        self.assertIn("shares=", out["fetched"])
+        shares = out["fetched"].split("shares=")[1]
+        self.assertEqual(shares.count("%3A"), 3)          # toll, incinerator, wallet
+        self.assertNotIn("%3A0", shares)
+
+    def test_a_half_filled_row_is_refused_before_anything_is_checked(self):
+        """The total above the rows counts percentages whether or not an
+        address is beside them, so a share with no wallet reads as 100% and
+        would be refused by the server as short. Say it on the page first."""
+        out = self.drive(_response(), "half-row")
+        self.assertIn("20% but no address", out["buildNote"])
+        self.assertIn("Paste a wallet into it or remove the row", out["buildNote"])
+        self.assertIsNone(out["fetched"])
+
+    # -- what the wallet is handed --------------------------------------------
+    def test_the_wallet_is_handed_the_signable_transaction_not_the_bare_message(self):
+        """The first real signature attempt failed inside the wallet: "Reached
+        end of buffer unexpectedly". Phantom parses the `message` parameter as
+        a whole transaction, and the page had handed it the bare message."""
+        built = _response(signable="SIGNABLE111", message="MESSAGE111", summary=[])
+        out = self.drive(built, "send")
+        self.assertIsNotNone(out["handed"])
+        self.assertEqual(out["handed"]["method"], "signAndSendTransaction")
+        self.assertEqual(out["handed"]["params"]["message"], "SIGNABLE111")
+        self.assertNotEqual(out["handed"]["params"]["message"], "MESSAGE111")
+        self.assertEqual(out["sendKind"], "note good")
 
     def test_no_toll_address_means_no_form(self):
         """Shipped default until the address is set. The server refuses to
