@@ -246,6 +246,8 @@ async function send() {
     done.textContent = state.create
       ? 'Sent. The fee-sharing config was created and your split is set. pump allows the split to be changed once, so it is now fixed.'
       : 'Sent. Your split is set. pump allows this once, so it is now fixed.';
+    var next = document.createElement('p');
+    next.textContent = 'From here the protocol finds your coin on the chain: the hourly crank asks pump to pay the split whenever the creator vault holds more than pump\u0027s minimum, and the index gives the coin a committed page within a few hours. Nothing to submit.';
     var txp = document.createElement('p');
     var tx = document.createElement('a');
     tx.href = 'https://solscan.io/tx/' + sig;
@@ -260,7 +262,7 @@ async function send() {
     link.href = '/verify/' + state.mint;
     link.textContent = 'See your coin checked';
     check.appendChild(link);
-    n.appendChild(done); n.appendChild(txp); n.appendChild(check);
+    n.appendChild(done); n.appendChild(next); n.appendChild(txp); n.appendChild(check);
     $('send').hidden = true;
     $('build').hidden = true;
   } catch (e) {

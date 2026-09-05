@@ -37,7 +37,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 
-from . import pump
+from . import legs, pump
 from .base58 import pubkey_bytes
 from .buyback import (
     ASSOCIATED_TOKEN_PROGRAM,
@@ -159,6 +159,10 @@ class Plan:
     pool: str | None = None
     amm_vault: str | None = None
     amm_lamports: int = 0
+    # What the split pays the protocol's wallet. The crank is permissionless
+    # and the fee payer is ours, so a coin that does not pay the protocol is
+    # not ours to pay for.
+    toll_bps: int = 0
 
     @property
     def graduated(self) -> bool:
@@ -193,7 +197,8 @@ def plan(rpc, mint: str, payer: str, *, blockhash: str | None = None) -> Plan:
         blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
     message = compile_legacy(payer, instructions, blockhash)
     return Plan(mint, config.address, curve.creator, holders, vault, lamports, message,
-                tuple(instructions), pool_address, amm_vault_address, amm_lamports)
+                tuple(instructions), pool_address, amm_vault_address, amm_lamports,
+                toll_bps=config.share_of(legs.TOLL_DESTINATION) if legs.TOLL_DESTINATION else 0)
 
 
 def _amm_side(rpc, mint: str, config_address: str) -> tuple[str, str, int]:
@@ -268,7 +273,14 @@ def run(rpc, mints, *, payer: str, keypair=None, min_lamports: int = DEFAULT_MIN
             continue
         row.update(vault=built.vault, vault_lamports=built.vault_lamports,
                    shareholders=len(built.shareholders), graduated=built.graduated,
-                   amm_lamports=built.amm_lamports, instructions=len(built.instructions))
+                   amm_lamports=built.amm_lamports, instructions=len(built.instructions),
+                   toll_bps=built.toll_bps)
+        if built.toll_bps < legs.TOLL_BPS:
+            row.update(outcome="skipped",
+                       reason=(f"not enrolled: its split pays the protocol wallet {built.toll_bps} bps, "
+                               f"below {legs.TOLL_BPS}. The crank pays for enrolled coins only"))
+            rows.append(row)
+            continue
         if built.payable_lamports < min_lamports:
             where = (f"vault holds {built.vault_lamports} lamports and the AMM vault "
                      f"{built.amm_lamports}, together below {min_lamports}"

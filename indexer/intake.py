@@ -463,60 +463,70 @@ def run(
             )
             continue
 
-        # D-37: find what the coin actually DOES before reading what it is
-        # configured to do. `scan_burns` walks the mint's own signature
-        # history and classifies each burn as `boost_buy_and_burn` or
-        # `spl_burn`, which is the only measurement here that differs between
-        # two coins -- a split alone reads `ops 10000` for every coin that has
-        # not enrolled, because attribution matches our PDA and PROGRAM_ID is
-        # None. Supply falling is observable whoever caused it.
-        #
-        # BEFORE `observe_coin`, not after: `observe()` reads
-        # `evidence.burns_for()` and `evidence.total_burned()` to compute
-        # BURN_SUPPLY and BURN_ATOMIC. Scanning afterwards would publish a
-        # page whose burn checks describe the run before this one.
-        #
-        # A scan failure does NOT abort the submission. `scan_burns` records
-        # its own `last_error` against the mint's burn cursor, and a partial
-        # walk leaves BURN_SUPPLY reading UNCHECKED rather than wrong -- which
-        # is the outcome the silence rule wants. Answering "we could not
-        # finish looking" beats answering with a total we cannot stand behind.
-        if evidence is not None:
-            try:
-                # Bounded by wall clock, not just pages. Without this a coin
-                # with real trading history walks thousands of transactions
-                # and the run never returns -- one busy coin would stall
-                # every other submission behind it in the queue. A walk cut
-                # short stays incomplete, so its figures stay withheld and
-                # the next run resumes from the same cursor.
-                scan_burns(rpc, evidence, mint,
-                           deadline=time.monotonic() + scan_seconds)
-            except Exception:
-                pass
-
-        record = observe_coin(rpc, mint, registry, now=attempt_time, evidence=evidence)
-
-        if record.error_kind is not None:
-            reason = reason_for(record)
-            _record(number=number, mint=mint, ok=False, reason=reason)
-            outcome = Outcome(issue_number=number, issue_url=url, mint=mint, observed=False, reason=reason)
-        else:
-            site.write(record, out_dir)
-            _record(number=number, mint=mint, ok=True, reason=None)
-            url_for_verdict = verdict_url(mint, site_url) if site_url else None
-            outcome = Outcome(
-                issue_number=number,
-                issue_url=url,
-                mint=mint,
-                observed=True,
-                reason=None,
-                verdict_url=url_for_verdict,
-            )
+        observed, reason, url_for_verdict = measure(
+            rpc, mint, registry, evidence, out_dir,
+            attempt_time=attempt_time, scan_seconds=scan_seconds, site_url=site_url,
+        )
+        _record(number=number, mint=mint, ok=observed, reason=reason)
+        outcome = Outcome(
+            issue_number=number,
+            issue_url=url,
+            mint=mint,
+            observed=observed,
+            reason=reason,
+            verdict_url=url_for_verdict,
+        )
 
         by_mint[mint] = outcome
         outcomes.append(outcome)
 
     return outcomes
+
+
+def measure(rpc, mint: str, registry, evidence, out_dir, *, attempt_time, scan_seconds: float = DEFAULT_SCAN_SECONDS,
+            site_url: str | None = None) -> tuple[bool, str | None, str | None]:
+    """One coin: walk its burns, observe it, write its page. Answers
+    `(observed, reason, verdict_url)`; `reason` is a member of `REASONS`
+    when not observed. Shared by the issue queue and `enrolled.index_new`,
+    so a coin measured because its dev signed for it on the chain is
+    measured exactly as one measured because a stranger asked.
+
+    D-37: find what the coin actually DOES before reading what it is
+    configured to do. `scan_burns` walks the mint's own signature history
+    and classifies each burn as `boost_buy_and_burn` or `spl_burn`, which
+    is the only measurement here that differs between two coins -- a split
+    alone reads `ops 10000` for every coin that has not enrolled, because
+    attribution matches our PDA and PROGRAM_ID is None. Supply falling is
+    observable whoever caused it.
+
+    BEFORE `observe_coin`, not after: `observe()` reads
+    `evidence.burns_for()` and `evidence.total_burned()` to compute
+    BURN_SUPPLY and BURN_ATOMIC. Scanning afterwards would publish a page
+    whose burn checks describe the run before this one.
+
+    A scan failure does NOT abort the measurement. `scan_burns` records its
+    own `last_error` against the mint's burn cursor, and a partial walk
+    leaves BURN_SUPPLY reading UNCHECKED rather than wrong -- which is the
+    outcome the silence rule wants. Answering "we could not finish looking"
+    beats answering with a total we cannot stand behind.
+    """
+    if evidence is not None:
+        try:
+            # Bounded by wall clock, not just pages. Without this a coin
+            # with real trading history walks thousands of transactions
+            # and the run never returns -- one busy coin would stall
+            # every other submission behind it in the queue. A walk cut
+            # short stays incomplete, so its figures stay withheld and
+            # the next run resumes from the same cursor.
+            scan_burns(rpc, evidence, mint, deadline=time.monotonic() + scan_seconds)
+        except Exception:
+            pass
+
+    record = observe_coin(rpc, mint, registry, now=attempt_time, evidence=evidence)
+    if record.error_kind is not None:
+        return False, reason_for(record), None
+    site.write(record, out_dir)
+    return True, None, (verdict_url(mint, site_url) if site_url else None)
 
 
 # -- the reply: separate from the run, so a link is never cited before it --
