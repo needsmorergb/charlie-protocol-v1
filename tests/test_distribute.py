@@ -55,7 +55,8 @@ def crank_rpc(*, graduated=False, vault_lamports=50_000_000):
         ),
         CHARLIE: mint_account(1_000_000_000),
     }
-    return _Rpc(accounts, balances={distribute.creator_vault(CHARLIE_CONFIG): vault_lamports})
+    return _Rpc(accounts, balances={distribute.creator_vault(CHARLIE_CONFIG): vault_lamports,
+                                    PAYER: 10_000_000})
 
 
 def no_config_rpc():
@@ -150,6 +151,24 @@ class TestTheRun(unittest.TestCase):
         self.assertEqual(rows[0]["outcome"], "sent")
         self.assertEqual(rows[0]["signature"], "sig111")
         self.assertEqual(confirmed, ["sig111"])
+
+    def test_a_payer_with_no_sol_is_refused_before_the_first_coin(self):
+        # The runtime answers AccountNotFound for a fee payer that does not
+        # exist, before any instruction runs; every row would say that and
+        # nothing about the payouts. The crank says it once, up front.
+        rpc = crank_rpc()
+        with self.assertRaises(distribute.DistributeError) as caught:
+            distribute.run(rpc, [CHARLIE], payer="8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8")
+        self.assertIn("holds no SOL", str(caught.exception))
+        self.assertFalse(hasattr(rpc, "simulated"))
+
+    def test_account_not_found_is_explained_as_the_payer_not_the_payout(self):
+        self.assertIn("fee payer", distribute.explain({"err": "AccountNotFound", "logs": []}))
+
+    def test_the_stand_in_payer_is_pump_s_fee_wallet(self):
+        # The wallet every pump trade pays its protocol fee into: it exists
+        # for as long as pump does, which is what a simulation's payer needs.
+        self.assertEqual(distribute.STAND_IN_PAYER, "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM")
 
     def test_one_coin_s_failure_does_not_stop_the_next(self):
         rpc = crank_rpc()

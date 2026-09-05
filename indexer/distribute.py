@@ -46,6 +46,14 @@ DISTRIBUTE_CREATOR_FEES = bytes.fromhex("a572670079cef751")
 # pays out nothing worth the fee.
 DEFAULT_MIN_LAMPORTS = 5_000_000
 
+# A simulation needs a fee payer that exists on chain: the runtime answers
+# AccountNotFound for one that holds no SOL, before running a single
+# instruction. Without a key there is no wallet of ours to name, so the
+# crank simulates as pump's own fee wallet -- the account every pump trade
+# pays its protocol fee into, which therefore exists and is funded for as
+# long as pump does. `run` still reads its balance before trusting it.
+STAND_IN_PAYER = "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM"
+
 
 class DistributeError(ValueError):
     """A coin this crank will not pay, and why."""
@@ -134,6 +142,8 @@ def explain(value: dict) -> str:
         return "pump refused the shareholder list: it must be exactly the config's shareholders in order."
     if "6052" in logs:
         return "a shareholder is a program, which pump will not pay."
+    if value.get("err") == "AccountNotFound":
+        return "the fee payer does not exist on chain: it holds no SOL, so nothing it pays for can run."
     return f"pump refused the distribution: {value.get('err')}"
 
 
@@ -142,8 +152,15 @@ def run(rpc, mints, *, payer: str, keypair=None, min_lamports: int = DEFAULT_MIN
     """Plan, simulate and -- with a keypair -- send, one coin at a time.
 
     Every outcome is a row: skipped (with why), simulated, sent (with the
-    signature). A failure on one coin never stops the next.
+    signature). A failure on one coin never stops the next. A payer that
+    holds no SOL is refused before the first coin, because every simulation
+    would answer AccountNotFound and say nothing about the payouts.
     """
+    if rpc.balance(payer) == 0:
+        raise DistributeError(
+            f"the fee payer {payer} holds no SOL, so nothing it pays for can be "
+            "simulated or sent. Fund it, or simulate as a funded wallet with --payer."
+        )
     rows = []
     for mint in mints:
         row = {"mint": mint}
