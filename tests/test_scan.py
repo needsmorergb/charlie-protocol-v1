@@ -608,10 +608,6 @@ class TestOpeningBalanceThreeWayDistinction(unittest.TestCase):
             self.assertNotEqual(check.status, invariants.FAIL)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestRecipientKind(unittest.TestCase):
     """D-40. What a fee recipient IS, from its owner program.
 
@@ -662,3 +658,7 @@ class TestRecipientKind(unittest.TestCase):
         """
         for kind in legs.RECIPIENT_KINDS:
             self.assertNotIn(kind, invariants.FIGURES)
+
+
+if __name__ == "__main__":
+    unittest.main()

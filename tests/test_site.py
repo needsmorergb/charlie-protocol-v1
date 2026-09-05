@@ -28,12 +28,15 @@ import inspect
 import re
 
 from indexer import invariants, publish, pump, site
+
+ROOT = Path(__file__).resolve().parents[1]
 from indexer.evidence import Evidence
 from indexer.legs import Registry, split_of
 from indexer.observe import Observation, observe
 
 from test_indexer import CHARLIE, charlie_rpc  # noqa: E402
 from test_publication import (  # noqa: E402
+    SPENDABLE,
     build_all_blocked_sentinel_observation,
     build_all_publishable_sentinel_observation,
     build_observation,
@@ -73,7 +76,9 @@ class TestWithheldFigureRow(unittest.TestCase):
         self.assertNotIn(str(distinctive_balance), rendered)
 
     def test_withheld_figure_names_every_blocking_check_not_just_the_first(self):
-        observation = build_observation()
+        # SPENDABLE, because the check that blocks this figure only fails on a
+        # destination SOL can come back from. A burn address passes it.
+        observation = build_observation(sol_burn_address=SPENDABLE)
         reasons = observation.verdict.blocked[invariants.SOL_BURN_TOTAL]
         blocking_names = [name for name, _status, _detail in reasons]
         self.assertGreaterEqual(len(blocking_names), 2, "fixture must block sol_burn_total with 2+ checks")
@@ -242,7 +247,7 @@ class TestSolBurnFailureBanner(unittest.TestCase):
     """
 
     def test_banner_present_with_the_check_detail_verbatim_for_a_fail_observation(self):
-        observation = build_observation()
+        observation = build_observation(sol_burn_address=SPENDABLE)
         check = next(c for c in observation.checks if c.name == "SOL_BURN_UNSPENDABLE")
         self.assertEqual(check.status, invariants.FAIL)
 
@@ -264,19 +269,20 @@ class TestSolBurnFailureBanner(unittest.TestCase):
 
     def test_no_sol_burn_lamports_value_appears_anywhere_for_a_fail_observation(self):
         distinctive_balance = 91_234_567
-        observation = build_observation(sol_burn_balance=distinctive_balance)
+        observation = build_observation(sol_burn_balance=distinctive_balance,
+                                        sol_burn_address=SPENDABLE)
         rendered = site.render(observation, now=2.0)
         self.assertNotIn(str(distinctive_balance), rendered)
 
     def test_banner_renders_above_the_figures_section(self):
-        observation = build_observation()
+        observation = build_observation(sol_burn_address=SPENDABLE)
         rendered = site.render(observation, now=2.0)
         banner_pos = rendered.index('data-banner="sol-burn-failure"')
         figures_pos = rendered.index('id="figures"')
         self.assertLess(banner_pos, figures_pos)
 
     def test_freshness_renders_above_the_banner(self):
-        observation = build_observation()
+        observation = build_observation(sol_burn_address=SPENDABLE)
         rendered = site.render(observation, now=2.0)
         freshness_pos = rendered.index('class="freshness"')
         banner_pos = rendered.index('data-banner="sol-burn-failure"')
@@ -432,13 +438,29 @@ class TestErrorBranchNoFigures(unittest.TestCase):
 
 
 class TestRisksSection(unittest.TestCase):
-    def test_exactly_seven_risk_entries(self):
-        observation = build_observation()
+    def _risks(self, observation):
         rendered = site.render(observation, now=2.0)
         start = rendered.index('id="risks"')
-        end = rendered.index("</section>", start)
-        risks_html = rendered[start:end]
-        self.assertEqual(risks_html.count("<li"), 7)
+        return rendered[start:rendered.index("</section>", start)]
+
+    def test_six_entries_for_a_coin_burning_to_a_burn_address(self):
+        # Four standing risks, the walk risk, and the generator-unverified
+        # entry. Nothing about the SOL burn destination, because there is
+        # nothing wrong with it.
+        self.assertEqual(self._risks(build_observation()).count("<li"), 6)
+
+    def test_a_seventh_appears_only_when_this_coin_fails_the_check(self):
+        risks = self._risks(build_observation(sol_burn_address=SPENDABLE))
+        self.assertEqual(risks.count("<li"), 7)
+        self.assertIn("SOL_BURN_UNSPENDABLE fails", risks)
+
+    def test_a_passing_coin_is_told_no_such_risk(self):
+        """The entry was static, and said "fails permanently for this coin" on
+        every page -- including pages whose own check row read PASS two
+        sections above. A page that contradicts its own check is the defect
+        this whole site exists to refuse.
+        """
+        self.assertNotIn("SOL_BURN_UNSPENDABLE fails", self._risks(build_observation()))
 
     def test_seventh_entry_carries_the_generator_unverified_constant_as_one_unit(self):
         observation = build_observation()
@@ -706,10 +728,6 @@ class TestWrite(unittest.TestCase):
             self.assertTrue(html_path.is_file())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestWalkStateAndNonBoost(unittest.TestCase):
     """Two claims that were template constants and became false against live
     evidence the first time the burn walk ran to completion. Both are now
@@ -738,10 +756,17 @@ class TestWalkStateAndNonBoost(unittest.TestCase):
             says_complete = "walk is complete" in text
             self.assertEqual(says_complete, complete, f"walk_complete={complete}")
 
-    def test_risks_section_still_carries_exactly_seven_entries(self):
-        """D-20: six risks plus the generator-unverified entry. Moving the
-        walk risk out of the static tuple must not change the count."""
-        self.assertEqual(len(site._RISKS) + 2, 7)
+    def test_the_static_risks_are_the_ones_true_of_every_coin(self):
+        """D-20. Four standing risks, plus the walk risk and the
+        generator-unverified entry, which are appended per observation. A
+        risk that is only true of some coins does not belong in the tuple --
+        that is how "SOL_BURN_UNSPENDABLE fails permanently for this coin"
+        came to be printed on coins where it passed.
+        """
+        self.assertEqual(len(site._RISKS), 4)
+        for risk in site._RISKS:
+            with self.subTest(risk=risk):
+                self.assertNotIn("this coin", risk)
 
     def test_non_boost_burns_are_stated_separately_and_computed(self):
         events = [
@@ -1870,79 +1895,121 @@ class TestNoEmDashes(unittest.TestCase):
                 self.assertNotIn(token, source)
 
 
-class TestDeflationCounterfactual(unittest.TestCase):
-    """The SOL figure is a sum of burns already shown on the page, not a new
-    measurement. It must agree with the "SOL spent buying them" counter by
-    construction, because both read `burn_events.sol_spent`.
+class TestTheLoopIsReadableWithNothingRunning(unittest.TestCase):
+    """The flywheel shipped to production with no test of any kind.
+
+    It is a decorative ring with an animated rider, and the mechanism it
+    illustrates is the one claim the whole site rests on. So the thing that
+    has to hold is not that the circle draws: it is that a visitor who gets
+    no animation, no images, or a screen reader still reads the mechanism.
     """
 
-    def _obs(self, rows, complete=True):
-        o = Observation(mint=CHARLIE, observed_at=1.0)
-        o.burn_events = rows
-        o.burn_walk_complete = complete
-        return o
+    def page(self):
+        return site.render_landing(_counters_fixture(), now=2.0)
 
-    def test_sums_the_recorded_burns(self):
-        h = site._deflation(self._obs([{"sol_spent": 17_584_506_254}, {"sol_spent": 0}]))
-        self.assertIn("17.584506254 SOL", h)
+    def test_the_loop_is_on_the_landing_page(self):
+        self.assertIn('id="flywheel"', self.page())
 
-    def test_agrees_with_the_counter_that_shows_the_same_rows(self):
-        """Both read burn_events.sol_spent, so the two can never disagree --
-        which is the whole reason it is computed from them.
+    def test_the_four_steps_are_prose_rather_than_labels_on_the_ring(self):
+        page = self.page()
+        for step in ("Trading pays a creator fee",
+                     "The fee buys the token, and the token is burned",
+                     "Buying is volume, and volume pays more fees",
+                     "A share reaches Solana&#x27;s incinerator"):
+            with self.subTest(step=step):
+                self.assertIn(step, page)
+
+    def test_the_ring_is_hidden_from_a_screen_reader(self):
+        """A screen reader gets the ordered list. Read aloud, the ring is a
+        circle, two images and a coin: no mechanism at all.
         """
-        rows = [{"sol_spent": 1_500_000_000}, {"sol_spent": 2_500_000_000}]
-        self.assertIn("4.000000000 SOL", site._deflation(self._obs(rows)))
+        page = self.page()
+        stage = page[page.index('class="fly-stage"'):]
+        self.assertTrue(stage.startswith('class="fly-stage" aria-hidden="true"'), stage[:80])
 
-    def test_withheld_while_the_walk_is_unfinished(self):
-        """A partial walk gives a smaller total that looks exactly like a
-        finished one -- and providers were observed returning an empty array
-        rather than an error, so short and failed are indistinguishable.
+    def test_reduced_motion_stops_every_animation_it_starts(self):
+        """Three elements animate. A `prefers-reduced-motion` block that
+        stopped two of them would still spin Charlie round the ring for a
+        reader who asked the operating system for stillness.
         """
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}], complete=False))
-        self.assertIn("Not shown", h)
-        self.assertNotIn("5.000000000", h)
+        page = self.page()
+        # Every rule that starts an animation, so the list below cannot fall
+        # behind a fourth one somebody adds.
+        animated = set(re.findall(r"\.(fly-[a-z]+)[^{}]*\{[^{}]*animation:[^{}]*\}", page))
+        self.assertEqual(animated, {"fly-path", "fly-orbit", "fly-rider"})
 
-    def test_no_burns_says_so_rather_than_showing_zero(self):
-        h = site._deflation(self._obs([]))
-        self.assertIn("No burn is recorded", h)
-        self.assertNotIn("0.000000000 SOL", h)
+        blocks = [b for b in re.findall(
+            r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", page, re.S)
+            if "fly-" in b]
+        self.assertEqual(len(blocks), 1, "the loop's reduced-motion block")
+        stilled, = blocks
+        for name in sorted(animated):
+            with self.subTest(rule=name):
+                self.assertIn(f".{name}", stilled)
+        self.assertIn("animation: none", stilled)
 
-    def test_says_it_did_not_happen(self):
-        """The heading says COULD have been. Without this the figure reads as
-        a measurement of something that occurred.
+    def test_every_image_it_loads_is_one_the_site_already_ships(self):
+        """The hub and the rider are `<img src>`. A renamed asset leaves a
+        broken image on the front page and nothing else fails.
         """
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
-        self.assertIn("This did not happen", h)
+        loop = site._flywheel()
+        srcs = set(re.findall(r'<img[^>]*src="([^"]+)"', loop))
+        self.assertEqual(srcs, {site.CHARLIE_SRC, site.INCINERATOR_SMOKE_SRC,
+                                site.INCINERATOR_STACK_SRC})
+        for src in srcs:
+            with self.subTest(src=src):
+                self.assertTrue((ROOT / "web" / src.lstrip("/")).exists(), src)
 
-    def test_the_statement_stays_one_sentence(self):
-        """Every clause past the first is a chance to imply something untrue
-        about the modes. Two <p> only: the figure's sentence and the meta line.
+    def test_the_decorative_images_are_not_announced(self):
+        """`alt=""` on all three, because the list beside them says it in
+        words. An alt text here would read the mechanism out twice.
         """
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
-        body = h[h.index("deflation-value"):]
-        self.assertEqual(body.count("<p"), 2)
+        for tag in re.findall(r"<img[^>]*>", site._flywheel()):
+            with self.subTest(tag=tag):
+                self.assertIn('alt=""', tag)
 
-    def test_uses_one_word_for_it(self):
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
-        self.assertIn("deflation", h)
-        for softer in ("removed from circulation", "taken out of circulation", "sealed", "locked"):
-            with self.subTest(phrase=softer):
-                self.assertNotIn(softer, h)
+    def test_the_loop_comes_before_the_counters_it_explains(self):
+        # From <main> only: the stylesheet names the counter class long
+        # before the body does.
+        body = self.page()
+        body = body[body.index("<main>"):]
+        self.assertLess(body.index('id="flywheel"'), body.index('class="counter-value"'))
 
-    def test_does_not_frame_the_two_burns_as_alternatives(self):
-        """Burning the coin's supply and burning SOL are not a choice between
-        them -- a coin can do both, and the protocol will offer that mode. Copy
-        that posed it as a trade-off would contradict a product we intend to
-        ship, so it stays out.
+
+class TestNoCounterfactualReachesACoinPage(unittest.TestCase):
+    """The page once printed what a coin's recorded burns WOULD have destroyed
+    had that SOL gone to a burn instead of buying tokens.
+
+    Nine tests covered the shape of that section and every one of them kept
+    passing after the section stopped being rendered, because they called the
+    renderer directly. So the guard now runs the page a visitor actually gets
+    and asserts the counterfactual is absent from it -- and the renderer is
+    deleted, so there is nothing left to call directly.
+    """
+
+    def _page(self):
+        observation = Observation(mint=CHARLIE, observed_at=1.0)
+        observation.burn_events = [{"sol_spent": 17_584_506_254}]
+        observation.burn_walk_complete = True
+        return site.render(observation)
+
+    def test_the_renderer_is_gone_rather_than_merely_unreferenced(self):
+        # Unreachable code with passing tests behind it is how the section
+        # survived its own removal for a fortnight.
+        self.assertFalse(hasattr(site, "_deflation"))
+
+    def test_the_page_states_no_hypothetical(self):
+        page = self._page()
+        self.assertNotIn("This did not happen", page)
+        self.assertNotIn('id="deflation"', page)
+
+    def test_the_measured_burn_section_survives_the_deletion(self):
+        """The counterfactual was derived from real recorded burns, and those
+        burns have their own section. Removing the hypothetical must not take
+        the measurement with it.
         """
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}])).lower()
-        for framing in ("both destroy", "the difference is whether",
-                        "instead", "rather than", "either"):
-            with self.subTest(phrase=framing):
-                self.assertNotIn(framing, h)
+        self.assertIn('id="the-burn"', self._page())
 
-    def test_is_not_a_gated_figure(self):
-        h = site._deflation(self._obs([{"sol_spent": 5_000_000_000}]))
-        for name in invariants.FIGURES:
-            with self.subTest(figure=name):
-                self.assertNotIn(name, h)
+
+if __name__ == "__main__":
+    unittest.main()

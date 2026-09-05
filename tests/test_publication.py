@@ -31,6 +31,16 @@ CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 PUMP_AMM_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 GRANDFATHERED = "burn111111111111111111111111111111111111111"
 
+# An on-curve address that is not a recognised burn address, which is what
+# SOL_BURN_UNSPENDABLE fails on -- it passes on GRANDFATHERED, because a burn
+# address is a burn address and this is not one. The check asks whether SOL
+# can come back, not whether the address was derived by a program.
+#
+# It is wrapped SOL's mint. Nobody holds that key; it is used here only
+# because it is a real 32-byte on-curve value, which is the only property the
+# fixture needs.
+SPENDABLE = "So11111111111111111111111111111111111111112"
+
 
 # -- fixtures (mirrors tests/test_burns.py's style) --------------------------
 def burn_instruction(mint, amount, program_id=TOKEN_2022_PROGRAM, account="acct-1", authority="auth-1"):
@@ -366,18 +376,27 @@ def mint_state(supply=900) -> MintState:
     return MintState(mint=CHARLIE, supply=supply, decimals=6, mint_authority=None, freeze_authority=None, program=TOKEN_2022_PROGRAM)
 
 
-def make_registry() -> Registry:
-    return Registry(program_id=None, grandfathered_sol_burn=frozenset({GRANDFATHERED}))
+def make_registry(sol_burn_address=GRANDFATHERED) -> Registry:
+    return Registry(program_id=None, grandfathered_sol_burn=frozenset({sol_burn_address}))
 
 
 def make_split(sol_burn_address=GRANDFATHERED) -> Split:
+    """A split paying one SOL-burn destination in full.
+
+    The registry grandfathers whatever address it is given, so the address
+    lands on the sol_burn leg whatever it looks like. That is what lets
+    SPENDABLE reach SOL_BURN_UNSPENDABLE as a failure: the check asks whether
+    a sol_burn destination is a burn destination, and it can only be handed
+    one the classifier already put on that leg.
+    """
     return split_of(
         type("Cfg", (), {"mint": CHARLIE, "shareholders": ((sol_burn_address, 10_000),)})(),
-        make_registry(),
+        make_registry(sol_burn_address),
     )
 
 
-def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, config_mismatch=False) -> Observation:
+def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, config_mismatch=False,
+                      sol_burn_address=GRANDFATHERED) -> Observation:
     class FakeRpc:
         def __init__(self, balance):
             self._balance = balance
@@ -385,7 +404,7 @@ def build_observation(*, evidence=None, sol_burn_balance=0, mint_supply=900, con
         def balance(self, address):
             return self._balance
 
-    split = make_split()
+    split = make_split(sol_burn_address)
     record = Observation(mint=CHARLIE, observed_at=1.0)
     record.config = type("Cfg", (), {
         "mint": CHARLIE if not config_mismatch else "other-mint",

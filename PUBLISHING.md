@@ -37,7 +37,17 @@ Then check, before pushing:
 - `git log --all --format='%ae' | sort -u` — one address, the noreply one
 - `git log --all --pretty=format: --name-only | grep '^\.planning'` — empty
 - every markdown link resolves (the filter breaks links into `.planning/`)
-- `python -m unittest discover -s tests -t tests` — all pass
+- `CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests` — all pass.
+  The page's own script is JavaScript inside a Python string, so it is executed
+  under `node` rather than merely rendered. Without that variable a missing
+  `node` skips those tests and the suite still says OK, which is the false
+  confidence they exist to remove; with it, a missing `node` fails.
+- `python tools/shared_sync.py --against <deploy checkout>` — the deployed copy
+  of `indexer/`, `api/`, `vercel.json` and `web/assets/` is this code, byte for
+  byte. Both repositories run this in CI, and it is what caught production
+  running a `site.py` and an `invariants.py` this repository had never tested.
+  Not the evidence record: the deploy repository is where intake runs, so it
+  measures rows this one has never seen and writes its own export.
 
 Push to `needsmorergb/charlie-protocol-v1`, branch `main`.
 
@@ -98,10 +108,29 @@ exists to make visible.
 
 ```bash
 # 1. Generate everything current HEAD can produce.
-python -m indexer intake --repo needsmorergb/charlie-protocol-site \
+python -m indexer intake --repo needsmorergb/charlie-protocol-site --refresh \
   --evidence state/evidence.db --out web --site-url https://charlieprotocol.fun
+#     --refresh re-renders every coin page already under web/. Without it a
+#     page stays as whatever renderer wrote it, which is how a live page came
+#     to print "SOL_BURN_UNSPENDABLE fails permanently for this coin" above a
+#     check row on the same page reading PASS.
 # (or, with no open submissions to measure, just rebuild the index:)
 python -m indexer index --out web
+
+# 1b. The landing page. `intake` writes coins-N, verify, 404 and enroll; it
+#     does NOT write index.html, which comes only from this command. Skipping
+#     it is how a correction to the landing copy became source the deployed
+#     site never served.
+#
+#     --require-counters is not optional here. The landing counters are read
+#     from the chain, and an observation whose reads all failed renders a
+#     perfectly valid page with six counters saying "unknown". Without the
+#     flag that page writes, commits and deploys, and the front door goes
+#     blank on a bad RPC day. With it, the command exits 1 and the page
+#     already published stays up.
+python -m indexer site --write --landing --require-counters \
+  --evidence state/evidence.db --out web \
+  8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump
 
 # 2. Clone the deploy target fresh -- do not reuse a stale checkout.
 git clone https://github.com/needsmorergb/charlie-protocol-site.git /tmp/cp-site

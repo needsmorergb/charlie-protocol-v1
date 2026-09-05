@@ -61,10 +61,17 @@ leg, not third-party burns. $CHARLIE has zero protocol-attributed burns (no
 protocol program exists yet), so `BURN_ATOMIC` reads not-applicable for
 $CHARLIE, and for every coin, until phase 5.
 
-$CHARLIE specifically: `SOL_BURN_UNSPENDABLE` fails permanently — its SOL burn
-address is a vanity address rather than the program-derived one PROTOCOL.md
-sec.3 requires, and its config is `admin_revoked` so only pump could ever fix
-that. No SOL burn total is publishable for $CHARLIE, now or later. The opening-balance mechanism
+$CHARLIE specifically: `SOL_BURN_UNSPENDABLE` passes. Its SOL burn address is
+`burn111…111`, a burn address, and SOL sent there is out of circulation and
+stays there — the check asks whether SOL can come back, not whether the
+address was derived by a program. An earlier version of it demanded program
+derivation from every coin and printed a red FAIL on this one for not using a
+program that does not exist yet; that was a category error and it is
+retracted. No SOL burn total is published for $CHARLIE yet all the same, and
+for a different reason: `SOL_BURN_BALANCE` is UNCHECKED until the inflow walk
+runs, and an absence of evidence is never a total. Its config is
+`admin_revoked`, so its split is permanent whatever else changes.
+The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
 vaults exist (phase 5) — every SOL burn destination today is the grandfathered
 shared address, which the mechanism deliberately excludes (D-06/D-07).
@@ -117,10 +124,40 @@ Offline, no network. Every account fed to a decoder is built byte by byte, so a
 layout change in pump's program surfaces as a failing decode rather than as a
 wrong number in a published post.
 
+The enrolment page's own script is JavaScript living inside a Python string, so
+it is executed under `node` rather than merely rendered. `node` is not a
+dependency: without it those tests skip and the rest still run. Before
+publishing, require it, so a skip cannot pass for a pass:
+
+```bash
+CHARLIE_REQUIRE_NODE=1 python -m unittest discover -s tests -t tests
+```
+
 ## Relationship to the other repos
 
-This repository is the whole of the public project. There is one implementation
-and no second copy to drift.
+This repository holds the implementation, the specs and the tests.
+`charlie-protocol-site` is what Vercel deploys, and it carries a copy of
+`indexer/`, `api/` and `vercel.json` so its functions and its GitHub Actions
+can run. That copy is real, and it drifted: production had a whole rendered
+section this repository had never seen, and a rewritten check whose old
+meaning the tests here were still asserting.
+
+So the copy is compared rather than remembered:
+
+```bash
+python tools/shared_sync.py --against ../charlie-protocol-site   # a local checkout
+python tools/shared_sync.py --against-branch main                # what GitHub serves
+python tools/shared_sync.py --copy-to ../charlie-protocol-site   # the only sync direction
+```
+
+`tests/test_shared_sync.py` recomputes the shared list from the import graph,
+so a new module cannot be quietly left out of it, and both repositories run
+the comparison on every push. Point `CHARLIE_SITE_REPO` at a deploy checkout
+to have the suite here compare against it too:
+
+```bash
+CHARLIE_SITE_REPO=../charlie-protocol-site python -m unittest discover -s tests -t tests
+```
 
 - **`charlie_xbot`** — private. The $CHARLIE burn watcher, live since
   2026-08-23. Predates the protocol and implements one leg of it. Where the
