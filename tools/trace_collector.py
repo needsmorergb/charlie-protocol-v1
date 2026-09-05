@@ -7,7 +7,7 @@ repository could not answer from press coverage: a project claiming to send
 trustworthy.
 
     fee_share      bonding_curve.creator names a SharingConfig, and pump pays
-                   the shareholders it lists. Enrolment is `update_fee_shares_v2`,
+                   the shareholders it lists. Enrollment is `update_fee_shares_v2`,
                    the one-shot instruction /enroll already calls.
     plain_creator  bonding_curve.creator is an ordinary address. Fees accrue to
                    whoever holds that key, and "routing" is whatever that holder

@@ -142,7 +142,7 @@ class handler(BaseHTTPRequestHandler):
             blockhash = blockhash["value"]["blockhash"]
             # One signature either way. No config: create it and set the
             # split in the same transaction. Config: set the split.
-            message = enroll.enrolment_message(
+            message = enroll.enrollment_message(
                 mint, authority, shares, blockhash,
                 create=config is None,
                 current=[a for a, _bps in config.shareholders] if config else (),

@@ -110,7 +110,7 @@ def protocol_share(split) -> Check:
     """Is this coin in the protocol: does its on-chain split pay the
     protocol's collection wallet at least the protocol's rate?
 
-    This is the whole of enrolment, and pump is what enforces it. The
+    This is the whole of enrollment, and pump is what enforces it. The
     sharing config pays every shareholder from the coin's creator vault, and
     once the config's one change is spent no key can alter it -- so a coin
     that carries the share carries it for good. A coin that does not is not
