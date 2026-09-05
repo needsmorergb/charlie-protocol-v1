@@ -468,6 +468,53 @@ def _export(args) -> int:
     return 0
 
 
+def _distribute(args) -> int:
+    """Pay an enrolled coin's shareholders, the protocol's included.
+
+    `--all-enrolled` reads the coins whose committed record carries a passing
+    PROTOCOL_SHARE off `--out`, the same records the index is built from.
+    Without `--keypair` everything is built and simulated and nothing is
+    sent; with one, the wallet it holds pays the network fee and signs
+    nothing else, because the instruction has no signer.
+    """
+    from . import distribute
+    rpc = RpcClient(_endpoints(args.rpc))
+    mints = list(args.mints)
+    if args.all_enrolled:
+        records, _known = _index_inputs(Path(args.out))
+        mints += distribute.enrolled_mints(records)
+    mints = sorted(set(mints))
+    if not mints:
+        print("no coins to distribute for")
+        return 0
+    keypair = None
+    if args.keypair:
+        from .ed25519 import Keypair
+        keypair = Keypair.from_file(args.keypair)
+        payer = keypair.address
+    else:
+        payer = args.payer or "11111111111111111111111111111111"
+    from .buyback import confirm as confirm_signature
+    rows = distribute.run(rpc, mints, payer=payer, keypair=keypair,
+                          min_lamports=args.min_lamports,
+                          confirm=confirm_signature if keypair else None)
+    failures = 0
+    for row in rows:
+        outcome = row["outcome"]
+        if outcome == "skipped":
+            print(f"{row['mint']}  skipped   {row['reason']}")
+        elif outcome == "refused":
+            print(f"{row['mint']}  REFUSED   {row['reason']}")
+            failures += 1
+        elif outcome == "simulated":
+            print(f"{row['mint']}  simulated  vault {row['vault_lamports']} lamports, "
+                  f"{row['shareholders']} shareholders, {row['units']} compute units -- not sent")
+        else:
+            print(f"{row['mint']}  SENT      {row['signature']}  vault {row['vault_lamports']} lamports "
+                  f"to {row['shareholders']} shareholders")
+    return 1 if failures else 0
+
+
 def _load(args) -> int:
     """The committed text export, loaded into a working store.
 
@@ -802,6 +849,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}"
     )
     refresh_cmd.set_defaults(handler=_refresh)
+
+    distribute_cmd = sub.add_parser(
+        "distribute", parents=[common],
+        help="pay an enrolled coin's shareholders from its creator vault (permissionless; a wallet pays the fee)",
+    )
+    distribute_cmd.add_argument("mints", nargs="*")
+    distribute_cmd.add_argument("--all-enrolled", action="store_true",
+                                help="every coin whose committed record under --out has PROTOCOL_SHARE PASS")
+    distribute_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
+    distribute_cmd.add_argument("--keypair", help="the fee payer's key file; without it, simulate only")
+    distribute_cmd.add_argument("--payer", help="the fee payer's address, for a simulation without a key file")
+    distribute_cmd.add_argument("--min-lamports", type=int, default=5_000_000,
+                                help="skip a vault holding less than this (default 5000000)")
+    distribute_cmd.set_defaults(handler=_distribute)
 
     load_cmd = sub.add_parser(
         "load", help="load the committed text export into a working evidence store"
