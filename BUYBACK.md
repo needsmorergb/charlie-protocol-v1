@@ -52,6 +52,23 @@ that to its SOL burn address. So each crank does three things: it is buy
 volume, it destroys token supply, and it feeds the SOL burn. That is the
 loop the landing page describes, with a wallet standing in for the program.
 
+## Before graduation: the same leg on the bonding curve
+
+A coin spends most of its life -- all of it, for the 97% that never
+graduate -- on pump's bonding curve, where there is no PumpSwap pool to buy
+from. `indexer/curvebuy.py` runs the same leg there with pump's own `buy`:
+exact tokens out for at most the lot in native SOL, no wrapping, then the
+SPL burn in the same transaction. Its sixteen accounts, its args and the
+curve's arithmetic (`amount * virtual_sol / (virtual_token - amount) + 1`,
+then the protocol and creator fees rounded up) come from the deployed
+program's on-chain IDL, read by the deploy repository's `idl` workflow, and
+its `buyback` workflow simulates the transaction against a live curve on
+every change. `python -m indexer buyback <mint>` picks the venue itself:
+the curve while the coin is on it, the pool once it has graduated, and the
+keeper switches over mid-run when graduation happens. A wallet that has
+never traded on pump gets its volume accumulator created in the same
+transaction, once.
+
 ## Using it
 
 Python 3.11, standard library only. From the repository root:

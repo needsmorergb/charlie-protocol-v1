@@ -920,16 +920,19 @@ def render(plan: Plan) -> str:
     sol = LAMPORTS_PER_SOL
     lines = [f"{plan.kind.replace('_', ' ')} -- {plan.mint}", f"wallet {plan.user}", ""]
     rows = []
-    if plan.kind == "buy_and_burn":
+    if plan.kind in ("buy_and_burn", "curve_buy_and_burn"):
         c = plan.expected_cost
+        on_curve = plan.kind == "curve_buy_and_burn"
         rows += [
-            ("lot (max spend)", f"{plan.lot_lamports / sol:.9f} SOL", "max_quote_amount_in"),
+            ("venue", "pump bonding curve" if on_curve else "PumpSwap pool", "where the coin trades right now"),
+            ("lot (max spend)", f"{plan.lot_lamports / sol:.9f} SOL", "max_sol_cost" if on_curve else "max_quote_amount_in"),
             ("expected spend", f"{c['total'] / sol:.9f} SOL", "quote_in + lp + protocol + creator fee, at quote time"),
             ("  of which creator fee", f"{c['creator_fee'] / sol:.9f} SOL", f"{plan.fees['creator_bps']} bps -> the coin's fee split"),
-            ("tokens bought", f"{_ui(plan.base_out, d):,.{d}f}", "base_amount_out, exact"),
+            ("tokens bought", f"{_ui(plan.base_out, d):,.{d}f}", "amount, exact" if on_curve else "base_amount_out, exact"),
             ("price before", f"{plan.price_before:.12f} SOL", "quote_reserve / base_reserve"),
             ("price after", f"{plan.price_after:.12f} SOL", f"+{plan.impact_bps / 100:.2f}% from this buy alone"),
-            ("pool reserves", f"{plan.quote_reserve / sol:,.4f} SOL / {_ui(plan.base_reserve, d):,.0f} tokens", "effective quote reserve"),
+            ("reserves", f"{plan.quote_reserve / sol:,.4f} SOL / {_ui(plan.base_reserve, d):,.0f} tokens",
+             "virtual reserves" if on_curve else "effective quote reserve"),
             ("market cap", f"{plan.market_cap_lamports / sol:,.2f} SOL", "quote_reserve * supply / base_reserve"),
             ("fee tier", f"{plan.fees['total_bps']} bps", f"lp {plan.fees['lp_bps']} + protocol {plan.fees['protocol_bps']} + creator {plan.fees['creator_bps']}"),
         ]
@@ -992,14 +995,33 @@ def _execute(rpc, plan: Plan, keypair, *, send: bool, sleep=time.sleep, confirm_
 def crank_once(rpc, mint: str, wallet: str, keypair=None, *, lot_lamports: int = DEFAULT_LOT_LAMPORTS,
                slippage_bps: int = DEFAULT_SLIPPAGE_BPS, also_burn_ui: float = 0.0, priority_micro_lamports: int = 0,
                send: bool = False, choose=random.choice, sleep=time.sleep, confirm_timeout: float = 90.0) -> dict:
-    """One buy-and-burn, quoted against the pool as it reads now."""
+    """One buy-and-burn, quoted against the venue the coin is on right
+    now: its bonding curve before graduation, the PumpSwap pool after."""
     if keypair is not None and keypair.address != wallet:
         raise BuybackError(f"the keypair is {keypair.address}, not the wallet {wallet}")
-    state = observe(rpc, mint, wallet)
-    also_burn = int(round(also_burn_ui * 10 ** state.decimals))
-    plan = plan_buy_and_burn(state, lot_lamports=lot_lamports, slippage_bps=slippage_bps, also_burn=also_burn,
-                             priority_micro_lamports=priority_micro_lamports, choose=choose)
+    plan = plan_for(rpc, mint, wallet, lot_lamports=lot_lamports, slippage_bps=slippage_bps,
+                    also_burn_ui=also_burn_ui, priority_micro_lamports=priority_micro_lamports, choose=choose)
     return _execute(rpc, plan, keypair, send=send, sleep=sleep, confirm_timeout=confirm_timeout)
+
+
+def plan_for(rpc, mint: str, wallet: str, *, lot_lamports: int = DEFAULT_LOT_LAMPORTS,
+             slippage_bps: int = DEFAULT_SLIPPAGE_BPS, also_burn_ui: float = 0.0,
+             priority_micro_lamports: int = 0, choose=random.choice) -> Plan:
+    """Read which venue the coin is on and quote the lot there. A coin
+    whose bonding curve is complete is bought on its PumpSwap pool; one
+    still on the curve is bought with pump's own `buy` (`curvebuy`)."""
+    from . import curvebuy  # imports this module; resolved lazily
+    # The pool exists exactly when the coin has graduated: pump's `migrate`
+    # creates it from the completed curve and nothing else does.
+    if rpc.accounts([canonical_pool(mint)])[0] is not None:
+        state = observe(rpc, mint, wallet)
+        also_burn = int(round(also_burn_ui * 10 ** state.decimals))
+        return plan_buy_and_burn(state, lot_lamports=lot_lamports, slippage_bps=slippage_bps, also_burn=also_burn,
+                                 priority_micro_lamports=priority_micro_lamports, choose=choose)
+    state = curvebuy.observe(rpc, mint, wallet)
+    also_burn = int(round(also_burn_ui * 10 ** state.decimals))
+    return curvebuy.plan_buy_and_burn(state, lot_lamports=lot_lamports, slippage_bps=slippage_bps,
+                                      also_burn=also_burn, priority_micro_lamports=priority_micro_lamports)
 
 
 def burn_once(rpc, mint: str, wallet: str, keypair=None, *, amount_ui: float, send: bool = False,

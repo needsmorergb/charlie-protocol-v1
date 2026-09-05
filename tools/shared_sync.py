@@ -74,6 +74,7 @@ SHARED = (
     "indexer/cli.py",
     "indexer/coverage.py",
     "indexer/curve.py",
+    "indexer/curvebuy.py",
     "indexer/decode.py",
     "indexer/distribute.py",
     "indexer/ed25519.py",
