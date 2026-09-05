@@ -493,11 +493,16 @@ def _distribute(args) -> int:
         keypair = Keypair.from_file(args.keypair)
         payer = keypair.address
     else:
-        payer = args.payer or "11111111111111111111111111111111"
+        payer = args.payer or distribute.STAND_IN_PAYER
+        print(f"no key: simulating as {payer}" + ("" if args.payer else " (pump's fee wallet stands in as the payer)"))
     from .buyback import confirm as confirm_signature
-    rows = distribute.run(rpc, mints, payer=payer, keypair=keypair,
-                          min_lamports=args.min_lamports,
-                          confirm=confirm_signature if keypair else None)
+    try:
+        rows = distribute.run(rpc, mints, payer=payer, keypair=keypair,
+                              min_lamports=args.min_lamports,
+                              confirm=confirm_signature if keypair else None)
+    except distribute.DistributeError as exc:
+        print(f"refused: {exc}")
+        return 1
     failures = 0
     for row in rows:
         outcome = row["outcome"]
