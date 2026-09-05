@@ -512,12 +512,20 @@ def _distribute(args) -> int:
             print(f"{row['mint']}  REFUSED   {row['reason']}")
             failures += 1
         elif outcome == "simulated":
-            print(f"{row['mint']}  simulated  vault {row['vault_lamports']} lamports, "
+            print(f"{row['mint']}  simulated  vault {row['vault_lamports']} lamports{_amm(row)}, "
                   f"{row['shareholders']} shareholders, {row['units']} compute units -- not sent")
         else:
-            print(f"{row['mint']}  SENT      {row['signature']}  vault {row['vault_lamports']} lamports "
+            print(f"{row['mint']}  SENT      {row['signature']}  vault {row['vault_lamports']} lamports{_amm(row)} "
                   f"to {row['shareholders']} shareholders")
     return 1 if failures else 0
+
+
+def _amm(row: dict) -> str:
+    """A graduated coin's row names the wSOL the transaction first moves in
+    from the AMM side, so the total paid is legible."""
+    if not row.get("graduated"):
+        return ""
+    return f" + {row.get('amm_lamports', 0)} lamports of wSOL moved from the AMM (graduated)"
 
 
 def _load(args) -> int:
