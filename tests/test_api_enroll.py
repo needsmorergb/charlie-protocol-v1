@@ -37,6 +37,22 @@ WALLET = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 BURN = "1nc1nerator11111111111111111111111111111111"
 
 
+
+class TestTheExplainer(unittest.TestCase):
+    def test_the_system_program_s_insufficient_funds_is_said_in_sol(self):
+        # Measured enrolling a graduated coin whose creator held 0.003 SOL:
+        # the create fails inside the system program with error 1.
+        words = api_enroll._explain({"logs": [
+            "Program log: Instruction: CreateFeeSharingConfig",
+            "Program 11111111111111111111111111111111 failed: custom program error: 0x1",
+            "Program pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ failed: custom program error: 0x1",
+        ]})
+        self.assertIn("too little SOL", words)
+        self.assertIn("0.0073", words)
+
+    def test_an_unknown_refusal_stays_generic(self):
+        self.assertIn("pump refused", api_enroll._explain({"logs": ["Program log: something else"]}))
+
 class _Curve:
     def __init__(self, cashback=False, graduated=False, creator=ADMIN):
         self.mint = MINT
