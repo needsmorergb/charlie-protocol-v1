@@ -46,16 +46,17 @@ class _Curve:
 
 
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+REAL_TOLL = api_enroll.enroll.legs.TOLL_DESTINATION
 # A split that carries the protocol's share, as every enrolled one must.
 SPLIT = f"{TOLL}:500,{BURN}:2000,{ADMIN}:7500"
 
 
 def setUpModule():
-    api_enroll.enroll.TOLL_DESTINATION = TOLL
+    api_enroll.enroll.legs.TOLL_DESTINATION = TOLL
 
 
 def tearDownModule():
-    api_enroll.enroll.TOLL_DESTINATION = None
+    api_enroll.enroll.legs.TOLL_DESTINATION = REAL_TOLL
 
 
 class _Config:
@@ -297,13 +298,13 @@ class TestEnrollingACoinWithNoConfig(ApiCase):
         self.assertIn(WALLET, body["error"])
 
     def test_nothing_is_built_while_the_toll_address_is_unset(self):
-        api_enroll.enroll.TOLL_DESTINATION = None
+        api_enroll.enroll.legs.TOLL_DESTINATION = None
         try:
             curve, config = self._no_config()
             with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
                 status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
         finally:
-            api_enroll.enroll.TOLL_DESTINATION = TOLL
+            api_enroll.enroll.legs.TOLL_DESTINATION = TOLL
         self.assertEqual(status, 400)
         self.assertIn("not open yet", body["error"])
 

@@ -28,6 +28,7 @@ import inspect
 import re
 
 from indexer import invariants, publish, pump, site
+from indexer import legs as site_legs
 
 ROOT = Path(__file__).resolve().parents[1]
 from indexer.evidence import Evidence
@@ -1258,6 +1259,7 @@ def _other_coin_observation(*, mint=OTHER_MINT_ONE, admin_revoked=True, burn_eve
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
+        invariants.protocol_share(split),
         invariants.sol_burn_unspendable(split),
         sol_burn_check,
         burn_check,
@@ -1270,27 +1272,71 @@ def _other_coin_observation(*, mint=OTHER_MINT_ONE, admin_revoked=True, burn_eve
     return record
 
 
+def _enrolled_observation():
+    """A coin whose on-chain split pays the protocol's wallet at its rate,
+    with the rest to the incinerator and an ops wallet, admin_revoked."""
+    from test_indexer import FakeRpc, bonding_curve, config_account, curve_account, mint_account
+    # A mint of its own: the other-coin fixture already uses the wrapped-SOL
+    # mint, and two rows for one mint cannot be told apart.
+    mint = "JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump"
+    config_addr = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
+    accounts = {
+        bonding_curve(mint): curve_account(config_addr),
+        config_addr: config_account(
+            mint,
+            [(site_legs.TOLL_DESTINATION, 500),
+             ("1nc1nerator11111111111111111111111111111111", 2000),
+             ("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", 7500)],
+            admin_revoked=True,
+        ),
+        mint: mint_account(1_000_000_000),
+    }
+    return observe(FakeRpc(accounts), mint, Registry(), now=1.0)
+
+
 class TestCoinCorrectCopy(unittest.TestCase):
     def test_reference_ticker_absent_from_a_different_coins_page(self):
         rendered = site.render(_other_coin_observation(), now=2.0)
         self.assertNotIn(_REFERENCE_TICKER, rendered)
 
-    def test_enrollment_section_differs_by_admin_revoked_and_names_the_right_state(self):
-        revoked = site.render(_other_coin_observation(admin_revoked=True), now=2.0)
-        not_revoked = site.render(_other_coin_observation(admin_revoked=False), now=2.0)
-        self.assertNotEqual(revoked, not_revoked)
+    def _enrolment_section(self, rendered: str) -> str:
+        start = rendered.index('id="enrolment"')
+        return rendered[start:rendered.index("</section>", start)]
 
-        start = revoked.index('id="cannot-enroll"')
-        end = revoked.index("</section>", start)
-        revoked_section = revoked[start:end]
-        self.assertIn("only pump could ever reset it", revoked_section)
-        self.assertIn("cannot enroll", revoked_section)
+    def test_a_coin_without_the_protocol_share_is_told_it_is_not_enrolled(self):
+        """Enrolled means the on-chain split pays the protocol's wallet. This
+        coin's does not, so it is not enrolled, and it is told how to be
+        while its config can still change -- and that it cannot once the
+        config is revoked."""
+        revoked = self._enrolment_section(site.render(_other_coin_observation(admin_revoked=True), now=2.0))
+        open_ = self._enrolment_section(site.render(_other_coin_observation(admin_revoked=False), now=2.0))
+        for section in (revoked, open_):
+            self.assertIn("Not enrolled", section)
+            self.assertIn("does not pay the protocol", section)
+        self.assertIn("cannot enrol", revoked)
+        self.assertIn('href="/enroll"', open_)
+        self.assertNotIn("cannot enrol", open_)
 
-        start = not_revoked.index('id="cannot-enroll"')
-        end = not_revoked.index("</section>", start)
-        not_revoked_section = not_revoked[start:end]
-        self.assertIn("can still be changed by its own admin", not_revoked_section)
-        self.assertNotIn("only pump could ever reset it", not_revoked_section)
+    def test_a_coin_paying_the_share_is_enrolled_and_says_pump_enforces_it(self):
+        rendered = site.render(_enrolled_observation(), now=2.0)
+        section = self._enrolment_section(rendered)
+        self.assertIn("Enrolled in Charlie Protocol", section)
+        self.assertIn(site_legs.TOLL_DESTINATION, section)
+        self.assertIn("500 bps", section)
+        self.assertIn("admin_revoked", section)
+        self.assertIn("no key can alter this", section)
+
+    def test_the_index_marks_enrolled_and_not_enrolled_rows(self):
+        enrolled = publish.durable_record(_enrolled_observation())
+        other = publish.durable_record(_other_coin_observation(admin_revoked=True))
+        rows = site.index_rows([enrolled, other], known_pages=set())
+        html = "".join(rows)
+        self.assertEqual(html.count('class="index-enrolled"'), 1)
+        self.assertEqual(html.count('class="index-not-enrolled"'), 1)
+        # The marker sits on the right row, whatever order the rows come in.
+        by_mint = {row[row.index('data-mint="') + 11:].split('"', 1)[0]: row for row in rows}
+        self.assertIn('class="index-enrolled"', by_mint[enrolled["mint"]])
+        self.assertIn('class="index-not-enrolled"', by_mint[other["mint"]])
 
     def test_non_revoked_coin_page_asserts_no_permanence_of_its_own_configuration(self):
         # "permanently destroyed" is a universal, true-of-every-coin claim in
