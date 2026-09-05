@@ -883,32 +883,48 @@ def _walk_risk(observation) -> str:
     )
 
 
-def _cannot_enroll(observation) -> str:
-    """UI-SPEC's mandatory copy block (domain context #2), rendered as plain
-    prose with no card/border treatment -- it is context, not a figure.
+def _enrolment(observation) -> str:
+    """Is this coin in the protocol, from its own PROTOCOL_SHARE check.
 
-    D-27: the index and every page in it are the top of the enrollment
-    funnel, not a leaderboard. Computed from THIS coin's own
-    `config.admin_revoked` -- a revoked config gets the explanation a
-    revoked config actually supports; a config that is not revoked gets the
-    other half, phrased as an open door rather than a verdict, and promising
-    no date, mechanism or outcome (phase 5 owns enrollment).
+    Enrolled means one thing: the coin's on-chain fee split pays the
+    protocol's collection wallet at least the protocol's rate. pump enforces
+    that split -- it pays every shareholder from the coin's creator vault --
+    and once the config's one change is spent, no key can alter it. The
+    check's own detail is rendered verbatim, so the wallet and the bps a
+    visitor reads are the ones the check read.
+
+    D-27: the index and every page in it are the top of the enrolment
+    funnel, not a leaderboard. A coin that is not enrolled is told how to be,
+    when it still can.
     """
+    check = next((c for c in (observation.checks or ()) if c.name == "PROTOCOL_SHARE"), None)
     config = observation.config
-    if config is not None and config.admin_revoked:
+    revoked = bool(config is not None and getattr(config, "admin_revoked", False))
+    if check is None or check.status == "UNCHECKED":
         body = (
-            "This coin's sharing config is <code>admin_revoked</code>: permanent, "
-            "and only pump could ever reset it. It cannot enroll in its own "
-            "protocol."
+            "<strong>Enrolment is not open.</strong> The protocol's collection "
+            "address is not set, so no coin can carry its share yet."
+        )
+    elif check.status == "PASS":
+        body = (
+            f"<strong>Enrolled in Charlie Protocol.</strong> {esc(check.detail)}. "
+            "pump pays every shareholder from this coin's creator vault, "
+            + ("and the config is <code>admin_revoked</code>: its one change is "
+               "spent, so no key can alter this, including the coin's own admin."
+               if revoked else
+               "and its admin can still change the config once -- so this is "
+               "enrolled until then, and permanent after.")
         )
     else:
         body = (
-            "This coin's sharing config is not <code>admin_revoked</code> -- its "
-            "split can still be changed by its own admin. That makes it a coin "
-            "that could enroll once the protocol program exists; nothing here "
-            "promises when or how."
+            f"<strong>Not enrolled.</strong> {esc(check.detail)}. "
+            + ("The config is <code>admin_revoked</code>, so its split is permanent "
+               "and this coin cannot enrol."
+               if revoked else
+               'Its admin can enrol it at <a href="/enroll">/enroll</a>: one '
+               "signature sets the split, and pump enforces it from then on.")
         )
-    return f'<section id="cannot-enroll"><p>{body}</p></section>'
+    return f'<section id="enrolment"><p>{body}</p></section>'
 
 
 def _launch_mode(observation) -> str:
@@ -1242,7 +1258,7 @@ def _raw_record_section(observation) -> str:
 def _sections(observation) -> str:
     """How It Works, The Burn, Quiet, Log and Risks, in UI-SPEC's Page
     Structure order (items 5-9) -- everything after the checks list and
-    before the footer. The cannot-enroll statement (item 2) and the SOL burn
+    before the footer. The enrolment statement (item 2) and the SOL burn
     Failure Banner (item 3) are rendered earlier in `render()`, ahead of the
     Figures section (item 4), matching UI-SPEC's approved structural order
     exactly.
@@ -2059,13 +2075,13 @@ def render(observation, *, now=None) -> str:
     checks_rows = "".join(_check_row(check) for check in observation.checks)
 
     # Structural order follows UI-SPEC's Page Structure & Component Inventory
-    # exactly: header (1) -> cannot-enroll (2) -> SOL burn Failure Banner (3) ->
+    # exactly: header (1) -> enrolment (2) -> SOL burn Failure Banner (3) ->
     # Figures (4) -> [checks list, not separately numbered there] -> How It
     # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> Raw Observation
     # JSON (10, `_raw_record_section()`) -> footer (11).
     body = (
         header
-        + _cannot_enroll(observation)
+        + _enrolment(observation)
         + banner
         + '<section id="figures">'
         + "<h2>Figures</h2>"
@@ -2171,9 +2187,20 @@ def index_rows(records, known_pages=frozenset()) -> list[str]:
             page_href = esc(_coin_url(mint, ""))
             links.insert(0, f'<a href="{page_href}">page</a>')
 
+        # Enrolled or not, from the record's own PROTOCOL_SHARE check. Not a
+        # figure: it says what the coin's split IS, never how much moved.
+        share = next((c for c in (gated.get("checks") or []) if c.get("name") == "PROTOCOL_SHARE"), None)
+        if share and share.get("status") == "PASS":
+            enrolled_html = '<span class="index-enrolled">enrolled</span>'
+        elif share and share.get("status") == "FAIL":
+            enrolled_html = '<span class="index-not-enrolled">not enrolled</span>'
+        else:
+            enrolled_html = ""
+
         rows.append(
             f'<div class="index-row" data-mint="{esc(mint)}">'
             f'<span class="index-mint">{esc(mint)}</span>'
+            f"{enrolled_html}"
             f"{figure_html}"
             f'<span class="index-links">{" ".join(links)}</span>'
             "</div>"
@@ -2496,6 +2523,8 @@ a { color: var(--accent); }
   min-width: 0;
 }
 .index-split, .index-withheld { font-size: 14px; flex: 2 1 260px; min-width: 0; }
+.index-enrolled { font-size: 13px; color: var(--pass-glyph); border: 1px solid var(--pass-glyph); padding: 1px 6px; }
+.index-not-enrolled { font-size: 13px; color: var(--unchecked); border: 1px dashed var(--unchecked); padding: 1px 6px; }
 .index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
 .index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
 .index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
@@ -2804,12 +2833,17 @@ _LANDING_SOON = (
     "the program rather than chosen by whoever deploys it. The coin then gets "
     "a page like this one, on which no figure renders unless a passing check "
     "backs it.",
-    "Part of that is built and part is not. A coin CAN set where its creator "
-    "fee goes today, through pump's own fee-sharing program rather than "
-    "through any program of ours: /enroll builds that transaction, simulates "
-    "it against mainnet first, and your wallet signs it. What does not exist "
-    "yet is our program, so the vaults it would derive, the buy-and-burn "
-    "crank and the protocol's own share do not exist either.",
+    "Enrolment is open at /enroll. A coin is enrolled when its pump "
+    "fee-sharing config pays the protocol's collection wallet 5% of the "
+    "creator fee. pump enforces that config, paying every destination from "
+    "the coin's creator vault, and once the coin's one change is spent no key "
+    "can alter it. The other 95% goes wherever the coin's creator sends it. "
+    "Every coin page and the index say whether a coin is enrolled, read from "
+    "its config on the chain.",
+    "What does not exist yet is our program: the vaults it would derive and "
+    "the buy-and-burn crank. Until it does, the protocol's share is collected "
+    "from pump by hand and spent buying $CHARLIE and burning it, and the "
+    "chain shows the collecting, not the spending.",
     "$CHARLIE itself cannot enrol. Its config reads admin_revoked, which is "
     "how pump records that a coin has already used the single change it is "
     "allowed, and only pump can reset it.",

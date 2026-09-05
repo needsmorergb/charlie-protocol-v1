@@ -39,6 +39,8 @@ from indexer.pump import (
     read_sharing_config,
 )
 from indexer.store import Store
+from indexer import legs
+from indexer.legs import classify
 
 CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 CHARLIE_CONFIG = "8cUvP3q3KqcKMT6rEowN55ZepafYLFLwY2vijETRK3E4"
@@ -477,10 +479,73 @@ class TestObservation(unittest.TestCase):
         record = observe(FakeRpc(accounts), other_mint, Registry(), now=1.0)
 
         self.assertIsNone(record.error)
-        self.assertEqual(len(record.checks), 9)
+        self.assertEqual(len(record.checks), 10)
         self.assertIsNotNone(record.verdict)
         self.assertEqual(record.split.sol_burn, 5_000)
         self.assertEqual(record.split.paid, 5_000)
+
+
+# -- enrolment: the protocol's share on the split ----------------------------
+class TestProtocolShare(unittest.TestCase):
+    """Enrolled means the on-chain split pays the protocol's wallet at least
+    the protocol's rate. pump enforces the split; this check reads it."""
+
+    TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+
+    def setUp(self):
+        self.real = legs.TOLL_DESTINATION
+        legs.TOLL_DESTINATION = self.TOLL
+        self.addCleanup(setattr, legs, "TOLL_DESTINATION", self.real)
+
+    def _split(self, holders):
+        return split_of(type("Cfg", (), {"mint": CHARLIE, "shareholders": tuple(holders)})(), Registry())
+
+    def test_a_split_paying_the_share_passes_and_names_the_wallet(self):
+        check = invariants.protocol_share(self._split([(self.TOLL, 500), (WALLET, 9500)]))
+        self.assertEqual(check.status, invariants.PASS)
+        self.assertIn(self.TOLL, check.detail)
+        self.assertEqual(check.actual, "500")
+
+    def test_more_than_the_rate_still_passes(self):
+        check = invariants.protocol_share(self._split([(self.TOLL, 1500), (WALLET, 8500)]))
+        self.assertEqual(check.status, invariants.PASS)
+
+    def test_less_than_the_rate_fails(self):
+        check = invariants.protocol_share(self._split([(self.TOLL, 100), (WALLET, 9900)]))
+        self.assertEqual(check.status, invariants.FAIL)
+        self.assertIn("below", check.detail)
+
+    def test_no_share_at_all_fails_and_says_so(self):
+        check = invariants.protocol_share(self._split([(WALLET, 10_000)]))
+        self.assertEqual(check.status, invariants.FAIL)
+        self.assertIn("does not pay", check.detail)
+        self.assertIn(self.TOLL, check.detail)
+
+    def test_with_no_address_set_nothing_can_be_enrolled(self):
+        legs.TOLL_DESTINATION = None
+        check = invariants.protocol_share(self._split([(WALLET, 10_000)]))
+        self.assertEqual(check.status, invariants.UNCHECKED)
+
+    def test_it_backs_no_figure(self):
+        """A coin's figures are facts about the coin whether or not it pays
+        the protocol. Gating them on enrolment would make this site a toll
+        booth for information it already has."""
+        self.assertEqual(invariants.protocol_share(self._split([(WALLET, 10_000)])).backs, ())
+
+    def test_the_wallet_is_an_ops_destination_with_its_own_reason(self):
+        # Spendable, so OPS: what reaches it is not a burn. Said as itself.
+        leg, reason = classify(self.TOLL, CHARLIE, Registry())
+        self.assertEqual(leg, legs.OPS)
+        self.assertIn("protocol's collection wallet", reason)
+
+    def test_observe_runs_it_on_every_coin(self):
+        record = observe(charlie_rpc(), CHARLIE, now=1.0)
+        names = [c.name for c in record.checks]
+        self.assertIn("PROTOCOL_SHARE", names)
+        # $CHARLIE's own split pays burn111 at 100%: not enrolled, and its
+        # config is admin_revoked, so it cannot be.
+        check = {c.name: c for c in record.checks}["PROTOCOL_SHARE"]
+        self.assertEqual(check.status, invariants.FAIL)
 
 
 # -- the append-only store ------------------------------------------------

@@ -25,10 +25,18 @@ class TestLandingCopyMatchesReality(unittest.TestCase):
     def test_it_no_longer_says_no_coin_can_enroll(self):
         self.assertNotIn("no coin can enroll", self.rendered)
 
-    def test_it_says_which_half_is_built(self):
-        # A coin CAN set where its fee goes today, through pump's program.
-        self.assertIn("set where its creator", self.rendered)
-        self.assertIn("/enroll", self.rendered)
+    def test_it_says_enrolment_is_open_and_what_enrolled_means(self):
+        # Enrolment is open, and enrolled means one thing: the coin's pump
+        # config pays the protocol's wallet its share, which pump enforces.
+        self.assertIn("Enrolment is open at /enroll", self.rendered)
+        self.assertIn("5% of the creator fee", self.rendered)
+        self.assertIn("pump enforces that config", self.rendered)
+        self.assertIn("read from its config on the chain", self.rendered)
+
+    def test_it_does_not_claim_the_spending_is_on_chain(self):
+        # The share is collected from pump and spent buying and burning
+        # $CHARLIE; the chain shows the collecting, not the spending.
+        self.assertIn("the chain shows the collecting, not the spending", self.rendered)
 
     def test_it_says_which_half_is_not(self):
         self.assertIn("does not exist yet", self.rendered)

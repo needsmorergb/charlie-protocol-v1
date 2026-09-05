@@ -26,6 +26,11 @@ from dataclasses import dataclass
 
 from .base58 import decode, encode, pubkey_bytes
 from .curve import find_program_address
+from . import legs
+
+# The rate is a constant and may be bound; the address is read through
+# `legs` at call time so a test can set one value both sides see.
+TOLL_BPS = legs.TOLL_BPS
 
 FEE_SHARE_PROGRAM = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ"
 PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
@@ -51,24 +56,17 @@ CREATE_FEE_SHARING_CONFIG = bytes.fromhex("c34e564c6f34fbd5")
 # supply at the end of the block. The SOL burn leg's destination.
 INCINERATOR = "1nc1nerator11111111111111111111111111111111"
 
-# The protocol's cut of every enrolled coin's creator fee, in basis points,
-# and where it goes. BUILD.md section 3 settled the number; FEE-ROUTING.md
-# has the reasoning. It is fixed and it is not the dev's to set: every other
-# leg of the split is at their discretion, this one is the price of using the
-# protocol.
+# The protocol's share and where it goes live in `legs`, beside the other
+# addresses the protocol recognises, because the indexer reads them too: a
+# coin is enrolled when its on-chain split carries them, and that is what
+# the coin page and the index state. This module only builds the split that
+# puts them there.
 #
-# NO PROGRAM ENFORCES THIS TODAY. Until the protocol program exists, the toll
-# is enforced by this page refusing to build a split without it -- a dev who
-# calls pump's program directly can leave it out. That is stated on the page
-# rather than hidden, and the program is what closes it.
-#
-# `TOLL_DESTINATION` is the protocol's collection wallet, an ordinary on-curve
-# key the protocol holds. Set to None and nothing here builds a transaction at
-# all: an enrolment that sent the toll nowhere would be worse than none. It is
-# permanent for every coin enrolled to it -- pump allows a coin's split to be
-# set once -- so changing it later changes it only for coins enrolled after.
-TOLL_BPS = 500
-TOLL_DESTINATION = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
+# NO PROGRAM ENFORCES THE RATE AT ENROLMENT TIME. This page refuses to build
+# a split without it; a dev who calls pump's program directly can leave it
+# out, and is then simply not enrolled. Read at call time through the
+# module, never bound here, so a test can set one value and both the builder
+# and the indexer see it.
 
 # What pump's real cap is, nobody outside pump can say: `6011
 # TooManyShareholders` carries the message "format", so the number is
@@ -231,22 +229,23 @@ def require_toll(shares) -> None:
     built. Checked after `validate`, so the dev hears about a malformed split
     before hearing about a missing toll.
     """
-    if TOLL_DESTINATION is None:
+    destination, rate = legs.TOLL_DESTINATION, legs.TOLL_BPS
+    if destination is None:
         raise EnrollError(
             "Enrolment is not open yet: the protocol's collection address has "
             "not been set, so no split can carry its share. Nothing was built."
         )
     rows = tuple(shares)
-    toll = [r for r in rows if r.address == TOLL_DESTINATION]
+    toll = [r for r in rows if r.address == destination]
     if not toll:
         raise EnrollError(
-            f"The split does not include the protocol's share: {TOLL_BPS / 100:g}% "
-            f"to {TOLL_DESTINATION}. Every enrolled coin carries it; the rest of "
+            f"The split does not include the protocol's share: {rate / 100:g}% "
+            f"to {destination}. Every enrolled coin carries it; the rest of "
             "the split is yours to set."
         )
-    if toll[0].bps != TOLL_BPS:
+    if toll[0].bps != rate:
         raise EnrollError(
-            f"The protocol's share is fixed at {TOLL_BPS / 100:g}%, and this split "
+            f"The protocol's share is fixed at {rate / 100:g}%, and this split "
             f"sets it to {toll[0].bps / 100:g}%. Change the other destinations "
             "instead."
         )

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import legs
 from .legs import SOL_BURN_INCINERATOR, Registry
 
 PASS = "PASS"
@@ -102,6 +103,43 @@ def split_sum(split) -> Check:
         "account layout or this is not the account we decoded it as",
         expected="10000",
         actual=str(split.total),
+    )
+
+
+def protocol_share(split) -> Check:
+    """Is this coin in the protocol: does its on-chain split pay the
+    protocol's collection wallet at least the protocol's rate?
+
+    This is the whole of enrolment, and pump is what enforces it. The
+    sharing config pays every shareholder from the coin's creator vault, and
+    once the config's one change is spent no key can alter it -- so a coin
+    that carries the share carries it for good. A coin that does not is not
+    enrolled: not listed as one, not badged as one, whatever it asks for.
+
+    Backs no figure. A coin's split, burns and totals are facts about the
+    coin whether or not it pays the protocol, and withholding them from a
+    coin that has not enrolled would turn this site into a toll booth for
+    information it already has.
+    """
+    destination, rate = legs.TOLL_DESTINATION, legs.TOLL_BPS
+    equation = f"bps(TOLL_DESTINATION) >= {rate}"
+    if destination is None:
+        return _check("PROTOCOL_SHARE", UNCHECKED, [], equation,
+                      "the protocol's collection address is not set, so nothing can be enrolled")
+    paid = sum(a.bps for a in split.attributions if a.address == destination)
+    if paid >= rate:
+        return _check(
+            "PROTOCOL_SHARE", PASS, [], equation,
+            f"the split pays the protocol's collection wallet {destination} "
+            f"{paid} bps, at or above the {rate} bps every enrolled coin carries",
+            expected=f">= {rate}", actual=str(paid),
+        )
+    return _check(
+        "PROTOCOL_SHARE", FAIL, [], equation,
+        (f"the split pays the protocol's collection wallet {destination} {paid} bps, "
+         f"below the {rate} bps every enrolled coin carries") if paid
+        else f"the split does not pay the protocol's collection wallet {destination} at all",
+        expected=f">= {rate}", actual=str(paid),
     )
 
 
