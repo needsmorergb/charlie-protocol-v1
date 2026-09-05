@@ -969,9 +969,12 @@ def _execute(rpc, plan: Plan, keypair, *, send: bool, sleep=time.sleep, confirm_
             "units_consumed": sim.get("unitsConsumed"),
             "logs_tail": (sim.get("logs") or [])[-8:],
         },
-        # base58 of the MESSAGE (what a wallet's signAndSendTransaction takes)
-        # and base64 of the zero-signed transaction, as api/enroll.py returns.
+        # base58 of the MESSAGE, base58 of the zero-signed transaction (what a
+        # wallet's signAndSendTransaction takes: Phantom parses its `message`
+        # parameter as a whole transaction) and base64 of the same, as
+        # api/enroll.py returns.
         "message_base58": encode(msg),
+        "transaction_base58": encode(unsigned_transaction(msg)),
         "transaction_base64": base64.b64encode(unsigned_transaction(msg)).decode(),
         "sent": False,
     }

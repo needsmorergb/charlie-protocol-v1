@@ -10,9 +10,12 @@ this page is the only surface that asks a reader to sign something, so keeping
 it separable keeps it reviewable.
 
 No bundled library and no build step. A wallet's `signAndSendTransaction`
-request takes a base58-encoded message, which is exactly what
-`indexer.enroll.message` produces, so the page ships no third-party code that
-a reader would have to trust to know what they are signing.
+request takes a base58-encoded unsigned transaction (Phantom names the
+parameter `message`, and parses it as a transaction: signature count, the
+signatures, then the message). `api/enroll.py` returns exactly that as
+`signable`, built from `indexer.enroll.message` plus one zero signature, so
+the page ships no third-party code that a reader would have to trust to know
+what they are signing.
 """
 
 from __future__ import annotations
@@ -120,11 +123,11 @@ function total() {
   return t;
 }
 
-function addRow(addr, pct, locked, label) {
+function addRow(addr, pct, locked, label, caption, hint) {
   var row = document.createElement('div');
   row.className = 'share-row' + (locked ? ' locked' : '');
   var a = document.createElement('input');
-  a.className = 'share-addr'; a.placeholder = 'destination address';
+  a.className = 'share-addr'; a.placeholder = hint || 'destination address';
   a.spellcheck = false; a.autocomplete = 'off'; a.value = addr || '';
   var b = document.createElement('input');
   b.className = 'share-bps'; b.type = 'number'; b.step = '0.01';
@@ -143,6 +146,13 @@ function addRow(addr, pct, locked, label) {
   }
   a.oninput = total; b.oninput = total;
   row.appendChild(a); row.appendChild(b); row.appendChild(rm);
+  if (caption) {
+    // What this destination does, on the row itself. A split is money and a
+    // dev reads the rows, not the prose below them.
+    var what = document.createElement('span');
+    what.className = 'share-what'; what.textContent = caption;
+    row.appendChild(what);
+  }
   $('shares').appendChild(row);
   total();
 }
@@ -157,26 +167,45 @@ function openForm() {
     return;
   }
   var tollPct = state.toll.bps / 100;
-  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%');
-  addRow('1nc1nerator11111111111111111111111111111111', 20);
-  addRow(state.wallet, 100 - 20 - tollPct);
+  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%',
+         'The protocol\u0027s share. It buys $CHARLIE and burns it.');
+  // The BURN leg has its own row, blank. It is a wallet the dev holds and
+  // runs the keeper from, so there is no address to fill in for them; left
+  // blank it is simply not sent, and the other rows still total 100.
+  addRow('', '', false, null,
+         'Buy back and burn. A wallet you hold that runs the keeper against ' +
+         'this coin: SOL sent here buys your coin and burns it. Paste that ' +
+         'wallet and give it a share, or leave this row blank and it is not sent.',
+         'wallet that runs the keeper (optional)');
+  addRow('1nc1nerator11111111111111111111111111111111', 20, false, null,
+         'Solana\u0027s incinerator. SOL sent here is destroyed.');
+  addRow(state.wallet, 100 - 20 - tollPct, false, null,
+         'Your wallet. This share is simply yours.');
   $('splitBox').hidden = false;
 }
 
 function shareRows() {
-  var out = [];
+  // A blank row is skipped: that is the buy-back row left alone. A row that
+  // is half filled is a mistake, and the total above cannot show it because
+  // it counts percentages whether or not an address is there.
+  var out = [], problems = [];
   document.querySelectorAll('.share-row').forEach(function (row) {
     var a = row.querySelector('.share-addr').value.trim();
     var p = row.querySelector('.share-bps').value.trim();
-    if (a && p !== '') { out.push(a + ':' + Math.round(parseFloat(p) * 100)); }
+    if (!a && p === '') { return; }
+    if (!a) { problems.push('A row has ' + p + '% but no address. Paste a wallet into it or remove the row.'); return; }
+    if (p === '') { problems.push('The row for ' + a + ' has no percentage. Give it one or remove the row.'); return; }
+    out.push(a + ':' + Math.round(parseFloat(p) * 100));
   });
-  return out;
+  return {shares: out, problems: problems};
 }
 
 async function build() {
-  var shares = shareRows();
+  var rows = shareRows();
+  var shares = rows.shares;
   $('send').hidden = true;
   state.built = null;
+  if (rows.problems.length) { say('buildNote', rows.problems.join('\n'), 'bad'); return; }
   if (!shares.length) { say('buildNote', 'Add at least one destination.', 'bad'); return; }
   say('buildNote', 'Checking this split against pump, before anything is signed...', '');
   try {
@@ -204,7 +233,11 @@ async function send() {
   }
   say('sendNote', 'Approve it in your wallet...', '');
   try {
-    var res = await p.request({method: 'signAndSendTransaction', params: {message: state.built.message}});
+    // Phantom calls it `message` and parses it as a whole transaction:
+    // signature count, signatures, then the message. Handed the bare message
+    // it answered "Reached end of buffer unexpectedly". `signable` is the
+    // unsigned transaction, and it is what the server simulated.
+    var res = await p.request({method: 'signAndSendTransaction', params: {message: state.built.signable}});
     var sig = (res && (res.signature || res)) || '';
     var n = $('sendNote');
     n.className = 'note good';
@@ -258,6 +291,8 @@ button.primary:hover, button.primary:focus-visible {
   font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
+.share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;
+  color: var(--ink); opacity: 0.8; margin-top: -2px; }
 .share-row.locked .share-addr, .share-row.locked .share-bps { background: var(--panel); color: var(--ink); }
 .share-row.locked .rm { border-style: solid; cursor: default; }
 #total.ok { color: var(--pass-glyph); font-weight: 700; }
@@ -324,10 +359,13 @@ def render(*, now=None) -> str:
         "<h2>3. Set the split</h2>"
         "<p>The first row is the protocol&#x27;s share, fixed at 5% of the "
         "creator fee: it is the price of enrolling, and it funds buying and "
-        "burning $CHARLIE. Every other row is yours to set. The defaults send "
-        "20% to Solana&#x27;s incinerator and the rest to your wallet. To buy "
-        "your own coin back and burn it, point a row at a wallet you hold and "
-        "run the keeper from it; the section below says how.</p>"
+        "burning $CHARLIE. Every other row is yours to set. The second row is "
+        "the buy-back-and-burn row: a wallet you hold that runs the keeper "
+        "against this coin, so the SOL that lands there buys your coin and "
+        "burns it. Paste that wallet and give it a share, or leave the row "
+        "blank and it is not sent. The defaults send 20% to Solana&#x27;s "
+        "incinerator and the rest to your wallet. Each row says what it does; "
+        "the section below says how to run the keeper.</p>"
         '<div class="warn"><strong>pump lets a coin&#x27;s split be changed '
         "once.</strong> After this is sent, no key can change it again, "
         "including yours. Check every destination before you sign.</div>"
