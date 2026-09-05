@@ -75,6 +75,7 @@ SHARED = (
     "indexer/coverage.py",
     "indexer/curve.py",
     "indexer/decode.py",
+    "indexer/distribute.py",
     "indexer/ed25519.py",
     "indexer/enroll.py",
     "indexer/enroll_page.py",

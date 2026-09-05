@@ -174,6 +174,25 @@ GRANDFATHERED_SOL_BURN = frozenset({"burn111111111111111111111111111111111111111
 # guessing.
 PROGRAM_ID: str | None = None
 
+# The protocol's share of every enrolled coin's creator fee, and where it goes.
+# BUILD.md section 3 settled the rate; FEE-ROUTING.md has the reasoning.
+#
+# ENROLLED MEANS THIS IS IN THE SPLIT. A coin whose sharing config pays this
+# wallet at least TOLL_BPS is enrolled, and pump enforces it: the config pays
+# every shareholder from the coin's creator vault and, once its one change is
+# spent, no key can alter it. A coin whose split does not carry it is not
+# enrolled -- no badge, no listing as enrolled, whatever page it asks for.
+# That is the enforcement a program would give and the only kind there is:
+# nothing can make a coin that never enrolled pay, and nothing needs to.
+#
+# It is an ordinary on-curve wallet the protocol holds, so on the split it is
+# an OPS-leg destination -- SOL reaching it is spendable, and the page says so.
+# What is spent on is buying $CHARLIE and burning it, which is a claim about
+# what happens AFTER the chain stops being evidence, and is made nowhere on a
+# coin's page.
+TOLL_BPS = 500
+TOLL_DESTINATION: str | None = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
+
 
 @dataclass(frozen=True)
 class Attribution:
@@ -230,6 +249,12 @@ def classify(address: str, mint: str, registry: Registry) -> tuple[str, str]:
         return BURN, "PDA(['burn', mint]) of the protocol program"
     if address in registry.grandfathered_sol_burn:
         return SOL_BURN, "grandfathered legacy SOL-burn address (PROTOCOL.md sec.3)"
+    if TOLL_DESTINATION is not None and address == TOLL_DESTINATION:
+        return OPS, (
+            "the protocol's collection wallet: the share every enrolled coin pays. "
+            "A spendable wallet, so an OPS destination; what it is spent on is not "
+            "something the chain shows and not something this page claims"
+        )
     if not is_on_curve(address):
         return OPS, (
             "program-derived -- but it is some other program's PDA, and that "
