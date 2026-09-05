@@ -73,7 +73,7 @@ async function inspect() {
     if (d.reason === 'no_sharing_config') {
       if (d.can_create) {
         state.create = true;
-        say('coinNote', 'You launched this coin, and it has no pump fee-sharing config yet, which is normal for a new launch. One signature will create the config and set the split at the same time. Its creator fee currently goes to your wallet, ' + d.creator + '.', 'good');
+        say('coinNote', 'You launched this coin, and it has no pump fee-sharing config yet, which is normal for a new launch. One signature will create the config and set the split at the same time. Its creator fee currently goes to your wallet, ' + d.creator + '.' + (d.graduated ? ' It has graduated to the pump AMM, so the config is created with its pool named, and the fee the pool collects follows the split from then on.' : ''), 'good');
         openForm();
         return;
       }
@@ -94,7 +94,7 @@ async function inspect() {
       cautions.push('Its bonding curve predates pump cashback flag, so we cannot read it, and absent is not the same as off. If creator fees have never arrived in your wallet, cashback is on and enrolling would waste your one change.');
     }
     if (d.graduated) {
-      cautions.push('It has graduated to the pump AMM, where the creator fee collects as wrapped SOL in a pool vault instead of as lamports on the config. Setting the split still works and still binds. Paying it out takes an extra pump instruction first, and a payout attempted without that instruction moves nothing at all.');
+      cautions.push('It has graduated to the pump AMM, where the creator fee collects as wrapped SOL in a pool vault instead of as lamports on the config. Setting the split still works and still binds. Paying it out takes an extra pump instruction first, and a payout attempted without that instruction moves nothing at all; the protocol\u0027s crank sends that instruction before every payout.');
     }
     if (cautions.length) {
       say('coinNote', 'You administer this coin. Before you spend the one change: ' + cautions.join(' ') + ' Current split: ' + rows, 'caution');

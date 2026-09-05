@@ -154,16 +154,33 @@ def accounts_for(mint: str, authority: str, *, quote_mint: str = WSOL_MINT,
     ]
 
 
-def create_accounts_for(mint: str, payer: str) -> list[tuple[str, bool, bool]]:
+def canonical_pool_address(mint: str, quote_mint: str = WSOL_MINT) -> str:
+    """The AMM pool pump's `migrate` creates for a graduated coin: index 0,
+    created by pump's `pool-authority` PDA for the mint, quoted in wSOL.
+    The same derivation as `buyback.canonical_pool` (pinned equal in tests);
+    repeated here because buyback imports this module."""
+    authority = _pda([b"pool-authority", pubkey_bytes(mint)], PUMP_PROGRAM)
+    return _pda(
+        [b"pool", (0).to_bytes(2, "little"), pubkey_bytes(authority),
+         pubkey_bytes(mint), pubkey_bytes(quote_mint)],
+        PUMP_AMM_PROGRAM,
+    )
+
+
+def create_accounts_for(mint: str, payer: str, *, graduated: bool = False) -> list[tuple[str, bool, bool]]:
     """`create_fee_sharing_config`'s accounts, in the IDL's order.
 
     `pool` is the AMM pool of a GRADUATED coin, and for a coin still on its
     bonding curve there is none: Anchor's convention for an absent optional
     account is the program's own id, which is what the mainnet simulation
-    passed and what the program accepted. A graduated coin with no config is
-    refused before this is reached (see `preflight`), so the convention is
-    the only case this builds.
+    passed and what the program accepted. For a coin that has graduated the
+    pool is passed for real: without it the program answers 3005
+    AccountNotEnoughKeys, and with it the same call creates the config AND
+    migrates the pool's coin_creator to it (MigratePoolCoinCreatorEvent,
+    measured in the deploy repository's `graduated` workflow), so the
+    AMM-side fee follows the split from then on.
     """
+    pool = (canonical_pool_address(mint), False, True) if graduated else (FEE_SHARE_PROGRAM, False, True)
     return [
         (_pda([b"__event_authority"], FEE_SHARE_PROGRAM), False, False),
         (FEE_SHARE_PROGRAM, False, False),
@@ -175,7 +192,7 @@ def create_accounts_for(mint: str, payer: str) -> list[tuple[str, bool, bool]]:
         (bonding_curve_address(mint), False, True),
         (PUMP_PROGRAM, False, False),
         (_pda([b"__event_authority"], PUMP_PROGRAM), False, False),
-        (FEE_SHARE_PROGRAM, False, True),                 # pool: absent
+        pool,                                             # absent, or the canonical pool
         (PUMP_AMM_PROGRAM, False, False),
         (_pda([b"__event_authority"], PUMP_AMM_PROGRAM), False, False),
     ]
@@ -292,9 +309,10 @@ def update_instruction(mint: str, authority: str, shares, *, current=(),
     return (FEE_SHARE_PROGRAM, metas, instruction_data(shares))
 
 
-def create_instruction(mint: str, payer: str):
+def create_instruction(mint: str, payer: str, *, graduated: bool = False):
     """`(program, metas, data)` for `create_fee_sharing_config`. No args."""
-    return (FEE_SHARE_PROGRAM, create_accounts_for(mint, payer), CREATE_FEE_SHARING_CONFIG)
+    return (FEE_SHARE_PROGRAM, create_accounts_for(mint, payer, graduated=graduated),
+            CREATE_FEE_SHARING_CONFIG)
 
 
 def encode_message(instructions, payer: str, recent_blockhash: str) -> bytes:
@@ -372,7 +390,7 @@ def message(mint: str, authority: str, shares, recent_blockhash: str, *,
 
 
 def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str, *,
-                      create: bool, current=()) -> bytes:
+                      create: bool, current=(), graduated: bool = False) -> bytes:
     """One signature, whichever state the coin is in.
 
     A coin with a config gets the split set. A coin without one -- the case
@@ -388,7 +406,7 @@ def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str,
     """
     if create:
         return encode_message(
-            [create_instruction(mint, authority),
+            [create_instruction(mint, authority, graduated=graduated),
              update_instruction(mint, authority, shares, current=[authority])],
             authority, recent_blockhash,
         )
@@ -436,13 +454,6 @@ def preflight(config, authority: str, shares, *, curve=None) -> None:
                 "This coin has no pump fee-sharing config, so there is no split to "
                 "set. Its creator fee goes to one ordinary wallet."
             )
-        if getattr(curve, "graduated", False):
-            raise EnrollError(
-                "This coin has graduated to the pump AMM and has no fee-sharing "
-                "config. Creating one after graduation needs the coin's AMM pool "
-                "passed to pump, which this page does not build yet. Nothing "
-                "was sent."
-            )
         if not may_create(curve, authority):
             raise EnrollError(
                 f"This coin has no fee-sharing config yet, and only its creator "
@@ -469,7 +480,8 @@ def may_create(curve, authority: str) -> bool:
     `create_fee_sharing_config` answers 6016 NotAuthorized to any other payer
     (measured against mainnet, `trace` workflow step "Can a stranger create
     the config"). The creator is the bonding curve's `creator` field, which
-    for a config-less coin is still the wallet that launched it.
+    for a config-less coin is still the wallet that launched it. Graduation
+    changes nothing here: the creator may still create, with the pool passed
+    (`create_accounts_for`).
     """
-    return (bool(curve) and not getattr(curve, "graduated", False)
-            and getattr(curve, "creator", None) == authority)
+    return bool(curve) and getattr(curve, "creator", None) == authority

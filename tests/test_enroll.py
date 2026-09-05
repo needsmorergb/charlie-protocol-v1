@@ -326,14 +326,34 @@ class TestCreatingTheConfig(unittest.TestCase):
         self.assertIn(STRANGER, str(caught.exception))
         self.assertIn("only its creator", str(caught.exception))
 
-    def test_a_graduated_coin_without_a_config_is_refused_not_built_wrongly(self):
-        """Creation for a graduated coin needs its AMM pool (fee-share error
-        6019), which this does not build. Refusing is the honest answer;
-        building with the absent-pool convention would fail on chain after
-        the dev signed."""
-        with self.assertRaises(enroll.EnrollError) as caught:
-            enroll.preflight(None, ADMIN, _split(), curve=_Curve(creator=ADMIN, graduated=True))
-        self.assertIn("graduated", str(caught.exception))
+    def test_the_creator_may_enroll_a_coin_that_has_already_graduated(self):
+        """Creation for a graduated coin needs its AMM pool passed (3005
+        AccountNotEnoughKeys without it, measured), and with it the same
+        call migrates the pool's coin_creator to the new config. The
+        builder passes the pool, so the creator is not refused."""
+        enroll.preflight(None, ADMIN, _split(), curve=_Curve(creator=ADMIN, graduated=True))
+
+    def test_a_graduated_coin_s_create_names_its_canonical_pool(self):
+        metas = enroll.create_accounts_for(MINT, ADMIN, graduated=True)
+        self.assertEqual(metas[10], (enroll.canonical_pool_address(MINT), False, True))
+        plain = enroll.create_accounts_for(MINT, ADMIN)
+        self.assertEqual(plain[10], (enroll.FEE_SHARE_PROGRAM, False, True))
+        self.assertEqual(metas[:10] + metas[11:], plain[:10] + plain[11:])
+
+    def test_the_canonical_pool_derivation_matches_mainnet_and_buyback(self):
+        # The coin the `graduated` workflow enrolled in simulation with its
+        # pool passed, and the pool it printed.
+        from indexer import buyback
+        mint = "1Krx2uAoToCktb5jG7ZVEnqahaiTzYsuPyCW2FYpump"
+        self.assertEqual(enroll.canonical_pool_address(mint), "12sYET7xZqbM1Xyunea2dYaDHed7JJ6B49ZHRpPZa3io")
+        self.assertEqual(enroll.canonical_pool_address(mint), buyback.canonical_pool(mint))
+
+    def test_the_enrollment_message_carries_the_pool_for_a_graduated_coin(self):
+        with_pool = enroll.enrollment_message(MINT, ADMIN, _split(), BLOCKHASH, create=True, graduated=True)
+        without = enroll.enrollment_message(MINT, ADMIN, _split(), BLOCKHASH, create=True)
+        self.assertNotEqual(with_pool, without)
+        self.assertIn(pubkey_bytes(enroll.canonical_pool_address(MINT)), with_pool)
+        self.assertNotIn(pubkey_bytes(enroll.canonical_pool_address(MINT)), without)
 
     def test_without_a_curve_there_is_nothing_to_decide_ownership_from(self):
         with self.assertRaises(enroll.EnrollError):
@@ -396,10 +416,10 @@ class TestCreatingTheConfig(unittest.TestCase):
                                        current=[ADMIN])
         self.assertEqual(one, enroll.message(MINT, ADMIN, _split(), BLOCKHASH, current=[ADMIN]))
 
-    def test_may_create_is_the_creator_of_an_ungraduated_coin(self):
+    def test_may_create_is_the_creator_graduated_or_not(self):
         self.assertTrue(enroll.may_create(_Curve(creator=ADMIN), ADMIN))
         self.assertFalse(enroll.may_create(_Curve(creator=STRANGER), ADMIN))
-        self.assertFalse(enroll.may_create(_Curve(creator=ADMIN, graduated=True), ADMIN))
+        self.assertTrue(enroll.may_create(_Curve(creator=ADMIN, graduated=True), ADMIN))
         self.assertFalse(enroll.may_create(None, ADMIN))
 
 

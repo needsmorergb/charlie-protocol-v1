@@ -21,7 +21,8 @@ named as not done. Spelling is American throughout: enroll, enrollment.
   enrolled / not-enrolled marker, the landing page the explanation.
 - **The crank** `indexer/distribute.py` pays every enrolled coin's
   shareholders from its vault with pump's permissionless
-  `distribute_creator_fees`. `python -m indexer distribute --all-enrolled`
+  `distribute_creator_fees`, preceded for a graduated coin by the AMM
+  transfer that moves its wSOL into that vault. `python -m indexer distribute --all-enrolled`
   runs hourly from the site repo's `distribute.yml`. Without a key it
   builds and simulates only, standing pump's own fee wallet in as the payer
   (`STAND_IN_PAYER`), because a simulation needs a payer that exists and the
@@ -39,12 +40,14 @@ named as not done. Spelling is American throughout: enroll, enrollment.
    holding about 0.05 SOL for network fees, nothing else. Until it exists
    the hourly crank simulates and sends nothing. Never generate this key in
    a session; the owner makes it.
-2. **Graduated coins are not paid out.** After graduation the creator fee
-   collects as wrapped SOL in the AMM pool vault and needs
-   `pump_amm::transfer_creator_fees_to_pump` (disc `8b348655e4e56cf1`, no
-   signer) before `distribute_creator_fees` moves anything. The crank
-   refuses graduated coins with that reason. Build that instruction, then
-   drop the refusal.
+2. **Graduated coins are paid, with one case left.** The crank prepends
+   `pump_amm::transfer_creator_fees_to_pump` for a graduated coin, and a
+   coin that graduated before enrolling can enroll (the create passes the
+   canonical pool, which also migrates the pool's coin creator). Both are
+   simulated against mainnet in the site's `enroll` workflow. Still refused:
+   a pool whose `coin_creator` is not the sharing config (the census found
+   one, a zero pubkey on a pool older than the field). Paying it needs
+   `pump_amm::migrate_pool_coin_creator`, permissionless, not built.
 3. **No on-chain program enforces the 5% at enrollment time.** The page
    and the server refuse without it, and pump makes the split permanent
    once set, but a creator who builds their own transaction can set a
