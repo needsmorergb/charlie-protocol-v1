@@ -8,6 +8,8 @@
     python -m indexer reconcile <mint> [--evidence PATH] [--write]   EVID-10's residual, as of an observation
     python -m indexer site <mint> [--evidence PATH] [--write] [--out]   WEB-02/WEB-03/WEB-06: the HTML page + raw JSON
     python -m indexer intake [--repo OWNER/REPO] [--limit N] [--dry-run]   D-34: read the public issue queue, measure submissions
+    python -m indexer buyback <mint> --keypair id.json [--lot 0.05] [--send] [--every N]   the BURN leg by hand: buy and burn in one tx
+    python -m indexer burn <mint> --keypair id.json --amount N [--send]   burn held tokens (no swap)
 
 Exit codes are meant to be usable from a cron line or a CI step:
 
@@ -561,6 +563,107 @@ def _derive(args) -> int:
     return 0
 
 
+def _keeper_identity(args):
+    """A keypair (signs and may send) or a bare wallet address (build and
+    simulate only). One of the two; the key never has to leave a file that
+    only the person running this can read."""
+    from .base58 import decode as b58decode
+    from .ed25519 import Keypair
+    keypair = Keypair.from_file(args.keypair) if args.keypair else None
+    wallet = keypair.address if keypair else (args.wallet or "").strip()
+    if not wallet:
+        raise SystemExit("give --keypair PATH (to sign and send) or --wallet ADDRESS (to build and simulate only)")
+    try:
+        if len(b58decode(wallet)) != 32:
+            raise ValueError
+    except Exception:
+        raise SystemExit(f"{wallet} is not a valid Solana address") from None
+    if args.send and keypair is None:
+        raise SystemExit("--send needs --keypair: a wallet address alone cannot sign")
+    return wallet, keypair
+
+
+def _print_result(result: dict, as_json: bool) -> None:
+    from . import buyback
+    if as_json:
+        print(json.dumps(result, sort_keys=True))
+        return
+    plan = result["plan"]
+    print(f"{plan['kind'].replace('_', ' ')} -- {plan['mint']}")
+    print(f"wallet {plan['user']}")
+    sim = result["simulation"]
+    if result.get("error"):
+        print(f"\nSIMULATION FAILED: {result['error']}")
+        for line in sim["logs_tail"]:
+            print(f"  {line}")
+        return
+    print(f"\nsimulated: ok, {sim['units_consumed']} compute units")
+    if result["sent"]:
+        print(f"sent:      {result['signature']}  ({result.get('confirmation')})")
+        print(f"           https://solscan.io/tx/{result['signature']}")
+        rec = result["recorded"]
+        print(f"read back through the indexer's own decoders: {rec['burn_instructions']} burn instruction(s), "
+              f"{rec['tokens_burned'] / 10 ** plan['decimals']:,.{plan['decimals']}f} tokens, "
+              f"swap present {rec['swap_present']}, atomic {rec['atomic']}, source {rec['source']}, "
+              f"protocol_attributed {rec['protocol_attributed']}")
+    else:
+        print("not sent. To sign in a browser wallet, hand it the message below; to send from here, pass --keypair and --send.")
+        print(f"message (base58):     {result['message_base58']}")
+        print(f"transaction (base64): {result['transaction_base64']}")
+
+
+def _buyback(args) -> int:
+    from . import buyback
+    rpc = RpcClient(_endpoints(args.rpc))
+    wallet, keypair = _keeper_identity(args)
+    lot = int(round(args.lot * buyback.LAMPORTS_PER_SOL))
+    try:
+        if args.every is not None:
+            if keypair is None or not args.send:
+                raise SystemExit("--every runs a keeper: it needs --keypair and --send")
+            budget = int(round(args.max_total * buyback.LAMPORTS_PER_SOL)) if args.max_total is not None else None
+            summary = buyback.run_keeper(
+                rpc, args.mint, keypair, lot_lamports=lot, slippage_bps=args.slippage_bps,
+                every_seconds=args.every, max_total_lamports=budget, max_cranks=args.max_cranks,
+                also_burn_ui=args.also_burn, priority_micro_lamports=args.priority_fee,
+                log=lambda line: print(line, flush=True),
+            )
+            print(json.dumps(summary, sort_keys=True))
+            return 0 if summary["cranks"] else 1
+        state = buyback.observe(rpc, args.mint, wallet)
+        plan = buyback.plan_buy_and_burn(
+            state, lot_lamports=lot, slippage_bps=args.slippage_bps,
+            also_burn=int(round(args.also_burn * 10 ** state.decimals)), priority_micro_lamports=args.priority_fee,
+        )
+        if not args.json:
+            print(buyback.render(plan))
+            print()
+        result = buyback._execute(rpc, plan, keypair, send=args.send)
+    except buyback.BuybackError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    _print_result(result, args.json)
+    return 0 if not result.get("error") else 1
+
+
+def _burn(args) -> int:
+    from . import buyback
+    rpc = RpcClient(_endpoints(args.rpc))
+    wallet, keypair = _keeper_identity(args)
+    try:
+        state = buyback.observe(rpc, args.mint, wallet)
+        plan = buyback.plan_burn(state, int(round(args.amount * 10 ** state.decimals)))
+        if not args.json:
+            print(buyback.render(plan))
+            print()
+        result = buyback._execute(rpc, plan, keypair, send=args.send)
+    except buyback.BuybackError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    _print_result(result, args.json)
+    return 0 if not result.get("error") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="indexer",
@@ -744,6 +847,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit non-zero rather than emit a landing page whose counters read unknown",
     )
     site_cmd.set_defaults(handler=_site)
+
+    keeper = argparse.ArgumentParser(add_help=False)
+    keeper.add_argument("--keypair", help="Solana CLI keypair file (JSON array) or a file holding a base58 secret; signs, and sends with --send")
+    keeper.add_argument("--wallet", help="a wallet address, to build and simulate without a key")
+    keeper.add_argument("--send", action="store_true", help="sign and send (needs --keypair); without it the transaction is built and simulated only")
+    keeper.add_argument("--json", action="store_true", help="one JSON object instead of prose")
+
+    buyback_cmd = sub.add_parser(
+        "buyback", parents=[common, keeper],
+        help="the BURN leg by hand: buy the coin on PumpSwap and burn it in the same transaction, from your own wallet",
+    )
+    buyback_cmd.add_argument("mint")
+    buyback_cmd.add_argument("--lot", type=float, default=0.05, help="SOL per crank, the maximum spend (default 0.05, ARCHITECTURE.md sec.2)")
+    buyback_cmd.add_argument("--slippage-bps", type=int, default=100, help="how much less than the quote the buy may deliver before it fails whole (default 100)")
+    buyback_cmd.add_argument("--also-burn", type=float, default=0.0, help="tokens you already hold to burn in the same transaction, on top of the ones bought")
+    buyback_cmd.add_argument("--priority-fee", type=int, default=0, help="priority fee in micro-lamports per compute unit (default 0)")
+    buyback_cmd.add_argument("--every", type=float, help="keeper mode: repeat every N seconds (needs --keypair and --send)")
+    buyback_cmd.add_argument("--max-total", type=float, help="keeper mode: stop once this many SOL has been committed")
+    buyback_cmd.add_argument("--max-cranks", type=int, help="keeper mode: stop after this many landed cranks")
+    buyback_cmd.set_defaults(handler=_buyback)
+
+    burn_cmd = sub.add_parser(
+        "burn", parents=[common, keeper],
+        help="burn tokens you hold. No swap, no price effect; supply falls and the walk records it",
+    )
+    burn_cmd.add_argument("mint")
+    burn_cmd.add_argument("--amount", type=float, required=True, help="whole tokens to burn")
+    burn_cmd.set_defaults(handler=_burn)
 
     return parser
 
