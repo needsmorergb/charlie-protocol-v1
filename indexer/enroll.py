@@ -62,11 +62,13 @@ INCINERATOR = "1nc1nerator11111111111111111111111111111111"
 # calls pump's program directly can leave it out. That is stated on the page
 # rather than hidden, and the program is what closes it.
 #
-# `TOLL_DESTINATION` is None until the protocol's collection address is set,
-# and while it is None nothing here will build a transaction at all: an
-# enrolment that sent the toll nowhere would be worse than none.
+# `TOLL_DESTINATION` is the protocol's collection wallet, an ordinary on-curve
+# key the protocol holds. Set to None and nothing here builds a transaction at
+# all: an enrolment that sent the toll nowhere would be worse than none. It is
+# permanent for every coin enrolled to it -- pump allows a coin's split to be
+# set once -- so changing it later changes it only for coins enrolled after.
 TOLL_BPS = 500
-TOLL_DESTINATION = None
+TOLL_DESTINATION = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
 
 # What pump's real cap is, nobody outside pump can say: `6011
 # TooManyShareholders` carries the message "format", so the number is
