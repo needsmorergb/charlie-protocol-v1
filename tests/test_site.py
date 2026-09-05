@@ -1300,7 +1300,7 @@ class TestCoinCorrectCopy(unittest.TestCase):
         self.assertNotIn(_REFERENCE_TICKER, rendered)
 
     def _enrolment_section(self, rendered: str) -> str:
-        start = rendered.index('id="enrolment"')
+        start = rendered.index('id="enrollment"')
         return rendered[start:rendered.index("</section>", start)]
 
     def test_a_coin_without_the_protocol_share_is_told_it_is_not_enrolled(self):
@@ -1313,9 +1313,9 @@ class TestCoinCorrectCopy(unittest.TestCase):
         for section in (revoked, open_):
             self.assertIn("Not enrolled", section)
             self.assertIn("does not pay the protocol", section)
-        self.assertIn("cannot enrol", revoked)
+        self.assertIn("cannot enroll", revoked)
         self.assertIn('href="/enroll"', open_)
-        self.assertNotIn("cannot enrol", open_)
+        self.assertNotIn("cannot enroll", open_)
 
     def test_a_coin_paying_the_share_is_enrolled_and_says_pump_enforces_it(self):
         rendered = site.render(_enrolled_observation(), now=2.0)

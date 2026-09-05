@@ -26,9 +26,9 @@ class TestLandingCopyMatchesReality(unittest.TestCase):
         self.assertNotIn("no coin can enroll", self.rendered)
 
     def test_it_says_enrolment_is_open_and_what_enrolled_means(self):
-        # Enrolment is open, and enrolled means one thing: the coin's pump
+        # Enrollment is open, and enrolled means one thing: the coin's pump
         # config pays the protocol's wallet its share, which pump enforces.
-        self.assertIn("Enrolment is open at /enroll", self.rendered)
+        self.assertIn("Enrollment is open at /enroll", self.rendered)
         self.assertIn("5% of the creator fee", self.rendered)
         self.assertIn("pump enforces that config", self.rendered)
         self.assertIn("read from its config on the chain", self.rendered)

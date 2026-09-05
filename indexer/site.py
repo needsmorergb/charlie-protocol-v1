@@ -893,7 +893,7 @@ def _enrolment(observation) -> str:
     check's own detail is rendered verbatim, so the wallet and the bps a
     visitor reads are the ones the check read.
 
-    D-27: the index and every page in it are the top of the enrolment
+    D-27: the index and every page in it are the top of the enrollment
     funnel, not a leaderboard. A coin that is not enrolled is told how to be,
     when it still can.
     """
@@ -902,7 +902,7 @@ def _enrolment(observation) -> str:
     revoked = bool(config is not None and getattr(config, "admin_revoked", False))
     if check is None or check.status == "UNCHECKED":
         body = (
-            "<strong>Enrolment is not open.</strong> The protocol's collection "
+            "<strong>Enrollment is not open.</strong> The protocol's collection "
             "address is not set, so no coin can carry its share yet."
         )
     elif check.status == "PASS":
@@ -919,12 +919,12 @@ def _enrolment(observation) -> str:
         body = (
             f"<strong>Not enrolled.</strong> {esc(check.detail)}. "
             + ("The config is <code>admin_revoked</code>, so its split is permanent "
-               "and this coin cannot enrol."
+               "and this coin cannot enroll."
                if revoked else
-               'Its admin can enrol it at <a href="/enroll">/enroll</a>: one '
+               'Its admin can enroll it at <a href="/enroll">/enroll</a>: one '
                "signature sets the split, and pump enforces it from then on.")
         )
-    return f'<section id="enrolment"><p>{body}</p></section>'
+    return f'<section id="enrollment"><p>{body}</p></section>'
 
 
 def _launch_mode(observation) -> str:
@@ -1258,7 +1258,7 @@ def _raw_record_section(observation) -> str:
 def _sections(observation) -> str:
     """How It Works, The Burn, Quiet, Log and Risks, in UI-SPEC's Page
     Structure order (items 5-9) -- everything after the checks list and
-    before the footer. The enrolment statement (item 2) and the SOL burn
+    before the footer. The enrollment statement (item 2) and the SOL burn
     Failure Banner (item 3) are rendered earlier in `render()`, ahead of the
     Figures section (item 4), matching UI-SPEC's approved structural order
     exactly.
@@ -2075,7 +2075,7 @@ def render(observation, *, now=None) -> str:
     checks_rows = "".join(_check_row(check) for check in observation.checks)
 
     # Structural order follows UI-SPEC's Page Structure & Component Inventory
-    # exactly: header (1) -> enrolment (2) -> SOL burn Failure Banner (3) ->
+    # exactly: header (1) -> enrollment (2) -> SOL burn Failure Banner (3) ->
     # Figures (4) -> [checks list, not separately numbered there] -> How It
     # Works/The Burn/Quiet/Log/Risks (5-9, `_sections()`) -> Raw Observation
     # JSON (10, `_raw_record_section()`) -> footer (11).
@@ -2833,7 +2833,7 @@ _LANDING_SOON = (
     "the program rather than chosen by whoever deploys it. The coin then gets "
     "a page like this one, on which no figure renders unless a passing check "
     "backs it.",
-    "Enrolment is open at /enroll. A coin is enrolled when its pump "
+    "Enrollment is open at /enroll. A coin is enrolled when its pump "
     "fee-sharing config pays the protocol's collection wallet 5% of the "
     "creator fee. pump enforces that config, paying every destination from "
     "the coin's creator vault, and once the coin's one change is spent no key "
@@ -2844,7 +2844,7 @@ _LANDING_SOON = (
     "the buy-and-burn crank. Until it does, the protocol's share is collected "
     "from pump by hand and spent buying $CHARLIE and burning it, and the "
     "chain shows the collecting, not the spending.",
-    "$CHARLIE itself cannot enrol. Its config reads admin_revoked, which is "
+    "$CHARLIE itself cannot enroll. Its config reads admin_revoked, which is "
     "how pump records that a coin has already used the single change it is "
     "allowed, and only pump can reset it.",
     "It will land in the repository linked below. There is nothing to sign up "

@@ -48,7 +48,7 @@ instruction in this program that moves lamports out of a `SOL burn` PDA.** Anyon
 can verify that by reading the program.
 
 **This only holds if the program is immutable.** Upgrade authority MUST be
-revoked before any coin enrols. An upgradeable program could add a withdraw
+revoked before any coin enrolls. An upgradeable program could add a withdraw
 instruction tomorrow, which reduces SOL burn from a proof back to a promise. This
 is the single load-bearing assumption in the entire protocol.
 
@@ -149,6 +149,6 @@ should be frozen only after the burn crank has run in production against a live
 coin under an upgradeable build.
 
 **Nothing here helps $CHARLIE.** Charlie's own config is `admin_revoked`, so it
-cannot enrol in its own protocol without pump. It stays mode 1 by force, not by
+cannot enroll in its own protocol without pump. It stays mode 1 by force, not by
 choice, and the protocol should say so on Charlie's own page rather than let
 someone else discover it.
