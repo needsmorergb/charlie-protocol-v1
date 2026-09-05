@@ -63,6 +63,8 @@ named as not done. Spelling is American throughout: enroll, enrollment.
    split without us. That coin simply reads "not enrolled". The program
    is the long-term answer; `PROTOCOL.md` and `ARCHITECTURE.md` describe it.
 4. **RPC rate limiting.** The gateway (`https://crowd-api-gateway.vercel.app/`)
+   is now `indexer.rpc.DEFAULT_ENDPOINTS`, so the CLI and the Vercel
+   functions read through it too, not only the workflows. It
    answers 429 after a few chain-reading workflow runs in quick succession.
    Space out manual dispatches of `enroll`, `intake`, `distribute`. A 429
    in the crank step surfaces as `RpcUnavailable` and fails the step
@@ -100,7 +102,8 @@ python -m unittest discover -s tests -q
 ```
 
 740 tests pass as of this handoff. The sandbox these sessions run in has no
-Solana RPC; every chain read happens in GitHub Actions. Production can be
+Solana RPC, and its egress policy refuses the gateway host as well as the
+public nodes (403 on CONNECT); every chain read happens in GitHub Actions. Production can be
 fetched at the custom domain; branch previews sit behind Vercel's login.
 
 ## Conventions worth knowing before editing

@@ -95,8 +95,8 @@ python -m indexer burn 8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump --keypair ke
 `scripts/Start-CharlieBuyback.ps1` wraps the same command for PowerShell,
 with the same switches, logging each crank to a file.
 
-Set `CHARLIE_RPC_URLS` (or `--rpc`) to the endpoint you want; the defaults
-are public nodes. Without `--send` nothing is ever signed, and the unsigned
+Set `CHARLIE_RPC_URLS` (or `--rpc`) to the endpoint you want; the default
+is the crowd-api gateway, the same endpoint every workflow reads through. Without `--send` nothing is ever signed, and the unsigned
 transaction is printed for a browser wallet. With `--send`, a simulation that
 reports an error stops the run before the key is used. A crank that lands is
 read back through the indexer's own decoders and the result is printed:
