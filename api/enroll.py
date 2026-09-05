@@ -146,6 +146,7 @@ class handler(BaseHTTPRequestHandler):
                 mint, authority, shares, blockhash,
                 create=config is None,
                 current=[a for a, _bps in config.shareholders] if config else (),
+                graduated=bool(curve.graduated),
             )
             unsigned = bytes([1]) + b"\x00" * 64 + message
             encoded = base64.b64encode(unsigned).decode()
