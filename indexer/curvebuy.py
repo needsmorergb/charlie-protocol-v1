@@ -3,12 +3,18 @@
 `buyback.py` runs SOL -> buy -> SPL burn on the PumpSwap pool a coin gets
 when it graduates. Most of a coin's life -- and all of it for the 97% that
 never graduate -- is spent before that, on pump's bonding curve, where the
-same leg is pump's own `buy`: exact tokens out for at most `max_sol_cost`
-lamports, paid in native SOL with no wrapping. This module builds that
-buy from the deployed program's own declaration (the `idl` workflow in the
-deploy repository printed `buy`'s sixteen accounts, its args and the
-`BondingCurve`, `Global` and `FeeConfig` layouts on 2026-09-05) and burns
-what it bought in the same transaction, so both land or neither does.
+same leg is pump's `buy_v2`: exact tokens out for at most `max_sol_cost`,
+paid in wrapped SOL from the buyer's own token account. This module builds
+that buy from the deployed program's own declaration and burns what it
+bought in the same transaction, so both land or neither does.
+
+Why `buy_v2` and not `buy`: the legacy `buy` answered 6062
+BuybackFeeRecipientMissing on mainnet (2026-09-05). pump now routes part of
+its protocol fee to a buyback recipient, and only `buy_v2` names one. The
+deploy repository's `probe_curve_buy` resolved `buy_v2`'s 27 accounts from
+the on-chain IDL's own seeds and mainnet accepted the transaction; the
+account list below is that one, in that order, and the tests pin the
+addresses it printed for a real coin.
 
 The arithmetic is pump's: for `amount` tokens the curve charges
 `amount * virtual_sol / (virtual_token - amount) + 1` lamports, then the
@@ -16,20 +22,24 @@ protocol and creator fees on top, each rounded up. The fee rate comes from
 the fee program's config for pump (the same market-cap tiers the AMM uses,
 read off the chain), falling back to `Global`'s flat rates if that config
 cannot be read. `max_sol_cost` is the lot itself, so a curve that moves
-between quoting and landing fails the transaction rather than overpaying.
+between quoting and landing fails the transaction rather than overpaying,
+and whatever the buy does not spend comes back when the wSOL account is
+closed at the end.
 
 Nothing here signs. `buyback._execute` simulates and, with a keypair and
-`--send`, sends; the keeper loop in `buyback.run_keeper` picks this venue
-whenever the coin has not graduated.
+`--send`, sends; `buyback.plan_for` picks this venue whenever the coin has
+not graduated.
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 from . import pump
 from .base58 import encode, pubkey_bytes
 from .buyback import (
+    ASSOCIATED_TOKEN_PROGRAM,
     BPS,
     DEFAULT_COMPUTE_UNITS,
     DEFAULT_LOT_LAMPORTS,
@@ -55,11 +65,14 @@ from .buyback import (
     ix_burn,
     ix_compute_unit_limit,
     ix_compute_unit_price,
+    ix_close_account,
     ix_create_ata_idempotent,
+    ix_sync_native,
+    ix_system_transfer,
 )
-from .enroll import associated_token_address
+from .enroll import associated_token_address, sharing_config_address
 from .message import Instruction
-from .pump import DISC_BONDING_CURVE, PUMP_PROGRAM, SYSTEM_PROGRAM, _raw, read_mint
+from .pump import DISC_BONDING_CURVE, PUMP_PROGRAM, SYSTEM_PROGRAM, TOKEN_PROGRAM, _raw, read_mint
 
 # `Global` is `[b"global"]` under pump; the volume accumulators and the event
 # authority are the PDAs the IDL spells out for `buy`. The fee program's
@@ -78,7 +91,17 @@ _GLOBAL_FEE_RECIPIENT = 41
 _GLOBAL_FEE_BPS = 105
 _GLOBAL_CREATOR_FEE_BPS = 154
 _GLOBAL_MIN_BYTES = 162
+# ... fee_recipients [7] to 386 | set_creator_authority | admin_set_creator_
+# authority | create_v2_enabled u8 | whitelist_pda | reserved_fee_recipient |
+# mayhem_mode_enabled u8 | reserved_fee_recipients [7] | is_cashback_enabled
+# u8 | buyback_fee_recipients [8] | buyback_basis_points u64
+_GLOBAL_BUYBACK_RECIPIENTS = 741
+_GLOBAL_BUYBACK_BPS = 997
 
+
+# sha256("global:buy_v2")[:8], from pump's on-chain IDL. Args: amount u64,
+# max_sol_cost u64. No OptionBool, unlike the legacy `buy`.
+BUY_V2 = bytes.fromhex("b817ee6167c5d33d")
 
 # sha256("global:init_user_volume_accumulator")[:8], from the same IDL. Its
 # accounts: payer (signer, writable), user, the accumulator PDA (writable),
@@ -159,16 +182,30 @@ class Global:
     fee_recipient: str
     fee_bps: int
     creator_fee_bps: int
+    # The wallets pump's buyback share of the protocol fee may be paid to;
+    # `buy_v2` names one. 5000 bps of the protocol fee on 2026-09-05.
+    buyback_fee_recipients: tuple = ()
+    buyback_bps: int = 0
 
 
 def decode_global(account: dict | None) -> Global:
     data = _raw(account, b"", "pump global", (PUMP_PROGRAM,))
     if len(data) < _GLOBAL_MIN_BYTES:
         raise pump.DecodeError(f"pump global is {len(data)} bytes, expected at least {_GLOBAL_MIN_BYTES}")
+    recipients = ()
+    buyback_bps = 0
+    if len(data) >= _GLOBAL_BUYBACK_BPS + 8:
+        at = _GLOBAL_BUYBACK_RECIPIENTS
+        recipients = tuple(
+            r for r in (encode(data[at + 32 * i:at + 32 * (i + 1)]) for i in range(8)) if r != DEFAULT_PUBKEY
+        )
+        buyback_bps = int.from_bytes(data[_GLOBAL_BUYBACK_BPS:_GLOBAL_BUYBACK_BPS + 8], "little")
     return Global(
         fee_recipient=encode(data[_GLOBAL_FEE_RECIPIENT:_GLOBAL_FEE_RECIPIENT + 32]),
         fee_bps=int.from_bytes(data[_GLOBAL_FEE_BPS:_GLOBAL_FEE_BPS + 8], "little"),
         creator_fee_bps=int.from_bytes(data[_GLOBAL_CREATOR_FEE_BPS:_GLOBAL_CREATOR_FEE_BPS + 8], "little"),
+        buyback_fee_recipients=recipients,
+        buyback_bps=buyback_bps,
     )
 
 
@@ -214,6 +251,8 @@ def observe(rpc, mint: str, user: str) -> CurveState:
     if curve.mayhem:
         raise BuybackError(f"{mint} is in pump's mayhem mode, which routes fees differently: not bought by this keeper")
     global_ = decode_global(first[1])
+    if not global_.buyback_fee_recipients:
+        raise BuybackError("pump's global names no buyback fee recipient, and buy_v2 requires one")
     fee_config = decode_fee_config(first[2]) if first[2] is not None else None
     user_lamports = int((first[3] or {}).get("lamports") or 0)
     user_ata = associated_token_address(user, mint, mint_state.program)
@@ -271,50 +310,70 @@ def amount_for_lot(lot: int, curve: Curve, fees: Fees, charge_creator: bool, sli
 
 
 # -- the instruction -------------------------------------------------------------
-def buy_accounts(mint: str, user: str, creator: str, token_program: str, fee_recipient: str) -> list:
-    """`buy`'s sixteen accounts in the IDL's order. The only signer is the
-    user, who pays in SOL from their own balance."""
+def buy_accounts(mint: str, user: str, creator: str, base_token_program: str, fee_recipient: str,
+                 buyback_fee_recipient: str, quote_mint: str = WSOL_MINT) -> list:
+    """`buy_v2`'s 27 accounts in the IDL's order, as the deploy repository's
+    probe resolved them from the on-chain seeds and mainnet accepted. The
+    only signer is the user. Every wSOL account is the owner's associated
+    token account for the quote mint under the classic token program; the
+    coin's own token accounts follow the mint's program, which for a
+    create_v2 coin is Token-2022."""
     curve = pump.bonding_curve(mint)
+    vault = creator_vault(creator)
+    accumulator = user_volume_accumulator(user)
+    wsol = lambda owner: associated_token_address(owner, quote_mint, TOKEN_PROGRAM)  # noqa: E731
     return [
         (GLOBAL, False, False),
-        (fee_recipient, False, True),
         (mint, False, False),
+        (quote_mint, False, False),
+        (base_token_program, False, False),
+        (TOKEN_PROGRAM, False, False),
+        (ASSOCIATED_TOKEN_PROGRAM, False, False),
+        (fee_recipient, False, True),
+        (wsol(fee_recipient), False, True),
+        (buyback_fee_recipient, False, True),
+        (wsol(buyback_fee_recipient), False, True),
         (curve, False, True),
-        (associated_token_address(curve, mint, token_program), False, True),
-        (associated_token_address(user, mint, token_program), False, True),
+        (associated_token_address(curve, mint, base_token_program), False, True),
+        (wsol(curve), False, True),
         (user, True, True),
-        (SYSTEM_PROGRAM, False, False),
-        (token_program, False, False),
-        (creator_vault(creator), False, True),
-        (EVENT_AUTHORITY, False, False),
-        (PUMP_PROGRAM, False, False),
+        (associated_token_address(user, mint, base_token_program), False, True),
+        (wsol(user), False, True),
+        (vault, False, True),
+        (wsol(vault), False, True),
+        (sharing_config_address(mint), False, False),
         (GLOBAL_VOLUME_ACCUMULATOR, False, False),
-        (user_volume_accumulator(user), False, True),
+        (accumulator, False, True),
+        (wsol(accumulator), False, True),
         (PUMP_FEE_CONFIG, False, False),
         (FEE_PROGRAM, False, False),
+        (SYSTEM_PROGRAM, False, False),
+        (EVENT_AUTHORITY, False, False),
+        (PUMP_PROGRAM, False, False),
     ]
 
 
-def buy_data(amount: int, max_sol_cost: int, track_volume: bool = True) -> bytes:
-    """`discriminator || amount u64 || max_sol_cost u64 || OptionBool`, the
-    same shape as the AMM's buy (sha256("global:buy") is the same eight
-    bytes for both programs)."""
-    return DISC_BUY + amount.to_bytes(8, "little") + max_sol_cost.to_bytes(8, "little") + bytes([1 if track_volume else 0])
+def buy_data(amount: int, max_sol_cost: int) -> bytes:
+    """`discriminator || amount u64 || max_sol_cost u64`."""
+    return BUY_V2 + amount.to_bytes(8, "little") + max_sol_cost.to_bytes(8, "little")
 
 
-def ix_buy(state: CurveState, amount: int, max_sol_cost: int) -> Instruction:
+def ix_buy(state: CurveState, amount: int, max_sol_cost: int, buyback_fee_recipient: str) -> Instruction:
     return (PUMP_PROGRAM,
-            buy_accounts(state.mint, state.user, state.curve.creator, state.token_program, state.global_.fee_recipient),
+            buy_accounts(state.mint, state.user, state.curve.creator, state.token_program,
+                         state.global_.fee_recipient, buyback_fee_recipient),
             buy_data(amount, max_sol_cost))
 
 
 # -- the plan ----------------------------------------------------------------------
 def plan_buy_and_burn(state: CurveState, *, lot_lamports: int = DEFAULT_LOT_LAMPORTS,
                       slippage_bps: int = DEFAULT_SLIPPAGE_BPS, also_burn: int = 0,
-                      priority_micro_lamports: int = 0, compute_units: int = DEFAULT_COMPUTE_UNITS) -> Plan:
+                      priority_micro_lamports: int = 0, compute_units: int = DEFAULT_COMPUTE_UNITS,
+                      choose=random.choice) -> Plan:
     """Quote the lot against the curve as it reads right now and lay out the
-    instructions: make sure the token account exists, buy exactly `amount`
-    for at most the lot, burn `amount + also_burn`. One transaction."""
+    instructions: the token accounts, the lot wrapped into wSOL, buy exactly
+    `amount` for at most the lot, burn `amount + also_burn`, unwrap what is
+    left. One transaction, all or nothing."""
     if lot_lamports < MIN_LOT_LAMPORTS:
         raise BuybackError(f"a lot below {MIN_LOT_LAMPORTS / LAMPORTS_PER_SOL} SOL is fee noise; refusing")
     if also_burn < 0:
@@ -340,6 +399,8 @@ def plan_buy_and_burn(state: CurveState, *, lot_lamports: int = DEFAULT_LOT_LAMP
     scale = 10 ** state.decimals / LAMPORTS_PER_SOL
     burn_total = amount + also_burn
     user_ata = associated_token_address(state.user, state.mint, state.token_program)
+    user_wsol = associated_token_address(state.user, WSOL_MINT, TOKEN_PROGRAM)
+    buyback_fee_recipient = choose(list(state.global_.buyback_fee_recipients))
 
     instructions: list[Instruction] = [ix_compute_unit_limit(compute_units)]
     if priority_micro_lamports:
@@ -348,15 +409,19 @@ def plan_buy_and_burn(state: CurveState, *, lot_lamports: int = DEFAULT_LOT_LAMP
         instructions.append(ix_init_user_volume_accumulator(state.user))
     instructions += [
         ix_create_ata_idempotent(state.user, user_ata, state.user, state.mint, state.token_program),
-        ix_buy(state, amount, lot_lamports),
+        ix_create_ata_idempotent(state.user, user_wsol, state.user, WSOL_MINT, TOKEN_PROGRAM),
+        ix_system_transfer(state.user, user_wsol, lot_lamports),
+        ix_sync_native(user_wsol),
+        ix_buy(state, amount, lot_lamports, buyback_fee_recipient),
         ix_burn(state.token_program, user_ata, state.mint, state.user, burn_total),
+        ix_close_account(user_wsol, state.user, state.user),
     ]
     notes = [
         "The buy and the burn are instructions in one transaction: both land or neither does (PROTOCOL.md sec.4).",
         f"max_sol_cost is the lot itself ({lot_lamports / LAMPORTS_PER_SOL} SOL). If the curve moves so the buy "
-        "would cost more, the whole transaction fails rather than overpaying; SOL is paid from the wallet's own "
-        "balance, nothing is wrapped.",
-        "This coin is on its bonding curve, not yet on the pump AMM: the buy is pump's own `buy`, and the same "
+        "would cost more, the whole transaction fails rather than overpaying; whatever is unspent returns when the "
+        "wSOL account is closed.",
+        "This coin is on its bonding curve, not yet on the pump AMM: the buy is pump's own `buy_v2`, and the same "
         "keeper switches to the AMM the moment the coin graduates.",
         "The indexer records this as a third-party burn (source spl_burn, atomic PASS). It counts toward supply "
         "destroyed; it is not protocol-attributed, because no protocol program cranked it (D-10).",
@@ -404,7 +469,9 @@ def plan_buy_and_burn(state: CurveState, *, lot_lamports: int = DEFAULT_LOT_LAMP
             "creator": curve.creator,
             "creator_vault": creator_vault(curve.creator),
             "fee_recipient": state.global_.fee_recipient,
+            "buyback_fee_recipient": buyback_fee_recipient,
             "user_token_account": user_ata,
+            "user_wsol_account": user_wsol,
             "token_program": state.token_program,
         },
     )

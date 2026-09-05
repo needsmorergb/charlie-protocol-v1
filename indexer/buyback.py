@@ -1021,7 +1021,8 @@ def plan_for(rpc, mint: str, wallet: str, *, lot_lamports: int = DEFAULT_LOT_LAM
     state = curvebuy.observe(rpc, mint, wallet)
     also_burn = int(round(also_burn_ui * 10 ** state.decimals))
     return curvebuy.plan_buy_and_burn(state, lot_lamports=lot_lamports, slippage_bps=slippage_bps,
-                                      also_burn=also_burn, priority_micro_lamports=priority_micro_lamports)
+                                      also_burn=also_burn, priority_micro_lamports=priority_micro_lamports,
+                                      choose=choose)
 
 
 def burn_once(rpc, mint: str, wallet: str, keypair=None, *, amount_ui: float, send: bool = False,

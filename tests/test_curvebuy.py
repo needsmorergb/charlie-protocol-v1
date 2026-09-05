@@ -47,24 +47,35 @@ def curve_bytes(*, complete=False, creator=CREATOR, mayhem=False, quote_mint=Non
     return bytes(out[:length]) if length else bytes(out)
 
 
-def global_bytes(*, fee_bps=100, creator_fee_bps=30) -> bytes:
+BUYBACK_RECIPIENTS = [_key(f"buyback-{i}") for i in range(3)]
+
+
+def global_bytes(*, fee_bps=100, creator_fee_bps=30, buyback=True) -> bytes:
     out = bytearray(b"\x00" * 8)                       # disc
     out += bytes([1]) + pubkey_bytes(_key("authority")) + pubkey_bytes(FEE_RECIPIENT)
     for value in (VIRTUAL_TOKEN, VIRTUAL_SOL, REAL_TOKEN, SUPPLY, fee_bps):
         out += value.to_bytes(8, "little")
     out += pubkey_bytes(_key("withdraw")) + bytes([0]) + (0).to_bytes(8, "little")
     out += creator_fee_bps.to_bytes(8, "little")
-    out += bytes(32 * 7)                               # fee_recipients
+    out += bytes(32 * 7)                               # fee_recipients -> 386
+    if not buyback:
+        return bytes(out)
+    out += bytes(32) + bytes(32) + bytes([1])          # set/admin creator authorities, create_v2_enabled -> 451
+    out += bytes(32) + bytes(32) + bytes([0])          # whitelist, reserved recipient, mayhem -> 516
+    out += bytes(32 * 7) + bytes([0])                  # reserved recipients, is_cashback_enabled -> 741
+    for i in range(8):
+        out += pubkey_bytes(BUYBACK_RECIPIENTS[i]) if i < len(BUYBACK_RECIPIENTS) else bytes(32)
+    out += (5000).to_bytes(8, "little")                # buyback_basis_points at 997
     return bytes(out)
 
 
 def curve_chain(*, complete=False, user_lamports=2 * SOL, creator=CREATOR, mayhem=False,
-                quote_mint=None, traded_before=True) -> dict:
+                quote_mint=None, traded_before=True, buyback=True) -> dict:
     curve = pump.bonding_curve(MINT)
     accounts = {
         MINT: _account(TOKEN_PROGRAM, mint_bytes()),
         curve: _account(PUMP_PROGRAM, curve_bytes(complete=complete, creator=creator, mayhem=mayhem, quote_mint=quote_mint)),
-        curvebuy.GLOBAL: _account(PUMP_PROGRAM, global_bytes()),
+        curvebuy.GLOBAL: _account(PUMP_PROGRAM, global_bytes(buyback=buyback)),
         USER: {"owner": SYSTEM_PROGRAM, "data": ["", "base64"], "lamports": user_lamports},
     }
     if traded_before:
@@ -89,43 +100,63 @@ class TestTheAddresses(unittest.TestCase):
         self.assertEqual(curvebuy.creator_vault(CREATOR), distribute.creator_vault(CREATOR))
 
 
+# The coin the deploy repository's probe bought in simulation on 2026-09-05,
+# and the account list it resolved from the IDL that mainnet accepted.
+PROBED_MINT = "22Zrdq4ia9nXni9625rc4e7JoMuLqSbv7d817P94pump"
+PROBED_CREATOR = "Gd5BfwwUVbUZbu6E5NzuKREv3WSQ5REUncWxv2ub3qKD"
+PROBED_USER = "burn111111111111111111111111111111111111111"
+PROBED_FEE_RECIPIENT = "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV"
+PROBED_BUYBACK_RECIPIENT = "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD"
+PROBED_ACCOUNTS = [
+    "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",   # global
+    PROBED_MINT,                                       # base_mint
+    "So11111111111111111111111111111111111111112",    # quote_mint
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",    # base_token_program (a create_v2 coin: Token-2022)
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",    # quote_token_program
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",   # associated_token_program
+    PROBED_FEE_RECIPIENT,                              # fee_recipient
+    "94qWNrtmfn42h3ZjUZwWvK1MEo9uVmmrBPd2hpNjYDjb",   # associated_quote_fee_recipient
+    PROBED_BUYBACK_RECIPIENT,                          # buyback_fee_recipient
+    "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",   # associated_quote_buyback_fee_recipient
+    "FbnUoPuXCkchCCXL2PyxtUFcuYWjLcHg4j3WhaePQb2U",   # bonding_curve
+    "889q2pm8sXRKiL6kLsJsw7mxUDhseEAwiAWdqT8piApr",   # associated_base_bonding_curve
+    "HgJv4mo7KeQ9STAjJS1dNCENBiM4YhKugdP5N9798SMq",   # associated_quote_bonding_curve
+    PROBED_USER,                                       # user
+    "71yM5TVcE4ivJcfzjgvkpNsDzsBzQad5bvMaDSPDnCTM",   # associated_base_user
+    "GC6uA8fZAQpKb15KXQF83baZUWTFgSb1wtRTb9SQvEUZ",   # associated_quote_user
+    "F23LdxWf1KD7UBMeNSHK6PpDYFa5hX6iuxQpwaxbfESq",   # creator_vault
+    "9ex4bR9zE6VqMcvhaQzcQAQFKmuscqcg7DUhoWB6gqbo",   # associated_creator_vault
+    "B93RbqNN2uoT9esRr6gPg64VgyXA9CW4AvCnKNYdG3Zo",   # sharing_config
+    "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",   # global_volume_accumulator
+    "8Q5bfNu24mrTHMB8SagZPmK88W6aTYjUReGurC16M7cY",   # user_volume_accumulator
+    "DPFk91RU4Ua4g4CNUavPA583DUpq91ojaGSPNAsSLNkR",   # associated_user_volume_accumulator
+    "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",   # fee_config
+    "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",    # fee_program
+    "11111111111111111111111111111111",                # system_program
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",   # event_authority
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",    # program
+]
+
+
 class TestTheInstruction(unittest.TestCase):
-    def test_sixteen_accounts_in_the_idl_s_order(self):
-        metas = curvebuy.buy_accounts(MINT, USER, CREATOR, TOKEN_PROGRAM, FEE_RECIPIENT)
-        curve = pump.bonding_curve(MINT)
-        self.assertEqual([m[0] for m in metas], [
-            curvebuy.GLOBAL,
-            FEE_RECIPIENT,
-            MINT,
-            curve,
-            associated_token_address(curve, MINT, TOKEN_PROGRAM),
-            associated_token_address(USER, MINT, TOKEN_PROGRAM),
-            USER,
-            SYSTEM_PROGRAM,
-            TOKEN_PROGRAM,
-            curvebuy.creator_vault(CREATOR),
-            curvebuy.EVENT_AUTHORITY,
-            PUMP_PROGRAM,
-            curvebuy.GLOBAL_VOLUME_ACCUMULATOR,
-            curvebuy.user_volume_accumulator(USER),
-            curvebuy.PUMP_FEE_CONFIG,
-            buyback.FEE_PROGRAM,
-        ])
+    def test_the_twenty_seven_accounts_mainnet_accepted_for_the_probed_coin(self):
+        metas = curvebuy.buy_accounts(PROBED_MINT, PROBED_USER, PROBED_CREATOR, buyback.TOKEN_2022_PROGRAM,
+                                      PROBED_FEE_RECIPIENT, PROBED_BUYBACK_RECIPIENT)
+        self.assertEqual([m[0] for m in metas], PROBED_ACCOUNTS)
 
     def test_flags_as_the_idl_declares_them(self):
-        metas = curvebuy.buy_accounts(MINT, USER, CREATOR, TOKEN_PROGRAM, FEE_RECIPIENT)
-        self.assertEqual([m[1] for m in metas], [False] * 6 + [True] + [False] * 9)   # only the user signs
-        self.assertEqual([m[2] for m in metas], [
-            False, True, False, True, True, True, True, False, False, True, False, False, False, True, False, False,
-        ])
+        metas = curvebuy.buy_accounts(PROBED_MINT, PROBED_USER, PROBED_CREATOR, buyback.TOKEN_2022_PROGRAM,
+                                      PROBED_FEE_RECIPIENT, PROBED_BUYBACK_RECIPIENT)
+        self.assertEqual([m[1] for m in metas], [False] * 13 + [True] + [False] * 13)   # only the user signs
+        writable = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21}
+        self.assertEqual([m[2] for m in metas], [i in writable for i in range(27)])
 
-    def test_the_data_is_disc_amount_max_sol_cost_track_volume(self):
+    def test_the_data_is_disc_amount_max_sol_cost(self):
         data = curvebuy.buy_data(1234, 5678)
-        self.assertEqual(data[:8], bytes.fromhex("66063d1201daebea"))
+        self.assertEqual(data[:8], bytes.fromhex("b817ee6167c5d33d"))
         self.assertEqual(int.from_bytes(data[8:16], "little"), 1234)
         self.assertEqual(int.from_bytes(data[16:24], "little"), 5678)
-        self.assertEqual(data[24:], b"\x01")
-        self.assertEqual(len(data), 25)
+        self.assertEqual(len(data), 24)
 
 
 class TestTheDecoders(unittest.TestCase):
@@ -149,10 +180,16 @@ class TestTheDecoders(unittest.TestCase):
         self.assertEqual(curve.quote_mint, buyback.DEFAULT_PUBKEY)
         self.assertTrue(curve.sol_quoted)
 
-    def test_global_s_fee_recipient_and_rates(self):
+    def test_global_s_fee_recipient_rates_and_buyback_recipients(self):
         g = curvebuy.decode_global(_account(PUMP_PROGRAM, global_bytes(fee_bps=95, creator_fee_bps=30)))
         self.assertEqual(g.fee_recipient, FEE_RECIPIENT)
         self.assertEqual((g.fee_bps, g.creator_fee_bps), (95, 30))
+        self.assertEqual(list(g.buyback_fee_recipients), BUYBACK_RECIPIENTS)   # the zero slots dropped
+        self.assertEqual(g.buyback_bps, 5000)
+
+    def test_a_global_older_than_the_buyback_fields_names_no_recipient(self):
+        g = curvebuy.decode_global(_account(PUMP_PROGRAM, global_bytes(buyback=False)))
+        self.assertEqual(g.buyback_fee_recipients, ())
 
 
 class TestTheArithmetic(unittest.TestCase):
@@ -204,22 +241,33 @@ class TestObserveAndPlan(unittest.TestCase):
             curvebuy.observe(FakeRpc(curve_chain(complete=True)), MINT, USER)
         self.assertIn("graduated", str(caught.exception))
 
+    def test_a_global_without_buyback_recipients_is_refused_before_building(self):
+        # The legacy buy answered 6062 BuybackFeeRecipientMissing on mainnet;
+        # buy_v2 must name one, so a global that has none cannot be bought from.
+        with self.assertRaises(buyback.BuybackError) as caught:
+            curvebuy.observe(FakeRpc(curve_chain(buyback=False)), MINT, USER)
+        self.assertIn("buyback fee recipient", str(caught.exception))
+
     def test_a_non_sol_quote_and_mayhem_mode_are_refused(self):
         with self.assertRaises(buyback.BuybackError):
             curvebuy.observe(FakeRpc(curve_chain(quote_mint=_key("usd-something"))), MINT, USER)
         with self.assertRaises(buyback.BuybackError):
             curvebuy.observe(FakeRpc(curve_chain(mayhem=True)), MINT, USER)
 
-    def test_the_plan_is_budget_ata_buy_burn_in_one_transaction(self):
+    def test_the_plan_wraps_the_lot_buys_burns_and_unwraps_in_one_transaction(self):
         state = curvebuy.observe(FakeRpc(curve_chain()), MINT, USER)
-        plan = curvebuy.plan_buy_and_burn(state, lot_lamports=50_000_000, slippage_bps=100)
+        plan = curvebuy.plan_buy_and_burn(state, lot_lamports=50_000_000, slippage_bps=100,
+                                          choose=lambda options: options[0])
         self.assertEqual(plan.kind, "curve_buy_and_burn")
         programs = [ix[0] for ix in plan.instructions]
         self.assertEqual(programs, [buyback.COMPUTE_BUDGET_PROGRAM, buyback.ASSOCIATED_TOKEN_PROGRAM,
-                                    PUMP_PROGRAM, TOKEN_PROGRAM])
-        buy = plan.instructions[2]
+                                    buyback.ASSOCIATED_TOKEN_PROGRAM, SYSTEM_PROGRAM, TOKEN_PROGRAM,
+                                    PUMP_PROGRAM, TOKEN_PROGRAM, TOKEN_PROGRAM])
+        buy = plan.instructions[5]
         self.assertEqual(buy[2], curvebuy.buy_data(plan.base_out, 50_000_000))
-        burn = plan.instructions[3]
+        self.assertEqual(buy[1][8][0], BUYBACK_RECIPIENTS[0])
+        self.assertEqual(plan.accounts["buyback_fee_recipient"], BUYBACK_RECIPIENTS[0])
+        burn = plan.instructions[6]
         self.assertEqual(int.from_bytes(burn[2][1:9], "little"), plan.base_out)
         self.assertEqual(plan.burn_total, plan.base_out)
         self.assertLessEqual(plan.expected_cost["total"], 50_000_000)
@@ -232,8 +280,8 @@ class TestObserveAndPlan(unittest.TestCase):
         self.assertFalse(state.user_volume_exists)
         plan = curvebuy.plan_buy_and_burn(state, lot_lamports=50_000_000)
         programs = [ix[0] for ix in plan.instructions]
-        self.assertEqual(programs, [buyback.COMPUTE_BUDGET_PROGRAM, PUMP_PROGRAM, buyback.ASSOCIATED_TOKEN_PROGRAM,
-                                    PUMP_PROGRAM, TOKEN_PROGRAM])
+        self.assertEqual(programs[:3], [buyback.COMPUTE_BUDGET_PROGRAM, PUMP_PROGRAM, buyback.ASSOCIATED_TOKEN_PROGRAM])
+        self.assertEqual(len(programs), 9)
         init = plan.instructions[1]
         self.assertEqual(init[2], curvebuy.INIT_USER_VOLUME_ACCUMULATOR)
         self.assertEqual([m[0] for m in init[1]], [USER, USER, curvebuy.user_volume_accumulator(USER),
@@ -252,7 +300,7 @@ class TestObserveAndPlan(unittest.TestCase):
         result = buyback._execute(rpc, plan, None, send=False)
         self.assertIsNone(result["simulation"]["err"])
         self.assertFalse(result["sent"])
-        self.assertEqual(result["plan"]["instruction_count"], 4)
+        self.assertEqual(result["plan"]["instruction_count"], 8)
 
 
 class TestTheVenue(unittest.TestCase):
