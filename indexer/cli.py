@@ -39,7 +39,7 @@ from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
 from .reconcile import DEFAULT_OUTPUT_PATH, reconcile, record as record_reconciliation, render as render_reconciliation
 from .report import render
-from .rpc import DEFAULT_ENDPOINTS, RpcClient
+from .rpc import DEFAULT_ENDPOINTS, RpcClient, RpcUnavailable
 from .scan import BACKFILL_PAGES_PER_RUN, derive_initial_supply, scan_burns, scan_inflows_all_endpoints
 from .store import DEFAULT_PATH, Store
 
@@ -506,7 +506,16 @@ def _distribute(args) -> int:
         # hour ago has no record yet and is owed a payout all the same.
         records, _known = _index_inputs(Path(args.out))
         by_record = distribute.enrolled_mints(records)
-        on_chain = enrolled.mints(rpc)
+        try:
+            on_chain = enrolled.mints(rpc)
+        except RpcUnavailable as exc:
+            # The scan is eight getProgramAccounts over a 600K-account
+            # program, and the gateway's upstream rate-limits it when another
+            # chain-reading job is running. Measured: the first dispatch of
+            # this scan died here and paid nobody, with a coin sitting in the
+            # committed records. The records are still owed their payout.
+            print(f"could not scan the chain for enrolled coins ({exc}); paying the committed records only")
+            on_chain = []
         new = sorted(set(on_chain) - set(by_record))
         print(f"enrolled: {len(by_record)} by committed record, {len(on_chain)} on the chain"
               + (f" ({len(new)} with no record yet: {' '.join(new)})" if new else ""))
