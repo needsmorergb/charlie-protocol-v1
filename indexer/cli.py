@@ -439,6 +439,24 @@ def _intake(args) -> int:
             else:
                 print(f"issue #{outcome.issue_number}  {outcome.mint or '(no mint)'}  failed  {outcome.reason}")
 
+        if not args.answer_only:
+            # A coin enrolled on the chain is a coin with a reader: its dev
+            # just signed for it. It gets a page without anyone opening an
+            # issue. A scan that fails must not cost the queue its commit.
+            from . import enrolled
+            try:
+                found = enrolled.index_new(
+                    rpc, registry, evidence, out_dir, site_url=args.site_url, limit=args.limit,
+                )
+            except Exception as exc:                          # noqa: BLE001 - reported, the run goes on
+                print(f"could not scan the chain for enrolled coins: {exc}")
+                found = []
+            for outcome in found:
+                if outcome.observed:
+                    print(f"enrolled on chain, no page yet  {outcome.mint}  observed  {outcome.verdict_url or ''}")
+                else:
+                    print(f"enrolled on chain, no page yet  {outcome.mint}  failed  {outcome.reason}")
+
         if args.refresh:
             _refresh_pages(rpc, registry, evidence, out_dir)
 
@@ -471,18 +489,28 @@ def _export(args) -> int:
 def _distribute(args) -> int:
     """Pay an enrolled coin's shareholders, the protocol's included.
 
-    `--all-enrolled` reads the coins whose committed record carries a passing
-    PROTOCOL_SHARE off `--out`, the same records the index is built from.
+    `--all-enrolled` pays every coin whose committed record under `--out`
+    carries a passing PROTOCOL_SHARE, and every coin the chain says is
+    enrolled (`enrolled.scan`): a sharing config paying the protocol wallet
+    its rate, whether or not anyone has submitted the coin yet.
     Without `--keypair` everything is built and simulated and nothing is
     sent; with one, the wallet it holds pays the network fee and signs
     nothing else, because the instruction has no signer.
     """
-    from . import distribute
+    from . import distribute, enrolled
     rpc = RpcClient(_endpoints(args.rpc))
     mints = list(args.mints)
     if args.all_enrolled:
+        # Two sources, unioned. The committed records are what the index
+        # shows; the chain is what is true. A coin enrolled on the page an
+        # hour ago has no record yet and is owed a payout all the same.
         records, _known = _index_inputs(Path(args.out))
-        mints += distribute.enrolled_mints(records)
+        by_record = distribute.enrolled_mints(records)
+        on_chain = enrolled.mints(rpc)
+        new = sorted(set(on_chain) - set(by_record))
+        print(f"enrolled: {len(by_record)} by committed record, {len(on_chain)} on the chain"
+              + (f" ({len(new)} with no record yet: {' '.join(new)})" if new else ""))
+        mints += by_record + on_chain
     mints = sorted(set(mints))
     if not mints:
         print("no coins to distribute for")
@@ -868,7 +896,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     distribute_cmd.add_argument("mints", nargs="*")
     distribute_cmd.add_argument("--all-enrolled", action="store_true",
-                                help="every coin whose committed record under --out has PROTOCOL_SHARE PASS")
+                                help="every coin whose committed record under --out has PROTOCOL_SHARE PASS, "
+                                     "and every coin whose sharing config on the chain pays the protocol")
     distribute_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
     distribute_cmd.add_argument("--keypair", help="the fee payer's key file; without it, simulate only")
     distribute_cmd.add_argument("--payer", help="the fee payer's address, for a simulation without a key file")

@@ -48,7 +48,14 @@ named as not done. Spelling is American throughout: enroll, enrollment.
    about 5,000 lamports per enrolled coin per hour; it held 0.018 SOL when
    armed. When it runs dry the crank refuses with the reason. Never
    generate or commit a key in a session; the owner rotates it by
-   replacing the secret.
+   replacing the secret. The crank finds enrolled coins on the chain
+   (`indexer/enrolled.py`: a memcmp on the toll wallet in each of the
+   first eight shareholder slots of pump's fee-share program), unioned
+   with the committed records, so a coin enrolled on the page is paid
+   within the hour without anyone opening an issue; the six-hourly intake
+   gives every such coin a committed page the same way. The first real
+   enrollment is `7mr9vEN4XEUDCjaDzZnVLAAE2VV5FmzBBti7t2Kpump` (5/25/20/50,
+   one-shot spent), submitted as site issue #15 before this landed.
 2. **Graduated coins are paid, with one case left.** The crank prepends
    `pump_amm::transfer_creator_fees_to_pump` for a graduated coin, and a
    coin that graduated before enrolling can enroll (the create passes the
