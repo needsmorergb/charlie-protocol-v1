@@ -1,4 +1,4 @@
-"""The enrol page's own script, executed, against the API's own response shapes.
+"""The enroll page's own script, executed, against the API's own response shapes.
 
 The defect this guards shipped through a full green suite: the API answered a
 coin with no fee-sharing config with `admin: null` and a `reason` the page had

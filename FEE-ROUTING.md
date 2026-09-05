@@ -50,7 +50,7 @@ pays 30 to 95 bps and the base is several times larger than assumed. See
 
 The sharing config belongs to the coin's admin. They write the shareholder
 list; nothing in pump lets a third party require an entry in it. A dev can
-enrol, take the badge, then set a config without our address -- or never
+enroll, take the badge, then set a config without our address -- or never
 include it at all.
 
 So a cut written into pump's config is **certified, not enforced**: the site can
@@ -193,7 +193,7 @@ Two things the same run measured, both of which the crank has to respect:
 PDAs derive from a program id, and a program id is a keypair we can generate
 today and deploy to later. So `collector(mint)` is computable now.
 
-That means enrolment can begin before the program is deployed: fees accrue at a
+That means enrollment can begin before the program is deployed: fees accrue at a
 keyless address that **nobody can spend, including us**, and the moment the
 immutable program is live at that id, `distribute` starts moving everything
 that accumulated.
@@ -286,5 +286,5 @@ Simpler, not harder.
    account that `distribute_creator_fees` cannot see: six coins paid zero
    alone and their full balances after `transfer_creator_fees_to_pump`.
    `BUILD.md` section 8.
-8. **Cashback coins pay nothing on every leg** and are refused at enrolment.
+8. **Cashback coins pay nothing on every leg** and are refused at enrollment.
    `BUILD.md` section 6.

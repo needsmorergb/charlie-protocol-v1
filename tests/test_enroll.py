@@ -291,8 +291,8 @@ class TestTheToll(unittest.TestCase):
 
     def test_nothing_is_built_while_the_destination_is_unset(self):
         """None is the shipped default until the address is configured, and
-        it must refuse everything: an enrolment whose toll went nowhere
-        would be worse than no enrolment at all.
+        it must refuse everything: an enrollment whose toll went nowhere
+        would be worse than no enrollment at all.
         """
         enroll.legs.TOLL_DESTINATION = None
         try:
@@ -368,7 +368,7 @@ class TestCreatingTheConfig(unittest.TestCase):
         self.assertEqual(enroll.CREATE_FEE_SHARING_CONFIG.hex(), "c34e564c6f34fbd5")
 
     def _two(self):
-        return enroll.enrolment_message(MINT, ADMIN, _split(), BLOCKHASH, create=True)
+        return enroll.enrollment_message(MINT, ADMIN, _split(), BLOCKHASH, create=True)
 
     def test_one_signature_carries_two_instructions(self):
         msg = self._two()
@@ -392,7 +392,7 @@ class TestCreatingTheConfig(unittest.TestCase):
         self.assertEqual(metas[-1], (ADMIN, False, True))
 
     def test_without_create_it_is_the_one_instruction_message(self):
-        one = enroll.enrolment_message(MINT, ADMIN, _split(), BLOCKHASH, create=False,
+        one = enroll.enrollment_message(MINT, ADMIN, _split(), BLOCKHASH, create=False,
                                        current=[ADMIN])
         self.assertEqual(one, enroll.message(MINT, ADMIN, _split(), BLOCKHASH, current=[ADMIN]))
 

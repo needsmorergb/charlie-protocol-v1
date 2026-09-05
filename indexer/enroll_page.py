@@ -152,7 +152,7 @@ function openForm() {
   // named and the defaults reflect the wallet that is connected.
   $('shares').textContent = '';
   if (!state.toll || !state.toll.address) {
-    say('coinNote', 'Enrolment is not open yet: the protocol\u0027s collection address has not been set. Nothing can be built until it is.', 'bad');
+    say('coinNote', 'Enrollment is not open yet: the protocol\u0027s collection address has not been set. Nothing can be built until it is.', 'bad');
     $('splitBox').hidden = true;
     return;
   }
@@ -293,7 +293,7 @@ def render(*, now=None) -> str:
     esc = site.esc
     body = (
         "<header>"
-        "<h1>Enrol your coin</h1>"
+        "<h1>Enroll your coin</h1>"
         "<p>Connect the wallet that launched the coin and set where its creator "
         "fee goes. If the coin has no pump fee-sharing config yet, which is "
         "normal for a new launch, one signature creates it and sets the split. "
@@ -362,7 +362,7 @@ def render(*, now=None) -> str:
         f"<script>{_SCRIPT}</script>"
     )
     return site._document(
-        "Enrol your coin -- Charlie Protocol", body,
+        "Enroll your coin -- Charlie Protocol", body,
         style=site._INDEX_STYLE + _STYLE,
         description="Connect the wallet that launched your pump.fun coin and "
                     "set where its creator fee goes, in one signature.",

@@ -485,7 +485,7 @@ class TestObservation(unittest.TestCase):
         self.assertEqual(record.split.paid, 5_000)
 
 
-# -- enrolment: the protocol's share on the split ----------------------------
+# -- enrollment: the protocol's share on the split ----------------------------
 class TestProtocolShare(unittest.TestCase):
     """Enrolled means the on-chain split pays the protocol's wallet at least
     the protocol's rate. pump enforces the split; this check reads it."""
@@ -528,7 +528,7 @@ class TestProtocolShare(unittest.TestCase):
 
     def test_it_backs_no_figure(self):
         """A coin's figures are facts about the coin whether or not it pays
-        the protocol. Gating them on enrolment would make this site a toll
+        the protocol. Gating them on enrollment would make this site a toll
         booth for information it already has."""
         self.assertEqual(invariants.protocol_share(self._split([(WALLET, 10_000)])).backs, ())
 

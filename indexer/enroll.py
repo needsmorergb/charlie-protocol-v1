@@ -49,7 +49,7 @@ UPDATE_FEE_SHARES_V2 = bytes.fromhex("6ffb31064e4e6a12")
 # initial shareholders to the creator at 100%, and moves the bonding curve's
 # `creator` to the new config PDA; and it does NOT spend the one-shot -- an
 # `update_fee_shares_v2` appended to the SAME transaction succeeds and is what
-# sets `admin_revoked`. That is the whole basis for one-signature enrolment.
+# sets `admin_revoked`. That is the whole basis for one-signature enrollment.
 CREATE_FEE_SHARING_CONFIG = bytes.fromhex("c34e564c6f34fbd5")
 
 # Solana's incinerator: lamports credited here are removed from the total
@@ -62,7 +62,7 @@ INCINERATOR = "1nc1nerator11111111111111111111111111111111"
 # the coin page and the index state. This module only builds the split that
 # puts them there.
 #
-# NO PROGRAM ENFORCES THE RATE AT ENROLMENT TIME. This page refuses to build
+# NO PROGRAM ENFORCES THE RATE AT ENROLLMENT TIME. This page refuses to build
 # a split without it; a dev who calls pump's program directly can leave it
 # out, and is then simply not enrolled. Read at call time through the
 # module, never bound here, so a test can set one value and both the builder
@@ -232,7 +232,7 @@ def require_toll(shares) -> None:
     destination, rate = legs.TOLL_DESTINATION, legs.TOLL_BPS
     if destination is None:
         raise EnrollError(
-            "Enrolment is not open yet: the protocol's collection address has "
+            "Enrollment is not open yet: the protocol's collection address has "
             "not been set, so no split can carry its share. Nothing was built."
         )
     rows = tuple(shares)
@@ -371,7 +371,7 @@ def message(mint: str, authority: str, shares, recent_blockhash: str, *,
     )
 
 
-def enrolment_message(mint: str, authority: str, shares, recent_blockhash: str, *,
+def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str, *,
                       create: bool, current=()) -> bytes:
     """One signature, whichever state the coin is in.
 

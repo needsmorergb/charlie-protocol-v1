@@ -3,7 +3,7 @@
 # The whole suite lived in this repository and nothing ran it anywhere but a
 # laptop. Two consequences, both real rather than hypothetical:
 #
-#   * `tests/test_enroll_page_js.py` executes the enrol page's JavaScript
+#   * `tests/test_enroll_page_js.py` executes the enroll page's JavaScript
 #     under node, and skips when node is absent. On a machine without node
 #     that file reports success having tested nothing.
 #   * The deploy repository had drifted from this one in two files, and the
