@@ -27,8 +27,8 @@ ADMIN = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
 BURN = "1nc1nerator11111111111111111111111111111111"
 BLOCKHASH = "11111111111111111111111111111111"
 # A stand-in for the protocol's collection address. Every test that reaches
-# `preflight` sets `enroll.TOLL_DESTINATION` to it, because the real one is
-# None until it is configured and a None refuses everything -- which is its
+# `preflight` patches `enroll.legs.TOLL_DESTINATION` to it, so the tests hold
+# whatever the real one is set to; a None refuses everything -- which is its
 # own test below.
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 REAL_TOLL = enroll.legs.TOLL_DESTINATION
