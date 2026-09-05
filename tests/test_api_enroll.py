@@ -38,11 +38,24 @@ BURN = "1nc1nerator11111111111111111111111111111111"
 
 
 class _Curve:
-    def __init__(self, cashback=False, graduated=False):
+    def __init__(self, cashback=False, graduated=False, creator=ADMIN):
         self.mint = MINT
-        self.creator = ADMIN
+        self.creator = creator
         self.graduated = graduated
         self.cashback = cashback
+
+
+TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+# A split that carries the protocol's share, as every enrolled one must.
+SPLIT = f"{TOLL}:500,{BURN}:2000,{ADMIN}:7500"
+
+
+def setUpModule():
+    api_enroll.enroll.TOLL_DESTINATION = TOLL
+
+
+def tearDownModule():
+    api_enroll.enroll.TOLL_DESTINATION = None
 
 
 class _Config:
@@ -208,6 +221,99 @@ class TestGraduationIsReported(ApiCase):
         status, body = self._inspect(True)
         self.assertEqual(status, 200)
         self.assertTrue(body["owns"])
+
+
+class _Rpc:
+    """The two calls the build path makes, answered without a network."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def call(self, method, params):
+        if method == "getLatestBlockhash":
+            return {"value": {"blockhash": "11111111111111111111111111111111"}}
+        if method == "simulateTransaction":
+            return {"value": {"err": None, "logs": [], "unitsConsumed": 1}}
+        raise AssertionError(method)
+
+
+class TestEnrollingACoinWithNoConfig(ApiCase):
+    """The ~95% case, front to back: inspect says the connected wallet may
+    create, and the build answers a transaction that creates the config and
+    sets the split in one signature."""
+
+    def _no_config(self, creator=ADMIN):
+        error = api_enroll.pump.DecodeError(
+            f"{MINT}: its creator {creator} {api_enroll.pump.NO_FEE_SPLIT_MARKER}")
+        return (
+            mock.patch.object(api_enroll.pump, "read_bonding_curve",
+                              return_value=_Curve(creator=creator)),
+            mock.patch.object(api_enroll.pump, "read_sharing_config", side_effect=error),
+        )
+
+    def test_inspection_tells_the_creator_they_may_create(self):
+        curve, config = self._no_config()
+        with curve, config, mock.patch.object(api_enroll, "RpcClient"):
+            status, body = self.get(mint=MINT, authority=ADMIN)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["can_create"])
+        self.assertEqual(body["creator"], ADMIN)
+        self.assertEqual(body["toll"], {"address": TOLL, "bps": 500})
+
+    def test_inspection_tells_anyone_else_they_may_not(self):
+        curve, config = self._no_config()
+        with curve, config, mock.patch.object(api_enroll, "RpcClient"):
+            _status, body = self.get(mint=MINT, authority=WALLET)
+        self.assertFalse(body["can_create"])
+        self.assertEqual(body["creator"], ADMIN)
+
+    def test_the_build_creates_and_sets_in_one_transaction(self):
+        curve, config = self._no_config()
+        with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["creates_config"])
+        self.assertTrue(body["simulated"])
+        self.assertIn("message", body)
+        # Two instructions in the message the wallet is handed.
+        from indexer.base58 import decode
+        message = decode(body["message"])
+        n = message[3]
+        self.assertEqual(message[4 + 32 * n + 32], 2)
+
+    def test_the_build_refuses_a_split_without_the_toll(self):
+        curve, config = self._no_config()
+        with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=f"{BURN}:2000,{ADMIN}:8000")
+        self.assertEqual(status, 400)
+        self.assertIn("protocol's share", body["error"])
+        self.assertNotIn("message", body)
+
+    def test_the_build_refuses_a_stranger_before_simulating(self):
+        curve, config = self._no_config(creator=WALLET)
+        with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        self.assertEqual(status, 400)
+        self.assertIn(WALLET, body["error"])
+
+    def test_nothing_is_built_while_the_toll_address_is_unset(self):
+        api_enroll.enroll.TOLL_DESTINATION = None
+        try:
+            curve, config = self._no_config()
+            with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
+                status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        finally:
+            api_enroll.enroll.TOLL_DESTINATION = TOLL
+        self.assertEqual(status, 400)
+        self.assertIn("not open yet", body["error"])
+
+    def test_a_coin_with_a_config_builds_the_one_instruction_transaction(self):
+        with mock.patch.object(api_enroll.pump, "read_bonding_curve", return_value=_Curve()), \
+             mock.patch.object(api_enroll.pump, "read_sharing_config", return_value=_Config()), \
+             mock.patch.object(api_enroll, "RpcClient", _Rpc):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body["creates_config"])
 
 
 class TestOrdinaryInspection(ApiCase):
