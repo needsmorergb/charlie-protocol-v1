@@ -1414,6 +1414,27 @@ class TestCoinCorrectCopy(unittest.TestCase):
         log_section = rendered[start:end]
         self.assertIn("No burn is recorded against this mint yet", log_section)
 
+    def test_the_log_says_the_crank_runs_and_where_its_payouts_are(self):
+        """The page said no crank had ever run for anyone after the crank
+        had been running hourly for a day. Now it says what runs, per coin,
+        and points at the one place a payout can be seen today."""
+        obs = _other_coin_observation(burn_events=[])
+        rendered = site.render(obs, now=2.0)
+        start = rendered.index('id="log"')
+        log_section = rendered[start:rendered.index("</section>", start)]
+        self.assertNotIn("has never run", log_section)
+        self.assertNotIn("No cranks yet", log_section)
+        self.assertIn("runs every hour", log_section)
+        if site._enrolled(obs):
+            self.assertIn("this one included", log_section)
+            self.assertIn(f"https://solscan.io/account/{obs.config.address}", log_section)
+        else:
+            self.assertIn("not for this one", log_section)
+        start = rendered.index('id="quiet"')
+        quiet_section = rendered[start:rendered.index("</section>", start)]
+        self.assertNotIn("nothing cranks for anyone", quiet_section)
+        self.assertIn("payout crank", quiet_section)
+
     def test_forbidden_phrase_sweep_still_passes_over_both_sentinel_fixtures(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = evidence_db(tmp)

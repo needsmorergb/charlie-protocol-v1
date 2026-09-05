@@ -229,6 +229,25 @@ class TestTheRun(unittest.TestCase):
         self.assertEqual(rows[0]["units"], 31_000)
         self.assertTrue(hasattr(rpc, "simulated"))
 
+    def test_a_coin_whose_split_does_not_pay_the_protocol_is_not_paid_for(self):
+        """The crank is permissionless and the fee payer is ours. Now that
+        coins are found on the chain rather than only in records that
+        already passed PROTOCOL_SHARE, the crank has to hold that line
+        itself."""
+        rpc = crank_rpc()
+        rpc._accounts[CHARLIE_CONFIG] = config_account(
+            CHARLIE, [(INCINERATOR, 2000), (ADMIN, 8000)], admin_revoked=True)
+        rows = distribute.run(rpc, [CHARLIE], payer=PAYER)
+        self.assertEqual(rows[0]["outcome"], "skipped")
+        self.assertIn("not enrolled", rows[0]["reason"])
+        self.assertIn("0 bps", rows[0]["reason"])
+        self.assertEqual(rows[0]["toll_bps"], 0)
+        self.assertFalse(hasattr(rpc, "simulated"))
+
+    def test_an_enrolled_coin_s_row_says_what_it_pays_the_protocol(self):
+        rows = distribute.run(crank_rpc(), [CHARLIE], payer=PAYER)
+        self.assertEqual(rows[0]["toll_bps"], 500)
+
     def test_a_graduated_coin_s_amm_balance_counts_toward_the_floor(self):
         # 0 in the pump vault, 50M wSOL on the AMM side: the transaction can
         # reach it, so it is worth the fee.

@@ -693,8 +693,7 @@ def _boost_sentence(summary: dict, decimals: int) -> str:
         f"Boost burned {tokens_ui:,.{decimals}f} tokens across {summary['count']} "
         f"{tx_word} in a {summary['window_seconds']}-second window, at migration -- not "
         "by any keeper of ours, and this protocol's own watcher could not see it happen. "
-        "The protocol's own crank has never run for this coin -- no program is deployed "
-        "yet."
+        "No keeper of ours has recorded a burn for this coin."
     )
 
 
@@ -1080,22 +1079,31 @@ def _the_burn(observation) -> str:
     )
 
 
+def _enrolled(observation) -> bool:
+    """In the protocol, by the coin's own PROTOCOL_SHARE check and nothing
+    else -- the same reading `_enrolment` renders."""
+    check = next((c for c in (observation.checks or ()) if c.name == "PROTOCOL_SHARE"), None)
+    return bool(check is not None and check.status == "PASS")
+
+
 def _quiet(observation) -> str:
     """Honest about what does not apply -- true of every coin, and asserts
     no coin's split.
 
     This used to assert a specific split as a template constant ("its split
     is 100% SOL burn"), the exact failure this project has shipped twice. The
-    claim that is actually true of every coin today is checkable in the
+    claims that are actually true of every coin today are checkable in the
     code, not in any one coin's bps: `legs.PROGRAM_ID` is `None`, so no
     address can be derived as a burn pool, so no coin has a recognised BURN
-    destination and nothing cranks for anyone. The split itself is already
-    rendered, with its own backing check, in the figures block above --
-    saying it again here in prose would be a second place it could drift.
-    The window figure is computed from the same `_boost_summary`, never a
-    second, independently hardcoded copy of the number `_the_burn` already
-    computed; it depends on burn history, not on the split, so this section's
-    text is identical for two coins that differ only in their bps.
+    destination; and the payout crank runs hourly for every coin whose split
+    pays the protocol wallet, which the checks above decide per coin. The
+    split itself is already rendered, with its own backing check, in the
+    figures block above -- saying it again here in prose would be a second
+    place it could drift. The window figure is computed from the same
+    `_boost_summary`, never a second, independently hardcoded copy of the
+    number `_the_burn` already computed; it depends on burn history, not on
+    the split, so this section's text is identical for two coins that differ
+    only in their bps.
     """
     summary = _boost_summary(observation.burn_events)
     if summary["count"]:
@@ -1110,19 +1118,25 @@ def _quiet(observation) -> str:
         '<section id="quiet">'
         "<h2>Quiet</h2>"
         "<p>No protocol program is deployed, so no address can be derived as a burn "
-        "pool -- no coin has a recognised BURN destination today, and nothing cranks "
-        "for anyone. There is no crank to pause or resume for this coin, because none "
-        f"has ever run. {boost_note}</p>"
+        "pool: no coin has a recognised BURN destination today. What does run is the "
+        "payout crank. Every hour it finds every coin whose split pays the protocol "
+        "wallet and asks pump to distribute that coin's creator vault, and pump pays "
+        "each row of the split; below pump's minimum it waits for the next hour. "
+        "Those payouts are pump's own transactions, and this page does not record "
+        f"them yet. {boost_note}</p>"
         "</section>"
     )
 
 
 def _log(observation) -> str:
-    """Today's expected empty state -- no protocol crank has ever run, for
-    any coin, until phase 5 deploys a program. That fact is universal and
-    named as such; the burn-composition sentence beside it is computed from
-    THIS coin's own `burn_events`, never assumed to match the reference
-    coin's shape (all-boost).
+    """No payout is logged here yet: the crank runs, hourly, for every
+    enrolled coin, but the page does not read pump's distribute transactions
+    back. That is said per coin -- enrolled or not, from the coin's own
+    PROTOCOL_SHARE check -- with the sharing config linked, because every
+    payout pump makes for the coin is in that account's history and a
+    reader can see it there today. The burn-composition sentence beside it
+    is computed from THIS coin's own `burn_events`, never assumed to match
+    the reference coin's shape (all-boost).
     """
     burn_events = observation.burn_events or []
     non_boost = [r for r in burn_events if r.get("source") != BOOST_SOURCE]
@@ -1138,12 +1152,29 @@ def _log(observation) -> str:
             "Not every burn recorded against this mint was pump's boost -- see "
             '<a href="#the-burn">The Burn</a> for the full breakdown.'
         )
+    config_address = getattr(observation.config, "address", None)
+    if _enrolled(observation):
+        crank_note = (
+            "The protocol's crank runs every hour for every enrolled coin, this one "
+            "included: it asks pump to distribute the creator vault, and pump pays the "
+            "split above. This page does not record those payouts yet."
+        )
+        if config_address:
+            crank_note += (
+                " They are in the history of the coin's sharing config, "
+                f'<a href="https://solscan.io/account/{esc(config_address)}">{esc(config_address)}</a>.'
+            )
+    else:
+        crank_note = (
+            "The protocol's crank runs every hour for enrolled coins and not for "
+            "this one: its split does not pay the protocol wallet, so there is nothing "
+            "of ours to pay out."
+        )
     return (
         '<section id="log">'
         "<h2>Log</h2>"
-        "<h3>No cranks yet</h3>"
-        "<p>The protocol's crank has never run, for any coin, because no program is "
-        f'deployed (see <a href="#risks">Risks</a>). {burn_note}</p>'
+        "<h3>No payout is logged here yet</h3>"
+        f"<p>{crank_note} {burn_note}</p>"
         "</section>"
     )
 
