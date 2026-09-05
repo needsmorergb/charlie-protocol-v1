@@ -567,6 +567,13 @@ NON_FIGURE_EMITTERS = {
         "the same, for a burn of tokens already held: dispatches to buyback and "
         "prints through _print_result"
     ),
+    "indexer.cli:_distribute": (
+        "prints one line per coin the crank considered: skipped and why, refused "
+        "and why, simulated, or sent with its signature -- plus the vault's lamports "
+        "and the shareholder count for that one coin. Receipt data about a single "
+        "transaction the operator built or sent; no coin-wide figure, no name in "
+        "invariants.FIGURES"
+    ),
     "indexer.cli:_load": (
         "prints how many rows each table of the committed export loaded -- a count "
         "of records read from a file, not a measurement of a coin. Nothing here is "
