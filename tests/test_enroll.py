@@ -31,6 +31,7 @@ BLOCKHASH = "11111111111111111111111111111111"
 # None until it is configured and a None refuses everything -- which is its
 # own test below.
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+REAL_TOLL = enroll.legs.TOLL_DESTINATION
 # A creator that is not the admin, for the create path's refusals.
 STRANGER = "So11111111111111111111111111111111111111112"
 
@@ -49,11 +50,11 @@ def _split():
 
 
 def setUpModule():
-    enroll.TOLL_DESTINATION = TOLL
+    enroll.legs.TOLL_DESTINATION = TOLL
 
 
 def tearDownModule():
-    enroll.TOLL_DESTINATION = None
+    enroll.legs.TOLL_DESTINATION = REAL_TOLL
 
 
 class TestBurnDestination(unittest.TestCase):
@@ -293,13 +294,13 @@ class TestTheToll(unittest.TestCase):
         it must refuse everything: an enrolment whose toll went nowhere
         would be worse than no enrolment at all.
         """
-        enroll.TOLL_DESTINATION = None
+        enroll.legs.TOLL_DESTINATION = None
         try:
             with self.assertRaises(enroll.EnrollError) as caught:
                 enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve())
             self.assertIn("not open yet", str(caught.exception))
         finally:
-            enroll.TOLL_DESTINATION = TOLL
+            enroll.legs.TOLL_DESTINATION = TOLL
 
     def test_the_rate_is_five_percent(self):
         self.assertEqual(enroll.TOLL_BPS, 500)
