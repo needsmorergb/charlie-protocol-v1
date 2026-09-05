@@ -292,11 +292,15 @@ class TestEnrollingACoinWithNoConfig(ApiCase):
         self.assertTrue(body["creates_config"])
         self.assertTrue(body["simulated"])
         self.assertIn("message", body)
-        # Two instructions in the message the wallet is handed.
+        # Two instructions in the message.
         from indexer.base58 import decode
         message = decode(body["message"])
         n = message[3]
         self.assertEqual(message[4 + 32 * n + 32], 2)
+        # And what the wallet is handed is that message behind one zero
+        # signature: the unsigned transaction, exactly what was simulated.
+        signable = decode(body["signable"])
+        self.assertEqual(signable, bytes([1]) + bytes(64) + message)
 
     def test_the_build_refuses_a_split_without_the_toll(self):
         curve, config = self._no_config()
@@ -331,6 +335,85 @@ class TestEnrollingACoinWithNoConfig(ApiCase):
             status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
         self.assertEqual(status, 200, body)
         self.assertFalse(body["creates_config"])
+
+
+def _wallet_parse(data: bytes) -> dict:
+    """What a wallet does with the `message` parameter of a
+    signAndSendTransaction request: web3.js `Transaction.from`. A compact-u16
+    signature count, that many 64-byte signatures, then the message: three
+    header bytes, the account keys, the blockhash, the instructions. Every
+    read past the end raises the one error a dev saw on the page.
+    """
+    buf = bytearray(data)
+
+    def shift() -> int:
+        if not buf:
+            raise ValueError("Reached end of buffer unexpectedly")
+        return buf.pop(0)
+
+    def take(n: int) -> bytes:
+        return bytes(shift() for _ in range(n))
+
+    def compact() -> int:
+        value, shift_by = 0, 0
+        while True:
+            byte = shift()
+            value |= (byte & 0x7F) << shift_by
+            shift_by += 7
+            if not byte & 0x80:
+                return value
+
+    signatures = [take(64) for _ in range(compact())]
+    header = take(3)
+    keys = [take(32) for _ in range(compact())]
+    take(32)                                       # blockhash
+    instructions = []
+    for _ in range(compact()):
+        program = shift()
+        accounts = take(compact())
+        instructions.append((program, accounts, take(compact())))
+    return {"signatures": signatures, "header": header, "keys": keys,
+            "instructions": instructions, "leftover": len(buf)}
+
+
+class TestWhatTheWalletIsHanded(ApiCase):
+    """The first real signature attempt on the page failed in the wallet with
+    "Reached end of buffer unexpectedly. Nothing changed." The page handed
+    Phantom the bare message; Phantom parses the parameter as a whole
+    transaction, read byte 1 as one signature, took 64 bytes of the message
+    as that signature and ran out. Both encodings are pinned here through a
+    parser that does what the wallet does.
+    """
+
+    def _build(self) -> dict:
+        curve, config = self._no_config()
+        with curve, config, mock.patch.object(api_enroll, "RpcClient", _Rpc):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        self.assertEqual(status, 200, body)
+        return body
+
+    def test_the_bare_message_is_what_the_wallet_choked_on(self):
+        from indexer.base58 import decode
+        body = self._build()
+        with self.assertRaises(ValueError) as caught:
+            _wallet_parse(decode(body["message"]))
+        self.assertEqual(str(caught.exception), "Reached end of buffer unexpectedly")
+
+    def test_the_signable_transaction_parses_to_the_last_byte(self):
+        from indexer.base58 import decode, encode
+        body = self._build()
+        parsed = _wallet_parse(decode(body["signable"]))
+        self.assertEqual(parsed["leftover"], 0)
+        self.assertEqual(parsed["signatures"], [bytes(64)])       # one, unsigned
+        self.assertEqual(parsed["header"][0], 1)                  # one signer
+        self.assertEqual(encode(parsed["keys"][0]), ADMIN)        # who pays and signs
+        self.assertEqual(len(parsed["instructions"]), 2)          # create, then set
+        # And it is byte for byte the transaction the server simulated.
+        import base64
+        self.assertEqual(decode(body["signable"]), base64.b64decode(body["transaction"]))
+
+    def _no_config(self, creator=ADMIN):
+        return TestEnrollingACoinWithNoConfig._no_config(self, creator)
 
 
 class TestOrdinaryInspection(ApiCase):

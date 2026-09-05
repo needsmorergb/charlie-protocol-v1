@@ -109,6 +109,8 @@ button.primary:hover, button.primary:focus-visible {
   font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
+.share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;
+  color: var(--ink); opacity: 0.8; margin-top: -2px; }
 .share-row.locked .share-addr, .share-row.locked .share-bps { background: var(--panel); color: var(--ink); }
 .share-row.locked .rm { border-style: solid; cursor: default; }
 #total.ok { color: var(--pass-glyph); font-weight: 700; }
@@ -123,7 +125,7 @@ button.primary:hover, button.primary:focus-visible {
 pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
 .warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
   padding: var(--sp-md); margin: var(--sp-md) 0; }
-</style></head><body><header><h1>Enroll your coin</h1><p>Connect the wallet that launched the coin and set where its creator fee goes. If the coin has no pump fee-sharing config yet, which is normal for a new launch, one signature creates it and sets the split. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><p>Ownership is decided by the chain. For a coin with no fee-sharing config yet, that means the wallet its bonding curve names as creator; for a coin that has one, the key its config names as admin.</p><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><p>The first row is the protocol&#x27;s share, fixed at 5% of the creator fee: it is the price of enrolling, and it funds buying and burning $CHARLIE. Every other row is yours to set. The defaults send 20% to Solana&#x27;s incinerator and the rest to your wallet. To buy your own coin back and burn it, point a row at a wallet you hold and run the keeper from it; the section below says how.</p><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>One row is filled in with <code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s incinerator. Its source says lamports credited there are removed from the total supply at the end of the block. SOL sent there is destroyed, not stored, and that is what deflation means.</p><p>Any other address you put here simply receives the SOL. Only the incinerator reduces the supply, so if that is what you want, keep it in the split.</p><p>Buying your own coin back and burning it is the protocol&#x27;s BURN leg: SOL buys the token on its pump pool, then an SPL burn destroys what was bought, in one transaction, so the coin&#x27;s own supply falls and nothing is left in a wallet. No on-chain program runs that leg yet, so there is no address you can paste that does it by itself. Today it is run from a wallet you hold: put that wallet in the split, and run the keeper from the repository against it (<code>python -m indexer buyback &lt;mint&gt; --keypair ... --every N</code>). It buys on the coin&#x27;s bonding curve while the coin is on it, and on the pump AMM after it graduates, switching by itself; the burn is the same either way.</p><p>The coin&#x27;s page records every such burn as burned by hand, counts it toward supply destroyed, and until the program exists names that wallet an ordinary wallet rather than a protocol burn, because that is what the chain shows. When the program ships it will derive a burn address per coin, and a share pointed there will be cranked for you.</p><p>The protocol&#x27;s 5% is collected at the address on the first row and spent running that same leg on $CHARLIE: buying it and burning it. No on-chain program enforces that share yet: this page refuses to build a split without it, and the program that will enforce it is in the repository linked from the front page.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-05 15:12:20Z</p><script>
+</style></head><body><header><h1>Enroll your coin</h1><p>Connect the wallet that launched the coin and set where its creator fee goes. If the coin has no pump fee-sharing config yet, which is normal for a new launch, one signature creates it and sets the split. Your key never leaves your wallet: this page builds a transaction, your wallet signs it.</p></header><main><section><h2>1. Connect</h2><button type="button" id="connect" class="primary">Connect wallet</button><p id="connected" hidden>Connected: <code id="walletAddr"></code></p><p id="walletNote" class="note"></p></section><section><h2>2. Name the coin</h2><p>Ownership is decided by the chain. For a coin with no fee-sharing config yet, that means the wallet its bonding curve names as creator; for a coin that has one, the key its config names as admin.</p><div class="verify-form"><label for="mint">Contract address (CA)</label><input id="mint" type="text" spellcheck="false" autocomplete="off" placeholder="paste the CA here"><button type="button" id="inspect">Check ownership</button></div><p id="coinNote" class="note"></p></section><section id="splitBox" hidden><h2>3. Set the split</h2><p>The first row is the protocol&#x27;s share, fixed at 5% of the creator fee: it is the price of enrolling, and it funds buying and burning $CHARLIE. Every other row is yours to set. The second row is the buy-back-and-burn row: a wallet you hold that runs the keeper against this coin, so the SOL that lands there buys your coin and burns it. Paste that wallet and give it a share, or leave the row blank and it is not sent. The defaults send 20% to Solana&#x27;s incinerator and the rest to your wallet. Each row says what it does; the section below says how to run the keeper.</p><div class="warn"><strong>pump lets a coin&#x27;s split be changed once.</strong> After this is sent, no key can change it again, including yours. Check every destination before you sign.</div><div id="shares"></div><p><button type="button" id="addRow">Add a destination</button> &nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p><p><button type="button" id="build" class="primary">Check this split</button></p><pre id="buildNote" class="note"></pre><p><button type="button" id="send" class="primary" hidden>Sign and send</button></p><p id="sendNote" class="note"></p></section><section><h2>What a destination means</h2><p>One row is filled in with <code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s incinerator. Its source says lamports credited there are removed from the total supply at the end of the block. SOL sent there is destroyed, not stored, and that is what deflation means.</p><p>Any other address you put here simply receives the SOL. Only the incinerator reduces the supply, so if that is what you want, keep it in the split.</p><p>Buying your own coin back and burning it is the protocol&#x27;s BURN leg: SOL buys the token on its pump pool, then an SPL burn destroys what was bought, in one transaction, so the coin&#x27;s own supply falls and nothing is left in a wallet. No on-chain program runs that leg yet, so there is no address you can paste that does it by itself. Today it is run from a wallet you hold: put that wallet in the split, and run the keeper from the repository against it (<code>python -m indexer buyback &lt;mint&gt; --keypair ... --every N</code>). It buys on the coin&#x27;s bonding curve while the coin is on it, and on the pump AMM after it graduates, switching by itself; the burn is the same either way.</p><p>The coin&#x27;s page records every such burn as burned by hand, counts it toward supply destroyed, and until the program exists names that wallet an ordinary wallet rather than a protocol burn, because that is what the chain shows. When the program ships it will derive a burn address per coin, and a share pointed there will be cranked for you.</p><p>The protocol&#x27;s 5% is collected at the address on the first row and spent running that same leg on $CHARLIE: buying it and burning it. No on-chain program enforces that share yet: this page refuses to build a split without it, and the program that will enforce it is in the repository linked from the front page.</p><p><a href="/verify.html">Check any coin</a>.</p></section></main><p class="meta">generated at 2026-09-05 19:11:21Z</p><script>
 var state = {wallet: null, mint: null, built: null, toll: null, create: false};
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) { var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || ''); }
@@ -219,11 +221,11 @@ function total() {
   return t;
 }
 
-function addRow(addr, pct, locked, label) {
+function addRow(addr, pct, locked, label, caption, hint) {
   var row = document.createElement('div');
   row.className = 'share-row' + (locked ? ' locked' : '');
   var a = document.createElement('input');
-  a.className = 'share-addr'; a.placeholder = 'destination address';
+  a.className = 'share-addr'; a.placeholder = hint || 'destination address';
   a.spellcheck = false; a.autocomplete = 'off'; a.value = addr || '';
   var b = document.createElement('input');
   b.className = 'share-bps'; b.type = 'number'; b.step = '0.01';
@@ -242,6 +244,13 @@ function addRow(addr, pct, locked, label) {
   }
   a.oninput = total; b.oninput = total;
   row.appendChild(a); row.appendChild(b); row.appendChild(rm);
+  if (caption) {
+    // What this destination does, on the row itself. A split is money and a
+    // dev reads the rows, not the prose below them.
+    var what = document.createElement('span');
+    what.className = 'share-what'; what.textContent = caption;
+    row.appendChild(what);
+  }
   $('shares').appendChild(row);
   total();
 }
@@ -256,26 +265,45 @@ function openForm() {
     return;
   }
   var tollPct = state.toll.bps / 100;
-  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%');
-  addRow('1nc1nerator11111111111111111111111111111111', 20);
-  addRow(state.wallet, 100 - 20 - tollPct);
+  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%',
+         'The protocol\u0027s share. It buys $CHARLIE and burns it.');
+  // The BURN leg has its own row, blank. It is a wallet the dev holds and
+  // runs the keeper from, so there is no address to fill in for them; left
+  // blank it is simply not sent, and the other rows still total 100.
+  addRow('', '', false, null,
+         'Buy back and burn. A wallet you hold that runs the keeper against ' +
+         'this coin: SOL sent here buys your coin and burns it. Paste that ' +
+         'wallet and give it a share, or leave this row blank and it is not sent.',
+         'wallet that runs the keeper (optional)');
+  addRow('1nc1nerator11111111111111111111111111111111', 20, false, null,
+         'Solana\u0027s incinerator. SOL sent here is destroyed.');
+  addRow(state.wallet, 100 - 20 - tollPct, false, null,
+         'Your wallet. This share is simply yours.');
   $('splitBox').hidden = false;
 }
 
 function shareRows() {
-  var out = [];
+  // A blank row is skipped: that is the buy-back row left alone. A row that
+  // is half filled is a mistake, and the total above cannot show it because
+  // it counts percentages whether or not an address is there.
+  var out = [], problems = [];
   document.querySelectorAll('.share-row').forEach(function (row) {
     var a = row.querySelector('.share-addr').value.trim();
     var p = row.querySelector('.share-bps').value.trim();
-    if (a && p !== '') { out.push(a + ':' + Math.round(parseFloat(p) * 100)); }
+    if (!a && p === '') { return; }
+    if (!a) { problems.push('A row has ' + p + '% but no address. Paste a wallet into it or remove the row.'); return; }
+    if (p === '') { problems.push('The row for ' + a + ' has no percentage. Give it one or remove the row.'); return; }
+    out.push(a + ':' + Math.round(parseFloat(p) * 100));
   });
-  return out;
+  return {shares: out, problems: problems};
 }
 
 async function build() {
-  var shares = shareRows();
+  var rows = shareRows();
+  var shares = rows.shares;
   $('send').hidden = true;
   state.built = null;
+  if (rows.problems.length) { say('buildNote', rows.problems.join('\n'), 'bad'); return; }
   if (!shares.length) { say('buildNote', 'Add at least one destination.', 'bad'); return; }
   say('buildNote', 'Checking this split against pump, before anything is signed...', '');
   try {
@@ -303,7 +331,11 @@ async function send() {
   }
   say('sendNote', 'Approve it in your wallet...', '');
   try {
-    var res = await p.request({method: 'signAndSendTransaction', params: {message: state.built.message}});
+    // Phantom calls it `message` and parses it as a whole transaction:
+    // signature count, signatures, then the message. Handed the bare message
+    // it answered "Reached end of buffer unexpectedly". `signable` is the
+    // unsigned transaction, and it is what the server simulated.
+    var res = await p.request({method: 'signAndSendTransaction', params: {message: state.built.signable}});
     var sig = (res && (res.signature || res)) || '';
     var n = $('sendNote');
     n.className = 'note good';
