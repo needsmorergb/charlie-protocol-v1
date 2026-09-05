@@ -9,6 +9,7 @@ specifies — what a coin is permitted to *claim* about its fees in public.
 - [**PROTOCOL.md**](PROTOCOL.md) — the spec: legs, modes, invariants, claims policy
 - [**ARCHITECTURE.md**](ARCHITECTURE.md) — what goes on-chain, what does not, and why
 - [**BUILDLOG.md**](BUILDLOG.md) — build-in-public log, append-only
+- [**HANDOFF.md**](HANDOFF.md) — where the work stands and what is open, for the next session
 - `indexer/` — the code, and the executable statement of the spec
 
 Spec and implementation are in one repository on purpose. Every check in
