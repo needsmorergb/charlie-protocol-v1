@@ -198,7 +198,7 @@ sol_burn_bps + own_burn_bps + ops_bps == 10000 - TOLL_BPS
 
 There is no authority field. **`init_route` and `set_route` check the signer
 against the coin's LIVE `sharing_config.admin`**, so the split follows the coin
-rather than the wallet that happened to enrol it. That is safe precisely
+rather than the wallet that happened to enroll it. That is safe precisely
 because admin can no longer move: `transfer_fee_sharing_authority` is dead at
 `6023`, and only pump's reset can install a new one. If pump ever does reset a
 config, control of `route` follows the new admin, and the page should say so.
@@ -279,7 +279,7 @@ cashback is None    the curve predates the field. Proceed only past an
 ```
 
 `/verify` stays open to cashback coins. They get a verdict explaining where
-their fee goes; they simply cannot enrol.
+their fee goes; they simply cannot enroll.
 
 **Non-wSOL quote mints are refused.** pump can whitelist other quote mints, and
 such a coin pays creator fees as SPL tokens into a shareholder's ATA. The
@@ -289,7 +289,7 @@ this after the freeze.
 
 ---
 
-## 7. Enrolment, in one signature
+## 7. Enrollment, in one signature
 
 ```
 create_fee_sharing_config     only when the coin has none, which is ~95% of
@@ -353,7 +353,7 @@ Read the quote mint from the pool rather than assuming it. One enrolled pool in
   at the incinerator, $CHARLIE burned, the coin's own supply burned, and ops
   paid.
 * **`version` is recorded alongside `admin_revoked`.** A config whose `version`
-  changed after enrolment is a coin pump reset out from under us, and the
+  changed after enrollment is a coin pump reset out from under us, and the
   indexer should be able to name it rather than discover it in a figure.
 
 ---
@@ -370,7 +370,7 @@ Read the quote mint from the pool rather than assuming it. One enrolled pool in
 5. Regenerate every surface so the pages describe what is deployed.
 
 This resolves the contradiction between this document's earlier draft and
-`ARCHITECTURE.md`. Freezing before anyone enrols would have shipped a permanent
+`ARCHITECTURE.md`. Freezing before anyone enrolls would have shipped a permanent
 bug on the graduated path, which was invisible until it was measured. Early
 enrollers are enrolling into an upgradeable program, and the page says so in
 those words.

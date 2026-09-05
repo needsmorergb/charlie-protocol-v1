@@ -115,7 +115,7 @@ def enroll_check(base: str) -> tuple[int, str]:
     # the server's own words instead of a stale constant.
     toll = seen.get("toll") or {}
     if not toll.get("address"):
-        return 0, "enrolment is not open: the server names no toll address"
+        return 0, "enrollment is not open: the server names no toll address"
     rest = 10_000 - int(toll["bps"]) - 2000
     build = (f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
              f"&shares={toll['address']}:{toll['bps']},{BURN_ADDRESS}:2000,{ENROLL_ADMIN}:{rest}")
