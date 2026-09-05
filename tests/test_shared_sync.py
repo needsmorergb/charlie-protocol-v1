@@ -14,6 +14,8 @@ serverless functions Vercel invokes) and compared. Add a module that
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
 import os
 import re
 import tempfile
@@ -206,16 +208,46 @@ class TestCopyToWritesNothingUntilEverySourceIsThere(unittest.TestCase):
     caused itself."""
 
     def test_a_missing_source_stops_the_copy_before_the_first_write(self):
-        empty = Path(tempfile.mkdtemp())
+        """The missing file is the LAST one, which is the only arrangement
+        that tells the fix from the bug.
+
+        Pointing ROOT at an empty directory does not: with every source
+        missing, the reverted code -- which checked inside the copy loop --
+        also wrote nothing, because it tripped on the first file. The bug was
+        "wrote some, then bailed", so a later file has to be the one absent.
+        """
+        source = Path(tempfile.mkdtemp())
+        for path in list(shared_sync.SHARED)[:-1]:
+            destination = source / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(shared_sync.ours(path))
+        missing = shared_sync.SHARED[-1]
+        self.assertFalse((source / missing).exists())
+
         target = Path(tempfile.mkdtemp())
         original = shared_sync.ROOT
         try:
-            shared_sync.ROOT = empty
+            shared_sync.ROOT = source
             code = shared_sync.main(["--copy-to", str(target)])
         finally:
             shared_sync.ROOT = original
         self.assertEqual(code, 1)
-        self.assertEqual(list(target.iterdir()), [])
+        self.assertEqual(list(target.iterdir()), [], "a partial copy was written")
+
+    def test_it_names_every_missing_file_rather_than_the_first(self):
+        source = Path(tempfile.mkdtemp())
+        target = Path(tempfile.mkdtemp())
+        original = shared_sync.ROOT
+        errors = io.StringIO()
+        try:
+            shared_sync.ROOT = source
+            with contextlib.redirect_stderr(errors):
+                shared_sync.main(["--copy-to", str(target)])
+        finally:
+            shared_sync.ROOT = original
+        for path in shared_sync.SHARED:
+            with self.subTest(path=path):
+                self.assertIn(path, errors.getvalue())
 
 
 @unittest.skipUnless(SITE_REPO, "set CHARLIE_SITE_REPO to a deploy checkout to compare against it")

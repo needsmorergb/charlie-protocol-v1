@@ -266,14 +266,31 @@ class TestThePublishedCommandAsksForIt(unittest.TestCase):
         what it measured. It is also what makes `--require-counters`
         decorative if nothing downstream reports the failure: delete the
         reporting step and a blank landing page becomes a green run.
+
+        Both keys are checked INSIDE the landing step's own block. Checking
+        that they appear somewhere in the file passes just as happily with
+        `continue-on-error: true` sitting on a different step, where it means
+        something else entirely.
         """
-        self.assertIn("continue-on-error: true", workflow)
-        self.assertIn("id: landing", workflow)
+        step = self._step(workflow, "Regenerate the landing page")
+        self.assertIn("id: landing", step)
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn("--require-counters", step)
+
         self.assertIn("steps.landing.outcome == 'failure'", workflow)
         # After the commit, or the work it was meant to preserve is discarded
         # by the very step that reports the failure.
         self.assertLess(workflow.index("git commit"),
                         workflow.index("steps.landing.outcome == 'failure'"))
+
+    @staticmethod
+    def _step(workflow: str, name: str) -> str:
+        """One step's block: from its `- name:` to the next one."""
+        marker = f"- name: {name}"
+        start = workflow.index(marker)
+        rest = workflow[start + len(marker):]
+        end = rest.find("\n      - name:")
+        return rest if end == -1 else rest[:end]
 
 
 if __name__ == "__main__":
