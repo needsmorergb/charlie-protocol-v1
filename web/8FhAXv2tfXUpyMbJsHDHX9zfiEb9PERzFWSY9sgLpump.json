@@ -36,9 +36,9 @@
     ],
     "sol_burn_total": [
       {
-        "check": "SOL_BURN_UNSPENDABLE",
-        "detail": "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
-        "status": "FAIL"
+        "check": "SOL_BURN_BALANCE",
+        "detail": "no inflows are recorded for burn111111111111111111111111111111111111111 yet, so no total is stated for it",
+        "status": "UNCHECKED"
       }
     ],
     "supply_destroyed": [
@@ -77,26 +77,35 @@
       "status": "PASS"
     },
     {
-      "actual": "not program-derived: burn111111111111111111111111111111111111111",
-      "backs": [
-        "sol_burn_total"
-      ],
-      "detail": "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn vault to be a program-derived address; this one is a vanity address, and the protocol does not accept convention in place of the enforced property",
-      "equation": "is_on_curve(sol_burn_vault) == False",
-      "expected": "program-derived",
-      "name": "SOL_BURN_UNSPENDABLE",
+      "actual": "0",
+      "backs": [],
+      "detail": "the split does not pay the protocol's collection wallet 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 at all",
+      "equation": "bps(TOLL_DESTINATION) >= 500",
+      "expected": ">= 500",
+      "name": "PROTOCOL_SHARE",
       "status": "FAIL"
     },
     {
-      "actual": "burn111111111111111111111111111111111111111: 179668087718",
+      "actual": "a burn destination",
       "backs": [
         "sol_burn_total"
       ],
-      "detail": "recorded inflows reconcile against the vault balance (burn111111111111111111111111111111111111111)",
-      "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
-      "expected": "burn111111111111111111111111111111111111111: 0",
-      "name": "SOL_BURN_BALANCE",
+      "detail": "every SOL burn destination is a burn address: what reaches it is out of circulation",
+      "equation": "every SOL burn destination is one SOL does not come back from",
+      "expected": "a burn destination",
+      "name": "SOL_BURN_UNSPENDABLE",
       "status": "PASS"
+    },
+    {
+      "actual": null,
+      "backs": [
+        "sol_burn_total"
+      ],
+      "detail": "no inflows are recorded for burn111111111111111111111111111111111111111 yet, so no total is stated for it",
+      "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
+      "expected": null,
+      "name": "SOL_BURN_BALANCE",
+      "status": "UNCHECKED"
     },
     {
       "actual": "956382187958910",
@@ -191,7 +200,7 @@
     "supply": 956382187958910,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1788415750.8336794,
+  "observed_at": 1788599971.6572874,
   "publishable": [
     "split"
   ],
