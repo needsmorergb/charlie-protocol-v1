@@ -167,10 +167,18 @@ class handler(BaseHTTPRequestHandler):
 
             from indexer.base58 import encode as b58
             return self._send(200, {
-                # base58 of the MESSAGE, which is what a wallet's
-                # signAndSendTransaction request takes. The page needs no
-                # bundled Solana library to sign, so it ships no third-party
-                # code and there is no build step.
+                # What the page hands the wallet: base58 of the whole unsigned
+                # transaction -- one zero signature, then the message. Phantom
+                # calls the parameter `message`, but it parses it as a
+                # transaction (web3.js Transaction.from: a signature count,
+                # the signatures, then the message). Handed the bare message
+                # it read byte 1 as "one signature", consumed 64 bytes of the
+                # message as that signature and ran off the end: "Reached end
+                # of buffer unexpectedly", seen live on the first real sign.
+                # The page needs no bundled Solana library to sign, so it
+                # ships no third-party code and there is no build step.
+                "signable": b58(unsigned),
+                # The bare message, for anyone building their own transaction.
                 "message": b58(message),
                 "transaction": encoded,
                 "blockhash": blockhash,
