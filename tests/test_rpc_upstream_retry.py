@@ -60,6 +60,35 @@ class TestUpstreamFailureIsRetried(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, RpcError)
 
 
+class TestTheRetryBacksOff(unittest.TestCase):
+    """An upstream 429 on getProgramAccounts died after three retries a
+    quarter second apart: the gateway had not had time to stop rate
+    limiting. The waits grow tenfold and are capped."""
+
+    def test_each_upstream_retry_waits_longer(self):
+        waits = []
+        client = RpcClient([GATEWAY], sleep=waits.append)
+        code = sorted(UPSTREAM_FAILURE_CODES)[0]
+        bodies = iter([
+            {"error": {"code": code, "message": "upstream HTTP 429"}},
+            {"error": {"code": code, "message": "upstream HTTP 429"}},
+            {"result": "answered"},
+        ])
+        client._post = lambda url, payload: next(bodies)
+        self.assertEqual(client.call("getProgramAccounts"), "answered")
+        self.assertEqual(waits, [0.15, 1.5])
+
+    def test_the_wait_is_capped(self):
+        waits = []
+        client = RpcClient([GATEWAY], sleep=waits.append, max_retries=5)
+        code = sorted(UPSTREAM_FAILURE_CODES)[0]
+        client._post = lambda url, payload: {"error": {"code": code, "message": "upstream HTTP 429"}}
+        with self.assertRaises(Exception):
+            client.call("getProgramAccounts")
+        self.assertEqual(max(waits), 5.0)
+        self.assertEqual(waits[:3], [0.15, 1.5, 5.0])
+
+
 class TestTheDefaultEndpoint(unittest.TestCase):
     """Every read goes through the gateway unless told otherwise.
 

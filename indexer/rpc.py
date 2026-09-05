@@ -124,6 +124,7 @@ class RpcClient:
         ).encode("utf-8")
 
         last_error: Exception | None = None
+        upstream_failures = 0
         for _ in range(self._max_retries * len(self._endpoints)):
             endpoint = self._pick()
             if endpoint is None:
@@ -158,7 +159,13 @@ class RpcClient:
                     # off would take the only endpoint out of rotation and turn
                     # one bad provider into a total outage.
                     last_error = RpcError(code, str(err.get("message", "")), method)
-                    self._sleep(0.15)
+                    # A quarter second was right for a bad provider the
+                    # breaker was about to drop; it is nothing to a rate
+                    # limit, which is what an upstream 429 on a heavy
+                    # getProgramAccounts is. Each retry waits ten times
+                    # longer than the last: 0.15s, 1.5s, then 5s, capped.
+                    self._sleep(min(0.15 * (10 ** upstream_failures), 5.0))
+                    upstream_failures += 1
                     continue
                 raise RpcError(code, str(err.get("message", "")), method)
             return body.get("result")
