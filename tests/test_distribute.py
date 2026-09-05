@@ -23,6 +23,9 @@ from test_indexer import (  # noqa: E402
     ADMIN, CHARLIE, CHARLIE_CONFIG, FakeRpc, bonding_curve, config_account, curve_account,
     mint_account,
 )
+from test_buyback import _account, pool_bytes, token_account_bytes  # noqa: E402
+from indexer import buyback  # noqa: E402
+from indexer.pump import PUMP_AMM_PROGRAM, TOKEN_PROGRAM  # noqa: E402
 
 BLOCKHASH = "11111111111111111111111111111111"
 PAYER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
@@ -43,9 +46,12 @@ class _Rpc(FakeRpc):
         raise AssertionError(method)
 
 
-def crank_rpc(*, graduated=False, vault_lamports=50_000_000):
+def crank_rpc(*, graduated=False, vault_lamports=50_000_000, amm_wsol=0, pool=True,
+              coin_creator=CHARLIE_CONFIG, amm_vault_exists=True):
     """An enrolled coin: its bonding curve's creator is its config, and the
-    config pays the protocol, the incinerator and an ops wallet."""
+    config pays the protocol, the incinerator and an ops wallet. Graduated,
+    it also has the canonical wSOL pool naming the config as coin creator
+    and the AMM-side wSOL vault holding `amm_wsol`."""
     accounts = {
         bonding_curve(CHARLIE): curve_account(CHARLIE_CONFIG, graduated=graduated),
         CHARLIE_CONFIG: config_account(
@@ -55,8 +61,29 @@ def crank_rpc(*, graduated=False, vault_lamports=50_000_000):
         ),
         CHARLIE: mint_account(1_000_000_000),
     }
+    if graduated and pool:
+        accounts[buyback.canonical_pool(CHARLIE)] = _account(
+            PUMP_AMM_PROGRAM,
+            pool_bytes(creator=buyback.pool_authority(CHARLIE), base_mint=CHARLIE, coin_creator=coin_creator),
+        )
+    if graduated and amm_vault_exists:
+        authority = buyback.coin_creator_vault_authority(CHARLIE_CONFIG)
+        accounts[distribute.amm_vault(CHARLIE_CONFIG)] = _account(
+            TOKEN_PROGRAM, token_account_bytes(buyback.WSOL_MINT, authority, amm_wsol))
     return _Rpc(accounts, balances={distribute.creator_vault(CHARLIE_CONFIG): vault_lamports,
                                     PAYER: 10_000_000})
+
+
+# A graduated, enrolled coin the deploy repository's `graduated` workflow
+# measured on mainnet, and every address it printed for the AMM transfer.
+# The derivations below are pinned to those bytes.
+MEASURED_MINT = "7bRLkZEBjXhkunAhz3CLzQ5wth2vLjT41MusuZVpump"
+MEASURED_CONFIG = "Ei9rqPVQpVep9DeD6DuiyWK5S2LbWuJ1EzNFMiCG1sgh"
+MEASURED_POOL = "k35Vgw8KUxXiahsJHk9QZ9NS3jKJxsUJNgknoWM8i9P"
+MEASURED_VAULT_AUTHORITY = "vz1StETinY7WfqyE3nnJ5xyetDgg9SvXg4uCEB1k2GW"
+MEASURED_AMM_VAULT = "3uGs8p5bVKDArzPPRMcQ7TFApbSVJB8sV3vLir1yCfMB"
+MEASURED_PUMP_VAULT = "31fhPvz71MKG2hD7TPpXpTvJ6k7c8YUjQiDi4otpMaD9"
+MEASURED_AMM_EVENT_AUTHORITY = "GS4CU59F31iL7aR2Q8zVS8DRrcRnXX1yjQ66TqNVQnaR"
 
 
 def no_config_rpc():
@@ -98,6 +125,44 @@ class TestTheInstruction(unittest.TestCase):
         self.assertEqual(distribute.creator_vault(CHARLIE_CONFIG), expected)
 
 
+class TestTheAmmTransfer(unittest.TestCase):
+    """`transfer_creator_fees_to_pump`, pinned to what the deployed AMM
+    declared and the mainnet simulation accepted for one real coin."""
+
+    def test_the_discriminator_is_the_amm_s(self):
+        self.assertEqual(distribute.TRANSFER_CREATOR_FEES_TO_PUMP, bytes.fromhex("8b348655e4e56cf1"))
+
+    def test_the_ten_accounts_in_the_idl_s_order_for_the_measured_coin(self):
+        metas = distribute.transfer_accounts_for(MEASURED_CONFIG)
+        self.assertEqual([m[0] for m in metas], [
+            buyback.WSOL_MINT,
+            TOKEN_PROGRAM,
+            distribute.SYSTEM_PROGRAM,
+            buyback.ASSOCIATED_TOKEN_PROGRAM,
+            MEASURED_CONFIG,
+            MEASURED_VAULT_AUTHORITY,
+            MEASURED_AMM_VAULT,
+            MEASURED_PUMP_VAULT,
+            MEASURED_AMM_EVENT_AUTHORITY,
+            PUMP_AMM_PROGRAM,
+        ])
+
+    def test_only_the_three_vault_accounts_are_writable_and_nothing_signs(self):
+        metas = distribute.transfer_accounts_for(MEASURED_CONFIG)
+        self.assertEqual([m[2] for m in metas],
+                         [False, False, False, False, False, True, True, True, False, False])
+        self.assertFalse(any(m[1] for m in metas))
+
+    def test_the_instruction_targets_the_amm_program(self):
+        program, _metas, data = distribute.transfer_instruction(MEASURED_CONFIG)
+        self.assertEqual(program, PUMP_AMM_PROGRAM)
+        self.assertEqual(data, distribute.TRANSFER_CREATOR_FEES_TO_PUMP)
+
+    def test_the_measured_coin_s_pool_and_pump_vault_derive_to_what_mainnet_holds(self):
+        self.assertEqual(buyback.canonical_pool(MEASURED_MINT), MEASURED_POOL)
+        self.assertEqual(distribute.creator_vault(MEASURED_CONFIG), MEASURED_PUMP_VAULT)
+
+
 class TestThePlan(unittest.TestCase):
     def test_an_enrolled_coin_builds_a_message_the_payer_signs_first(self):
         built = distribute.plan(crank_rpc(), CHARLIE, PAYER)
@@ -107,10 +172,48 @@ class TestThePlan(unittest.TestCase):
         self.assertEqual(built.vault_lamports, 50_000_000)
         self.assertIn(distribute.DISTRIBUTE_CREATOR_FEES, built.message)
 
-    def test_a_graduated_coin_is_refused_with_the_reason(self):
+    def test_a_graduated_coin_moves_the_amm_vault_first_then_distributes(self):
+        # Measured: distribute alone pays 0 on a graduated coin; the transfer
+        # then distribute pays the whole AMM balance. So the plan is exactly
+        # those two, in that order, in one transaction.
+        built = distribute.plan(crank_rpc(graduated=True, amm_wsol=70_000_000), CHARLIE, PAYER)
+        self.assertTrue(built.graduated)
+        self.assertEqual(built.pool, buyback.canonical_pool(CHARLIE))
+        self.assertEqual(built.amm_vault, distribute.amm_vault(CHARLIE_CONFIG))
+        self.assertEqual(built.amm_lamports, 70_000_000)
+        self.assertEqual(built.payable_lamports, 120_000_000)
+        self.assertEqual(len(built.instructions), 2)
+        transfer, distribution = built.instructions
+        self.assertEqual(transfer, distribute.transfer_instruction(CHARLIE_CONFIG))
+        self.assertEqual(distribution[2], distribute.DISTRIBUTE_CREATOR_FEES)
+
+    def test_a_coin_on_its_curve_is_one_instruction_with_no_amm_side(self):
+        built = distribute.plan(crank_rpc(), CHARLIE, PAYER)
+        self.assertFalse(built.graduated)
+        self.assertEqual(len(built.instructions), 1)
+        self.assertEqual(built.amm_lamports, 0)
+        self.assertEqual(built.payable_lamports, built.vault_lamports)
+
+    def test_a_graduated_coin_with_an_empty_amm_vault_still_transfers(self):
+        # The transfer is a no-op on an empty vault (measured on ten coins,
+        # err None), and an absent vault account reads as 0 wSOL.
+        built = distribute.plan(crank_rpc(graduated=True, amm_vault_exists=False), CHARLIE, PAYER)
+        self.assertEqual(built.amm_lamports, 0)
+        self.assertEqual(len(built.instructions), 2)
+
+    def test_a_graduated_coin_without_its_canonical_pool_is_refused(self):
         with self.assertRaises(distribute.DistributeError) as caught:
-            distribute.plan(crank_rpc(graduated=True), CHARLIE, PAYER)
-        self.assertIn("transfer_creator_fees_to_pump", str(caught.exception))
+            distribute.plan(crank_rpc(graduated=True, pool=False), CHARLIE, PAYER)
+        self.assertIn("canonical wSOL pool", str(caught.exception))
+
+    def test_a_pool_naming_another_coin_creator_is_refused_with_the_migration_named(self):
+        # The one exception the AMM-side census found: a pool older than the
+        # coin_creator field, reading the zero pubkey. Its fee is routed
+        # elsewhere until migrated, and paying it would pay nobody.
+        rpc = crank_rpc(graduated=True, coin_creator=buyback.DEFAULT_PUBKEY)
+        with self.assertRaises(distribute.DistributeError) as caught:
+            distribute.plan(rpc, CHARLIE, PAYER)
+        self.assertIn("migrate_pool_coin_creator", str(caught.exception))
 
     def test_a_coin_with_no_config_is_refused(self):
         with self.assertRaises(distribute.DistributeError) as caught:
@@ -125,6 +228,22 @@ class TestTheRun(unittest.TestCase):
         self.assertEqual(rows[0]["outcome"], "simulated")
         self.assertEqual(rows[0]["units"], 31_000)
         self.assertTrue(hasattr(rpc, "simulated"))
+
+    def test_a_graduated_coin_s_amm_balance_counts_toward_the_floor(self):
+        # 0 in the pump vault, 50M wSOL on the AMM side: the transaction can
+        # reach it, so it is worth the fee.
+        rpc = crank_rpc(graduated=True, vault_lamports=0, amm_wsol=50_000_000)
+        rows = distribute.run(rpc, [CHARLIE], payer=PAYER)
+        self.assertEqual(rows[0]["outcome"], "simulated")
+        self.assertEqual(rows[0]["amm_lamports"], 50_000_000)
+        self.assertEqual(rows[0]["instructions"], 2)
+        self.assertTrue(rows[0]["graduated"])
+
+    def test_a_graduated_coin_with_dust_on_both_sides_is_skipped_naming_both(self):
+        rpc = crank_rpc(graduated=True, vault_lamports=1_000, amm_wsol=2_000)
+        rows = distribute.run(rpc, [CHARLIE], payer=PAYER)
+        self.assertEqual(rows[0]["outcome"], "skipped")
+        self.assertIn("AMM vault", rows[0]["reason"])
 
     def test_a_dust_vault_is_skipped_before_simulating(self):
         rpc = crank_rpc(vault_lamports=1_000)
