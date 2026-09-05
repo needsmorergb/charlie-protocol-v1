@@ -41,6 +41,7 @@ import argparse
 import hashlib
 import shutil
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -173,12 +174,25 @@ def main(argv=None) -> int:
             for path in absent:
                 print(f"  {path}", file=sys.stderr)
             return 1
-        for path in SHARED:
-            source = ROOT / path
-            destination = target / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
-            print(f"copied {path}")
+        # Staged, then moved into place. The existence check above stops the
+        # obvious half-update; a copy that fails part-way through -- a
+        # destination that is a directory, a read-only tree, a full disk --
+        # would still leave one. Every file is written somewhere else first,
+        # so the only thing that touches the other repository is a sequence of
+        # renames within the same filesystem it just wrote to.
+        staging = Path(tempfile.mkdtemp(prefix="shared-sync-"))
+        try:
+            for path in SHARED:
+                held = staging / path
+                held.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / path, held)
+            for path in SHARED:
+                destination = target / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(staging / path), str(destination))
+                print(f"copied {path}")
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
         return 0
 
     if args.against:
