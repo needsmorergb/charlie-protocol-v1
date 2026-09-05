@@ -117,6 +117,15 @@ class handler(BaseHTTPRequestHandler):
                     "owns": enroll.owns(config, authority),
                     "current": [{"address": a, "bps": b} for a, b in (config.shareholders if config else ())],
                     "reason": None if config else "no_sharing_config",
+                    # The create path. A coin with no config is enrolled by
+                    # its CREATOR -- the bonding curve's creator field --
+                    # who is the only key pump lets create one.
+                    "creator": None if config else curve.creator,
+                    "can_create": (config is None) and enroll.may_create(curve, authority),
+                    # The protocol's fixed share, so the page can pin the row
+                    # rather than hardcode it. None while unset, and the
+                    # build path refuses in that case.
+                    "toll": {"address": enroll.TOLL_DESTINATION, "bps": enroll.TOLL_BPS},
                     # Read from the bonding curve, and three-valued on
                     # purpose: absent is not off. A cashback coin routes its
                     # whole creator fee to traders, so every leg of every
@@ -131,9 +140,12 @@ class handler(BaseHTTPRequestHandler):
 
             blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])
             blockhash = blockhash["value"]["blockhash"]
-            message = enroll.message(
+            # One signature either way. No config: create it and set the
+            # split in the same transaction. Config: set the split.
+            message = enroll.enrolment_message(
                 mint, authority, shares, blockhash,
-                current=[a for a, _bps in config.shareholders],
+                create=config is None,
+                current=[a for a, _bps in config.shareholders] if config else (),
             )
             unsigned = bytes([1]) + b"\x00" * 64 + message
             encoded = base64.b64encode(unsigned).decode()
@@ -163,6 +175,7 @@ class handler(BaseHTTPRequestHandler):
                 "blockhash": blockhash,
                 "simulated": True,
                 "units": value.get("unitsConsumed"),
+                "creates_config": config is None,
                 "summary": [{"address": s.address, "bps": s.bps} for s in shares],
             })
         except DecodeError as exc:
@@ -211,6 +224,11 @@ def _explain(value) -> str:
         return "The coin's current shareholders could not be read. Reload and try again."
     if "AccountNotInitialized" in logs:
         return "This coin is missing an account pump expects. It may not be a pump coin."
+    if "NotAuthorized" in logs:
+        # 6016, from create_fee_sharing_config: only the coin's creator may
+        # create its config. Measured with a stranger as payer.
+        return ("pump lets only the coin's creator create its fee-sharing config, "
+                "and the connected wallet is not that key.")
     if "ConstraintHasOne" in logs or "Unauthorized" in logs:
         return "The connected wallet is not allowed to change this coin's split."
     return "pump refused this split. Nothing was sent and nothing changed."

@@ -41,11 +41,22 @@ const fs = require('fs'), vm = require('vm');
 const source = fs.readFileSync(process.argv[2], 'utf8');
 const response = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const els = {};
-const el = (id) => (els[id] = els[id] || {value: '', textContent: '', className: '', hidden: false, style: {}});
+const rows = [];
+const el = (id) => (els[id] = els[id] || {value: '', textContent: '', className: '', hidden: false, style: {},
+                                           appendChild: (child) => { if (child.className && child.className.indexOf('share-row') === 0) { rows.push(child); } }});
 el('mint').value = 'JAMXU2JLraZ3RUhbgc3ttYPc18Kx4ojCnC56XR2zpump';
+// An element that keeps what is appended to it and what is set on it, so a
+// share row can be read back: its inputs, and whether they are read-only.
+function fakeElement() {
+  const node = {style: {}, classList: {add: () => {}}, children: [], className: '', value: '',
+                readOnly: false, disabled: false, textContent: ''};
+  node.appendChild = (child) => { node.children.push(child); };
+  node.querySelector = (sel) => node.children.find((c) => ('.' + c.className) === sel) || null;
+  return node;
+}
 const sandbox = {
   document: {getElementById: el, addEventListener: () => {}, querySelectorAll: () => [],
-             createElement: () => ({style: {}, classList: {add: () => {}}, appendChild: () => {}})},
+             createElement: () => fakeElement()},
   window: {}, console, setTimeout, encodeURIComponent,
   fetch: async () => ({json: async () => response}),
 };
@@ -57,6 +68,11 @@ sandbox.inspect().then(() => {
     note: el('coinNote').textContent,
     kind: el('coinNote').className,
     formShown: el('splitBox').hidden === false,
+    rows: rows.map((r) => ({
+      address: r.querySelector('.share-addr').value,
+      pct: String(r.querySelector('.share-bps').value),
+      locked: r.className.indexOf('locked') !== -1 && r.querySelector('.share-addr').readOnly,
+    })),
   }));
 });
 """
@@ -74,9 +90,16 @@ def _response(**overrides) -> dict:
         "reason": None,
         "cashback": False,
         "graduated": False,
+        "creator": None,
+        "can_create": False,
+        "toll": {"address": TOLL, "bps": 500},
     }
     body.update(overrides)
     return body
+
+
+TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+CREATOR = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
 
 
 class TestTheCautionIsNotStyledAsARefusal(unittest.TestCase):
@@ -207,6 +230,50 @@ class TestTheDevIsToldTheTruth(unittest.TestCase):
         out = self.drive(_response())
         self.assertIn("You administer this coin", out["note"])
         self.assertTrue(out["formShown"])
+
+    # -- the create path ----------------------------------------------------
+    def test_the_creator_of_a_config_less_coin_is_let_through_to_create_it(self):
+        """The ~95% case. It used to be a dead end that sent the dev to pump
+        to make a config by hand; now one signature creates it and sets the
+        split, and the page says so."""
+        out = self.drive(_response(config=None, admin=None, admin_revoked=None, owns=False,
+                                   current=[], reason="no_sharing_config",
+                                   creator=CREATOR, can_create=True))
+        self.assertIn("One signature will create the config", out["note"])
+        self.assertIn(CREATOR, out["note"])
+        self.assertEqual(out["kind"], "note good")
+        self.assertTrue(out["formShown"])
+
+    def test_someone_else_is_told_which_wallet_can(self):
+        out = self.drive(_response(config=None, admin=None, admin_revoked=None, owns=False,
+                                   current=[], reason="no_sharing_config",
+                                   creator=CREATOR, can_create=False))
+        self.assertIn("only the wallet that launched it", out["note"])
+        self.assertIn(CREATOR, out["note"])
+        self.assertFalse(out["formShown"])
+
+    def test_the_toll_row_is_first_locked_and_at_the_server_s_rate(self):
+        out = self.drive(_response())
+        self.assertGreaterEqual(len(out["rows"]), 3)
+        first = out["rows"][0]
+        self.assertEqual(first["address"], TOLL)
+        self.assertEqual(first["pct"], "5")
+        self.assertTrue(first["locked"])
+        # And nothing else is locked: the rest is the dev's.
+        self.assertTrue(all(not r["locked"] for r in out["rows"][1:]))
+
+    def test_the_defaults_total_one_hundred_with_the_connected_wallet_last(self):
+        out = self.drive(_response())
+        self.assertAlmostEqual(sum(float(r["pct"]) for r in out["rows"]), 100.0)
+        self.assertEqual(out["rows"][-1]["address"], "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
+
+    def test_no_toll_address_means_no_form(self):
+        """Shipped default until the address is set. The server refuses to
+        build in this state; the page must not offer a form that ends in
+        that refusal."""
+        out = self.drive(_response(toll={"address": None, "bps": 500}))
+        self.assertIn("not open yet", out["note"])
+        self.assertFalse(out["formShown"])
 
     def test_a_server_error_is_shown_as_one(self):
         out = self.drive({"error": "Could not read the chain just now. Try again in a moment."})

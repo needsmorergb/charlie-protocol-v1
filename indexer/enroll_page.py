@@ -25,7 +25,7 @@ from . import site
 ENROLL_FILENAME = "enroll.html"
 
 _SCRIPT = r"""
-var state = {wallet: null, mint: null, built: null};
+var state = {wallet: null, mint: null, built: null, toll: null, create: false};
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) { var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || ''); }
 
@@ -69,10 +69,18 @@ async function inspect() {
       say('coinNote', 'This coin has pump Trader Cashback on, chosen at launch and locked on chain. Its whole creator fee goes to traders, so every share of any split would be zero. Enrolling would spend this coin one permanent change for nothing.', 'bad');
       return;
     }
+    state.toll = d.toll || null;
     if (d.reason === 'no_sharing_config') {
-      say('coinNote', 'This coin has no pump fee-sharing config yet, which is normal for a new launch. There is nothing to update until one exists, and this page cannot create one for you yet. Set fee sharing up on pump first, then come back.', 'bad');
+      if (d.can_create) {
+        state.create = true;
+        say('coinNote', 'You launched this coin, and it has no pump fee-sharing config yet, which is normal for a new launch. One signature will create the config and set the split at the same time. Its creator fee currently goes to your wallet, ' + d.creator + '.', 'good');
+        openForm();
+        return;
+      }
+      say('coinNote', 'This coin has no pump fee-sharing config yet, and pump lets only the wallet that launched it create one.' + (d.creator ? ' That wallet is ' + d.creator + '. Connect it and check again.' : ''), 'bad');
       return;
     }
+    state.create = false;
     if (d.admin_revoked) {
       say('coinNote', 'This coin has already used its one change, so the split is permanent. pump allows exactly one update and nothing can alter it now, including us. Current: ' + rows, 'bad');
       return;
@@ -90,11 +98,11 @@ async function inspect() {
     }
     if (cautions.length) {
       say('coinNote', 'You administer this coin. Before you spend the one change: ' + cautions.join(' ') + ' Current split: ' + rows, 'caution');
-      $('splitBox').hidden = false;
+      openForm();
       return;
     }
     say('coinNote', 'You administer this coin. Current split: ' + rows, 'good');
-    $('splitBox').hidden = false;
+    openForm();
   } catch (e) {
     say('coinNote', 'Could not reach the chain just now. Try again in a moment.', 'bad');
   }
@@ -112,9 +120,9 @@ function total() {
   return t;
 }
 
-function addRow(addr, pct) {
+function addRow(addr, pct, locked, label) {
   var row = document.createElement('div');
-  row.className = 'share-row';
+  row.className = 'share-row' + (locked ? ' locked' : '');
   var a = document.createElement('input');
   a.className = 'share-addr'; a.placeholder = 'destination address';
   a.spellcheck = false; a.autocomplete = 'off'; a.value = addr || '';
@@ -123,12 +131,36 @@ function addRow(addr, pct) {
   b.min = '0'; b.max = '100'; b.placeholder = '%';
   b.value = (pct === undefined || pct === null) ? '' : pct;
   var rm = document.createElement('button');
-  rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'remove';
-  rm.onclick = function () { row.remove(); total(); };
+  rm.type = 'button'; rm.className = 'rm';
+  if (locked) {
+    // The protocol's share. Not editable and not removable: it is the price
+    // of using the protocol, and the server will not build a split without it.
+    a.readOnly = true; b.readOnly = true;
+    rm.textContent = label || 'protocol share'; rm.disabled = true;
+  } else {
+    rm.textContent = 'remove';
+    rm.onclick = function () { row.remove(); total(); };
+  }
   a.oninput = total; b.oninput = total;
   row.appendChild(a); row.appendChild(b); row.appendChild(rm);
   $('shares').appendChild(row);
   total();
+}
+
+function openForm() {
+  // Rebuilt on every inspection, so the toll row is the one the server
+  // named and the defaults reflect the wallet that is connected.
+  $('shares').textContent = '';
+  if (!state.toll || !state.toll.address) {
+    say('coinNote', 'Enrolment is not open yet: the protocol\u0027s collection address has not been set. Nothing can be built until it is.', 'bad');
+    $('splitBox').hidden = true;
+    return;
+  }
+  var tollPct = state.toll.bps / 100;
+  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%');
+  addRow('1nc1nerator11111111111111111111111111111111', 20);
+  addRow(state.wallet, 100 - 20 - tollPct);
+  $('splitBox').hidden = false;
 }
 
 function shareRows() {
@@ -178,7 +210,9 @@ async function send() {
     n.className = 'note good';
     n.textContent = '';
     var done = document.createElement('p');
-    done.textContent = 'Sent. Your split is set. pump allows this once, so it is now fixed.';
+    done.textContent = state.create
+      ? 'Sent. The fee-sharing config was created and your split is set. pump allows the split to be changed once, so it is now fixed.'
+      : 'Sent. Your split is set. pump allows this once, so it is now fixed.';
     var txp = document.createElement('p');
     var tx = document.createElement('a');
     tx.href = 'https://solscan.io/tx/' + sig;
@@ -207,8 +241,6 @@ document.addEventListener('DOMContentLoaded', function () {
   $('addRow').onclick = function () { addRow('', ''); };
   $('build').onclick = build;
   $('send').onclick = send;
-  addRow('1nc1nerator11111111111111111111111111111111', 20);
-  addRow('', 80);
 });
 """
 
@@ -226,6 +258,8 @@ button.primary:hover, button.primary:focus-visible {
   font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
+.share-row.locked .share-addr, .share-row.locked .share-bps { background: var(--panel); color: var(--ink); }
+.share-row.locked .rm { border-style: solid; cursor: default; }
 #total.ok { color: var(--pass-glyph); font-weight: 700; }
 #total.bad { color: var(--destructive); font-weight: 700; }
 .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -259,10 +293,12 @@ def render(*, now=None) -> str:
     esc = site.esc
     body = (
         "<header>"
-        "<h1>Set your coin&#x27;s fee split</h1>"
-        "<p>Connect the wallet that administers the coin and send its creator "
-        "fee wherever you want it to go. Your key never leaves your wallet: "
-        "this page builds a transaction, your wallet signs it.</p>"
+        "<h1>Enrol your coin</h1>"
+        "<p>Connect the wallet that launched the coin and set where its creator "
+        "fee goes. If the coin has no pump fee-sharing config yet, which is "
+        "normal for a new launch, one signature creates it and sets the split. "
+        "Your key never leaves your wallet: this page builds a transaction, "
+        "your wallet signs it.</p>"
         "</header>"
         "<main>"
         "<section>"
@@ -273,6 +309,9 @@ def render(*, now=None) -> str:
         "</section>"
         "<section>"
         "<h2>2. Name the coin</h2>"
+        "<p>Ownership is decided by the chain. For a coin with no fee-sharing "
+        "config yet, that means the wallet its bonding curve names as creator; "
+        "for a coin that has one, the key its config names as admin.</p>"
         '<div class="verify-form">'
         '<label for="mint">Contract address (CA)</label>'
         '<input id="mint" type="text" spellcheck="false" autocomplete="off" '
@@ -283,6 +322,10 @@ def render(*, now=None) -> str:
         "</section>"
         '<section id="splitBox" hidden>'
         "<h2>3. Set the split</h2>"
+        "<p>The first row is the protocol&#x27;s share, fixed at 5% of the "
+        "creator fee: it is the price of enrolling, and it funds buying and "
+        "burning $CHARLIE. Every other row is yours to set. The defaults send "
+        "20% to Solana&#x27;s incinerator and the rest to your wallet.</p>"
         '<div class="warn"><strong>pump lets a coin&#x27;s split be changed '
         "once.</strong> After this is sent, no key can change it again, "
         "including yours. Check every destination before you sign.</div>"
@@ -296,7 +339,7 @@ def render(*, now=None) -> str:
         "</section>"
         "<section>"
         "<h2>What a destination means</h2>"
-        "<p>The first row is filled in with "
+        "<p>One row is filled in with "
         "<code>1nc1nerator11111111111111111111111111111111</code>, Solana&#x27;s "
         "incinerator. Its source says lamports credited there are removed from "
         "the total supply at the end of the block. SOL sent there is destroyed, "
@@ -307,6 +350,11 @@ def render(*, now=None) -> str:
         "<p>A destination that buys the token and destroys it reduces the "
         "coin&#x27;s own supply instead. Anything else is an ordinary wallet, "
         "and the coin&#x27;s page says so in those words.</p>"
+        "<p>The protocol&#x27;s 5% is collected at the address on the first "
+        "row and spent buying $CHARLIE and burning it. No on-chain program "
+        "enforces that share yet: this page refuses to build a split without "
+        "it, and the program that will enforce it is in the repository linked "
+        "from the front page.</p>"
         f'<p><a href="/{esc(site.VERIFY_FILENAME)}">Check any coin</a>.</p>'
         "</section>"
         "</main>"
@@ -314,10 +362,10 @@ def render(*, now=None) -> str:
         f"<script>{_SCRIPT}</script>"
     )
     return site._document(
-        "Set your fee split -- Charlie Protocol", body,
+        "Enrol your coin -- Charlie Protocol", body,
         style=site._INDEX_STYLE + _STYLE,
-        description="Connect the wallet that administers your pump.fun coin and "
-                    "set where its creator fee goes.",
+        description="Connect the wallet that launched your pump.fun coin and "
+                    "set where its creator fee goes, in one signature.",
     )
 
 
