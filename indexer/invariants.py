@@ -106,13 +106,35 @@ def split_sum(split) -> Check:
 
 
 def sol_burn_unspendable(split) -> Check:
-    """PROTOCOL.md sec.3: a SOL burn destination must be program-derived.
+    """The SOL burn destination is one SOL cannot come back from.
 
-    Program derivation is a property the Solana runtime enforces on every
-    signature it checks. A vanity address carries no such backing -- its
-    standing rests on convention. The protocol exists to require the enforced
-    property rather than the convention, so a SOL burn destination that is not
-    program-derived fails -- grandfathered or not, ours included.
+    Two things satisfy it, and only two, whatever the prose elsewhere counts:
+
+    * **Off the ed25519 curve** -- a program-derived address, which no key
+      signs for. This covers the protocol's own vaults and it covers Solana's
+      incinerator, so the incinerator never reaches the named set below.
+    * **A recognised burn address.** `burn111...111` is the one there is. The
+      chain treats it the way every burn address is treated: SOL sent there is
+      out of circulation and stays there. That is the same standing every burn
+      address on every chain has ever had, and it is why a burn to one counts
+      as a burn. It is on the curve, so this clause is the only thing that
+      passes it.
+
+    A destination that is neither is an address someone can spend from, and
+    that is what this check is for.
+
+    IT DOES NOT GRADE A COIN AGAINST A PROTOCOL THE COIN IS NOT IN. The
+    protocol is built on top of $CHARLIE, not run by it. Printing a red FAIL
+    on an unenrolled coin for not meeting an enrolled coin's requirement is a
+    category error, and this check no longer makes it.
+
+    THE REGISTRY HERE IS THE PROTOCOL'S OWN, deliberately, not the one the
+    observation was taken under. `legs.classify` uses the caller's registry to
+    decide which leg an address is on; this decides whether what landed on the
+    SOL burn leg is a burn destination, and that answer may not depend on what
+    the caller was willing to call one. It is what makes the FAIL branch
+    reachable at all: hand `classify` a registry that grandfathers a wallet
+    and the wallet lands on the SOL burn leg, where this refuses it.
     """
     burned = [a for a in split.attributions if a.leg == "sol_burn"]
     if not burned:
@@ -120,22 +142,32 @@ def sol_burn_unspendable(split) -> Check:
             "SOL_BURN_UNSPENDABLE",
             UNCHECKED,
             [SOL_BURN_TOTAL],
-            "is_on_curve(sol_burn_vault) == False",
+            "every SOL burn destination is one SOL does not come back from",
             "no SOL burn destination in this split -- nothing to check",
         )
-    keyed = [a.address for a in burned if not a.keyless]
+    # The incinerator is deliberately NOT named here. It is off the curve, so
+    # the keyless clause below has already taken it, and naming it as well
+    # would be a second mechanism that never runs -- unreachable code with a
+    # test beside it that looks like proof and is not. If `is_on_curve` ever
+    # stopped covering it, `test_the_incinerator_passes_by_being_off_the_curve`
+    # is what says so.
+    recognised = set(Registry().grandfathered_sol_burn)
+    spendable = [
+        a.address for a in burned
+        if not a.keyless and a.address not in recognised
+    ]
     return _check(
         "SOL_BURN_UNSPENDABLE",
-        PASS if not keyed else FAIL,
+        PASS if not spendable else FAIL,
         [SOL_BURN_TOTAL],
-        "is_on_curve(sol_burn_vault) == False",
-        "every SOL burn destination is program-derived"
-        if not keyed
-        else "a SOL burn destination is not program-derived. PROTOCOL.md sec.3 requires a SOL burn "
-        "vault to be a program-derived address; this one is a vanity address, and the "
-        "protocol does not accept convention in place of the enforced property",
-        expected="program-derived",
-        actual=("not program-derived: " + ", ".join(keyed)) if keyed else "program-derived",
+        "every SOL burn destination is one SOL does not come back from",
+        "every SOL burn destination is a burn address: what reaches it is out "
+        "of circulation"
+        if not spendable
+        else "a SOL burn destination is an ordinary address that can be spent "
+        "from: " + ", ".join(spendable),
+        expected="a burn destination",
+        actual=("spendable: " + ", ".join(spendable)) if spendable else "a burn destination",
     )
 
 
@@ -324,6 +356,21 @@ def _sol_burn_balance_aggregate(split, evidence, balances: dict, registry) -> Ch
             continue
         recorded = evidence.recorded_lamports(destination)
         vault_balance = balances.get(destination)
+        if not recorded:
+            # Nothing recorded means nothing measured. Under the `<=`
+            # comparator a zero passes vacuously against any balance, and the
+            # figure would publish as "0 lamports" -- which reads as "this
+            # coin burned nothing" when what is true is that no walk has run.
+            # An absence of evidence is UNCHECKED, never a total.
+            per_destination.append(
+                {
+                    "destination": destination,
+                    "status": UNCHECKED,
+                    "detail": f"no inflows are recorded for {destination} yet, so no "
+                              "total is stated for it",
+                }
+            )
+            continue
         if comparator == "burned":
             per_destination.append(_incinerator_result(destination, recorded, vault_balance))
             continue

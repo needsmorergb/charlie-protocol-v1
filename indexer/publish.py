@@ -523,6 +523,20 @@ NON_FIGURE_EMITTERS = {
     "indexer.cli:_export": (
         "prints the file paths export_all() wrote -- filenames, not figures"
     ),
+    "indexer.cli:_refresh_pages": (
+        "prints the path of each coin page it re-rendered, and the mint of each it "
+        "left alone -- filenames and addresses. Every figure on a page it writes went "
+        "through site.render, which is itself a classified SURFACES target"
+    ),
+    "indexer.cli:_refresh": (
+        "prints the file paths _refresh_pages and _write_index wrote -- filenames, "
+        "not figures, mirroring _export's entry above"
+    ),
+    "indexer.cli:_load": (
+        "prints how many rows each table of the committed export loaded -- a count "
+        "of records read from a file, not a measurement of a coin. Nothing here is "
+        "derived from a chain read and no figure passes through it"
+    ),
     "indexer.cli:_log": (
         "dispatches to _log_lines()/_log_json_lines(), both registered SURFACES "
         "targets; prints their already-gated output verbatim"

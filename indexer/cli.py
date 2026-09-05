@@ -31,7 +31,7 @@ from pathlib import Path
 
 from . import coverage, enroll_page, intake, invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
-from .export import DEFAULT_EXPORT_DIR, export_all
+from .export import DEFAULT_EXPORT_DIR, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
 from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
@@ -189,6 +189,22 @@ def _site(args) -> int:
     finally:
         evidence.close()
 
+    if args.landing and args.require_counters:
+        # Before anything is written. A landing page whose counters all read
+        # "unknown" renders without error and looks like a successful run, so
+        # the publishing job asks for the figures explicitly and stops rather
+        # than overwrite six live numbers with six absences.
+        missing = site.unknown_counters(record)
+        if missing:
+            print(
+                "refusing to write the landing page: no value for "
+                + ", ".join(missing)
+                + ". The chain reads behind these counters did not come back; "
+                "the page already published is better than this one.",
+                file=sys.stderr,
+            )
+            return 1
+
     if args.write:
         html_path, json_path = site.write(record, Path(args.out))
         print(f"wrote {html_path}")
@@ -298,6 +314,74 @@ def _index(args) -> int:
     return 0
 
 
+def _refresh_pages(rpc, registry, evidence, out_dir: Path) -> list[Path]:
+    """Every coin page already on disk, rendered again from a fresh
+    observation.
+
+    A committed page is a snapshot of a renderer that has since moved. Twice
+    that left a live page contradicting itself: a risk line reading
+    "SOL_BURN_UNSPENDABLE fails permanently for this coin" printed above a
+    check row on the same page reading PASS. Nothing regenerated a coin page
+    unless its submission was measured again, and a submission is measured
+    once.
+    """
+    records, _known = _index_inputs(out_dir)
+    # `_index_inputs` skips a record it cannot parse, which for the index is
+    # right -- a corrupt file is not a page. Here it would mean a coin quietly
+    # never refreshed again, so the gap is counted and said out loud.
+    unreadable = len(list(out_dir.glob("*.json"))) - len(records)
+    if unreadable > 0:
+        print(f"{unreadable} record(s) under {out_dir} did not parse and were not refreshed")
+    written = []
+    for record in records:
+        try:
+            # The same boundary the submission path crosses, on the same
+            # grounds. A mint read back off disk is not more trustworthy than
+            # one read off an issue: `site.write` composes a filename from it,
+            # and `../PWNED` in a committed record wrote outside `--out`
+            # before this.
+            mint = intake.validate_mint(record.get("mint"))
+        except intake.InvalidMint as exc:
+            print(f"skipped a record whose mint is not one: {exc}")
+            continue
+        observation = observe(rpc, mint, registry, evidence=evidence)
+        if observation.error:
+            # Never overwrite a measured page with a page that says the chain
+            # could not be read. The one on disk is better.
+            print(f"kept {mint}  (not re-read: {observation.error})")
+            continue
+        html_path, _json_path = site.write(observation, out_dir)
+        written.append(html_path)
+        print(f"refreshed {html_path}")
+    return written
+
+
+def _refresh(args) -> int:
+    """`intake --refresh` without the issue queue.
+
+    This repository has no submission queue -- the deployed one does -- and
+    its own `web/` was committed by a renderer that has since moved: a landing
+    page with no flywheel, a coin page still carrying the retracted
+    SOL_BURN_UNSPENDABLE banner and a section that was deleted. The page tells
+    a visitor that every version it has ever had is in THIS repository's git
+    history, so a stale copy here is the page lying about itself.
+    """
+    rpc = RpcClient(_endpoints(args.rpc))
+    registry = _registry(args.program)
+    evidence = Evidence(args.evidence or DEFAULT_DB_PATH)
+    out_dir = Path(args.out)
+    try:
+        _refresh_pages(rpc, registry, evidence, out_dir)
+        # The same count `_intake` folds in, so the two commands cannot render
+        # different index pages from the same store.
+        counts_extra = {"failed": evidence.submission_counts()["failed"]}
+        for path in _write_index(out_dir, extra_counts=counts_extra):
+            print(f"wrote {path}")
+    finally:
+        evidence.close()
+    return 0
+
+
 def _intake(args) -> int:
     """D-34: the front door. Reads the public issue queue (no credential),
     measures every submission up to the per-run cap, writes the artifacts
@@ -353,6 +437,9 @@ def _intake(args) -> int:
             else:
                 print(f"issue #{outcome.issue_number}  {outcome.mint or '(no mint)'}  failed  {outcome.reason}")
 
+        if args.refresh:
+            _refresh_pages(rpc, registry, evidence, out_dir)
+
         counts_extra = {"failed": evidence.submission_counts()["failed"]}
         written = _write_index(out_dir, extra_counts=counts_extra)
         for path in written:
@@ -376,6 +463,24 @@ def _export(args) -> int:
         evidence.close()
     for path in written:
         print(f"wrote {path}")
+    return 0
+
+
+def _load(args) -> int:
+    """The committed text export, loaded into a working store.
+
+    The `.db` is a cache of the export, not the record, and it is not
+    committed. The deploy repository therefore had an empty one, so the
+    landing page rendered there had no burns and no initial supply to read
+    and every counter came out "unknown". This is what fills it.
+    """
+    evidence = Evidence(args.db)
+    try:
+        loaded = import_all(evidence, args.source)
+    finally:
+        evidence.close()
+    for table, rows in loaded.items():
+        print(f"loaded {rows} row{'' if rows == 1 else 's'} into {table}")
     return 0
 
 
@@ -564,6 +669,11 @@ def build_parser() -> argparse.ArgumentParser:
              "needs a logged-in gh credential; defaults to off so the read half never requires one",
     )
     intake_cmd.add_argument(
+        "--refresh", action="store_true",
+        help="also re-render every coin page already under --out, so a page committed "
+             "by an older renderer cannot keep contradicting the current one",
+    )
+    intake_cmd.add_argument(
         "--answer-only", action="store_true",
         help="reply to what a previous run measured, without measuring again -- "
              "the second half of a scheduled job, after the pages it answers with "
@@ -577,6 +687,27 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
     export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
     export_cmd.set_defaults(handler=_export)
+
+    refresh_cmd = sub.add_parser(
+        "refresh", parents=[common],
+        help="re-render every coin page already under --out, and rebuild the index",
+    )
+    refresh_cmd.add_argument(
+        "--evidence", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}"
+    )
+    refresh_cmd.add_argument(
+        "--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}"
+    )
+    refresh_cmd.set_defaults(handler=_refresh)
+
+    load_cmd = sub.add_parser(
+        "load", help="load the committed text export into a working evidence store"
+    )
+    load_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
+    load_cmd.add_argument(
+        "--source", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}"
+    )
+    load_cmd.set_defaults(handler=_load)
 
     reconcile_cmd = sub.add_parser(
         "reconcile", parents=[common],
@@ -607,6 +738,10 @@ def build_parser() -> argparse.ArgumentParser:
     site_cmd.add_argument(
         "--landing", action="store_true",
         help="also emit the landing page (QT-01/QT-02/QT-03) at index.html",
+    )
+    site_cmd.add_argument(
+        "--require-counters", action="store_true",
+        help="exit non-zero rather than emit a landing page whose counters read unknown",
     )
     site_cmd.set_defaults(handler=_site)
 

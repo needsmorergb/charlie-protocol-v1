@@ -1,11 +1,14 @@
 """ed25519 point decompression, and the PDA derivation that depends on it.
 
-This module is the cryptographic core of the SOL burn leg. PROTOCOL.md sec.3 says a
-SOL burn vault must be a program-derived address rather than a vanity address,
-because program derivation is a property the Solana runtime itself enforces,
-whereas a vanity address's standing rests on convention. `is_on_curve` is where
-that derivation is actually computed, so it is written out longhand rather than
-imported.
+This module is the cryptographic core of the SOL burn leg. Program derivation
+is a property the Solana runtime itself enforces -- no key signs for an address
+off the ed25519 curve -- and PROTOCOL.md sec.1 makes it one of the two ways a
+SOL burn destination passes SOL_BURN_UNSPENDABLE. The other is a recognised
+burn address, which this module has nothing to say about: `burn111...111` is on
+the curve and is a burn destination anyway, because SOL that reaches it does
+not come back. An earlier version of the spec demanded derivation from
+everyone and is retracted. `is_on_curve` is where the derivation is actually
+computed, so it is written out longhand rather than imported.
 
 Mirrors curve25519-dalek's `CompressedEdwardsY::decompress`, which is what the
 Solana runtime uses when it rejects a PDA candidate.
@@ -39,8 +42,11 @@ def _xrecover(y: int) -> int | None:
 def is_on_curve(candidate) -> bool:
     """Does this 32-byte value decompress to an ed25519 point?
 
-    True  -> an ordinary account, not program-derived. The protocol may not
-             call it a burn.
+    True  -> an ordinary account, not program-derived. Somebody may hold the
+             key. Not a burn destination on its own -- though a recognised
+             burn address is one, on-curve or not, which is
+             `invariants.sol_burn_unspendable`'s question rather than this
+             function's.
     False -> a program-derived address. Only a program that can sign for the
              address may move its lamports -- and if no such program exists, or
              the program that owns it has no instruction that moves them, the

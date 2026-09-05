@@ -296,11 +296,110 @@ class TestInvariants(unittest.TestCase):
         self.assertEqual({c.name: c for c in record.checks}["CONFIG_MINT"].status, invariants.FAIL)
         self.assertEqual(record.verdict.publishable, frozenset())
 
-    def test_on_curve_sol_burn_destination_fails(self):
+    def test_the_legacy_burn_address_passes_because_it_is_a_burn_address(self):
+        """SOL sent to `burn111...111` does not come back, and that is the
+        whole question the check asks.
+
+        It used to demand program derivation instead, and printed a red FAIL
+        on a coin burning to a burn address for not using a protocol it was
+        never in. That was a category error, and this is the coin the error
+        was printed on.
+        """
+        record = observe(charlie_rpc(), CHARLIE, now=1.0)
+        checks = {c.name: c for c in record.checks}
+        self.assertEqual(checks["SOL_BURN_UNSPENDABLE"].status, invariants.PASS)
+
+        # The figure is still withheld, and by a different check: nothing has
+        # been walked, so no total is measured. Withheld for want of a
+        # measurement is not the same as withheld for a failed standard, and
+        # the page says which.
+        blocking = [name for name, _status, _detail
+                    in record.verdict.blocked[invariants.SOL_BURN_TOTAL]]
+        self.assertEqual(blocking, ["SOL_BURN_BALANCE"])
+
+    def test_the_incinerator_passes_by_being_off_the_curve(self):
+        """It passes, and the named set is not what passes it -- the
+        incinerator is program-derived, so the keyless clause has already
+        taken it. Worth stating because the docstring used to count it as one
+        of the ways to satisfy the check, and a reader would look for a test
+        proving the named set carries it. Nothing does; nothing can.
+        """
+        from indexer.curve import is_on_curve
+
+        self.assertFalse(is_on_curve(INCINERATOR))
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(INCINERATOR, 10_000)])})
+        record = observe(rpc, CHARLIE, now=1.0)
+        self.assertEqual(
+            {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"].status, invariants.PASS
+        )
+
+    def test_the_check_no_longer_demands_program_derivation(self):
+        """The sentence a visitor reads. The retracted version told the owner
+        of a coin burning to a burn address that their destination "is not
+        program-derived" and that "the protocol does not accept convention in
+        place of the enforced property".
+        """
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
         check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
+        for retracted in ("program-derived", "convention", "vanity", "is_on_curve"):
+            with self.subTest(phrase=retracted):
+                self.assertNotIn(retracted, check.detail)
+                self.assertNotIn(retracted, check.equation)
+
+    def test_the_equation_says_the_same_thing_on_every_branch(self):
+        """The UNCHECKED branch kept the retracted equation
+        `is_on_curve(sol_burn_vault) == False` while PASS and FAIL had moved
+        on, so a coin with no SOL burn destination was shown a rule the check
+        no longer applies. The equation is what the row states it tested.
+        """
+        empty = split_of(
+            type("Cfg", (), {"mint": CHARLIE, "shareholders": ((WALLET, 10_000),)})(),
+            Registry(program_id=None, grandfathered_sol_burn=frozenset()),
+        )
+        unchecked = invariants.sol_burn_unspendable(empty)
+        self.assertEqual(unchecked.status, invariants.UNCHECKED)
+
+        passing = invariants.sol_burn_unspendable(
+            split_of(type("Cfg", (), {"mint": CHARLIE,
+                                      "shareholders": ((BURN_VANITY, 10_000),)})(), Registry())
+        )
+        self.assertEqual(passing.status, invariants.PASS)
+        self.assertEqual(unchecked.equation, passing.equation)
+
+    def test_a_caller_cannot_grandfather_a_wallet_into_passing(self):
+        """The check reads the protocol's own recognised set, not the registry
+        the observation was taken under, and that is deliberate: `classify`
+        decides which leg an address is on, this decides whether what landed
+        there is a burn destination. If this ever started reading the caller's
+        registry the answer would become whatever the caller was willing to
+        call a burn, and the FAIL branch would be unreachable.
+        """
+        registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=frozenset({WALLET}))
+        split = split_of(
+            type("Cfg", (), {"mint": CHARLIE, "shareholders": ((WALLET, 10_000),)})(),
+            registry,
+        )
+        # The caller's registry did put it on the SOL burn leg ...
+        self.assertEqual([a.leg for a in split.attributions], ["sol_burn"])
+        # ... and the check refuses it anyway.
+        self.assertEqual(invariants.sol_burn_unspendable(split).status, invariants.FAIL)
+
+    def test_a_spendable_destination_on_the_sol_burn_leg_still_fails(self):
+        """The check is now a coupling guard between `legs.classify` and the
+        burn standard, and this is the coupling it guards.
+
+        Nothing in production can reach it today: the only addresses
+        `classify` puts on the sol_burn leg are the incinerator, the
+        protocol's own off-curve PDA, and the grandfathered burn address, and
+        all three are recognised. It fails the moment a fourth is admitted,
+        which is exactly when somebody needs to hear about it.
+        """
+        registry = Registry(program_id=PROGRAM, grandfathered_sol_burn=frozenset({WALLET}))
+        rpc = charlie_rpc({CHARLIE_CONFIG: config_account(CHARLIE, [(WALLET, 10_000)])})
+        record = observe(rpc, CHARLIE, registry, now=1.0)
+        check = {c.name: c for c in record.checks}["SOL_BURN_UNSPENDABLE"]
         self.assertEqual(check.status, invariants.FAIL)
-        self.assertIn(BURN_VANITY, check.actual)
+        self.assertIn(WALLET, check.actual)
         self.assertNotIn(invariants.SOL_BURN_TOTAL, record.verdict.publishable)
 
     def test_off_curve_sol_burn_destination_passes(self):
