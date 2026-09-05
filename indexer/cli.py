@@ -690,10 +690,9 @@ def _buyback(args) -> int:
             )
             print(json.dumps(summary, sort_keys=True))
             return 0 if summary["cranks"] else 1
-        state = buyback.observe(rpc, args.mint, wallet)
-        plan = buyback.plan_buy_and_burn(
-            state, lot_lamports=lot, slippage_bps=args.slippage_bps,
-            also_burn=int(round(args.also_burn * 10 ** state.decimals)), priority_micro_lamports=args.priority_fee,
+        plan = buyback.plan_for(
+            rpc, args.mint, wallet, lot_lamports=lot, slippage_bps=args.slippage_bps,
+            also_burn_ui=args.also_burn, priority_micro_lamports=args.priority_fee,
         )
         if not args.json:
             print(buyback.render(plan))

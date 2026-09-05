@@ -19,6 +19,11 @@ named as not done. Spelling is American throughout: enroll, enrollment.
   is the `PROTOCOL_SHARE` check on every coin record (10 checks now). Every
   coin page carries an enrollment section (`site._enrollment`), the index an
   enrolled / not-enrolled marker, the landing page the explanation.
+- **The BURN leg runs on both venues.** `indexer/buyback.py` buys on the
+  PumpSwap pool after graduation; `indexer/curvebuy.py` buys with pump's
+  own `buy` on the bonding curve before it, from the deployed IDL, and
+  `buyback.plan_for` picks the venue by whether the canonical pool exists.
+  The site's `buyback` workflow simulates the curve path on a live coin.
 - **The crank** `indexer/distribute.py` pays every enrolled coin's
   shareholders from its vault with pump's permissionless
   `distribute_creator_fees`, preceded for a graduated coin by the AMM
