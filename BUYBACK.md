@@ -56,13 +56,16 @@ loop the landing page describes, with a wallet standing in for the program.
 
 A coin spends most of its life -- all of it, for the 97% that never
 graduate -- on pump's bonding curve, where there is no PumpSwap pool to buy
-from. `indexer/curvebuy.py` runs the same leg there with pump's own `buy`:
-exact tokens out for at most the lot in native SOL, no wrapping, then the
-SPL burn in the same transaction. Its sixteen accounts, its args and the
-curve's arithmetic (`amount * virtual_sol / (virtual_token - amount) + 1`,
-then the protocol and creator fees rounded up) come from the deployed
-program's on-chain IDL, read by the deploy repository's `idl` workflow, and
-its `buyback` workflow simulates the transaction against a live curve on
+from. `indexer/curvebuy.py` runs the same leg there with pump's `buy_v2`:
+the lot wrapped into wSOL, exact tokens out for at most the lot, then the
+SPL burn and the unwrap in the same transaction. (The legacy `buy` answered
+6062 BuybackFeeRecipientMissing on mainnet: pump now routes part of its
+protocol fee to a buyback recipient, and only `buy_v2` names one.) Its 27
+accounts, its args and the curve's arithmetic (`amount * virtual_sol /
+(virtual_token - amount) + 1`, then the protocol and creator fees rounded
+up) come from the deployed program's on-chain IDL, resolved by the deploy
+repository's `probe_curve_buy` and accepted by mainnet; its `buyback`
+workflow simulates the keeper's own transaction against a live curve on
 every change. `python -m indexer buyback <mint>` picks the venue itself:
 the curve while the coin is on it, the pool once it has graduated, and the
 keeper switches over mid-run when graduation happens. A wallet that has
