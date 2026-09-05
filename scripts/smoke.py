@@ -109,8 +109,16 @@ def enroll_check(base: str) -> tuple[int, str]:
     if status != 200 or not seen.get("owns"):
         return 0, f"ownership check did not confirm the admin: {body[:160]}"
 
+    # Every enrolled split carries the protocol's share, at the rate and to
+    # the address the server names. Read from the response rather than
+    # pinned here, so a deploy with the address unset fails THIS check with
+    # the server's own words instead of a stale constant.
+    toll = seen.get("toll") or {}
+    if not toll.get("address"):
+        return 0, "enrolment is not open: the server names no toll address"
+    rest = 10_000 - int(toll["bps"]) - 2000
     build = (f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
-             f"&shares={BURN_ADDRESS}:2000,{ENROLL_ADMIN}:8000")
+             f"&shares={toll['address']}:{toll['bps']},{BURN_ADDRESS}:2000,{ENROLL_ADMIN}:{rest}")
     status, body = fetch(build)
     try:
         built = json.loads(body)
@@ -125,6 +133,13 @@ def enroll_check(base: str) -> tuple[int, str]:
                          f"&authority={BURN_ADDRESS}&shares={BURN_ADDRESS}:10000")
     if status == 200:
         return 0, "a wallet that is not the admin was NOT refused"
+
+    # And a split WITHOUT the protocol's share must be refused, or the toll
+    # is a suggestion rather than the price of enrolling.
+    status, body = fetch(f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
+                         f"&shares={BURN_ADDRESS}:2000,{ENROLL_ADMIN}:8000")
+    if status == 200:
+        return 0, "a split without the protocol's share was NOT refused"
     return 200, "ok"
 
 
