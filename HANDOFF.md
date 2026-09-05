@@ -23,10 +23,11 @@ named as not done. Spelling is American throughout: enroll, enrollment.
   shareholders from its vault with pump's permissionless
   `distribute_creator_fees`, preceded for a graduated coin by the AMM
   transfer that moves its wSOL into that vault. `python -m indexer distribute --all-enrolled`
-  runs hourly from the site repo's `distribute.yml`. Without a key it
-  builds and simulates only, standing pump's own fee wallet in as the payer
-  (`STAND_IN_PAYER`), because a simulation needs a payer that exists and the
-  collection wallet holds no SOL.
+  runs hourly from the site repo's `distribute.yml`, signing with the
+  fee-payer secret. Without a key it builds and simulates only, standing
+  pump's own fee wallet in as the payer (`STAND_IN_PAYER`), because a
+  simulation needs a payer that exists and the collection wallet holds no
+  SOL.
 - **Proven against mainnet** by the site repo's `enroll.yml`: the exact
   transaction the page builds simulates OK with the real toll wallet and
   leaves exactly the requested split; the crank's payout simulates OK on
@@ -35,11 +36,14 @@ named as not done. Spelling is American throughout: enroll, enrollment.
 
 ## Open items, in order
 
-1. **Add the repository secret `CHARLIE_CRANK_KEYPAIR`** in
-   charlie-protocol-site: the JSON key array of a separate low-value wallet
-   holding about 0.05 SOL for network fees, nothing else. Until it exists
-   the hourly crank simulates and sends nothing. Never generate this key in
-   a session; the owner makes it.
+1. **The crank is armed.** The `CHARLIE_CRANK_KEYPAIR` secret is set in
+   charlie-protocol-site; every hourly run loads it, prints the fee payer
+   (DqP9Wb6ppiYWTxDiJMMzo3HDM6eT4GEwP1S3Ak1htmwj), pays every enrolled
+   coin, and deletes the key from the runner. That wallet pays fees only,
+   about 5,000 lamports per enrolled coin per hour; it held 0.018 SOL when
+   armed. When it runs dry the crank refuses with the reason. Never
+   generate or commit a key in a session; the owner rotates it by
+   replacing the secret.
 2. **Graduated coins are paid, with one case left.** The crank prepends
    `pump_amm::transfer_creator_fees_to_pump` for a graduated coin, and a
    coin that graduated before enrolling can enroll (the create passes the
