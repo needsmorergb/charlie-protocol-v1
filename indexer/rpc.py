@@ -24,7 +24,20 @@ from dataclasses import dataclass
 
 USER_AGENT = "charlie-protocol-indexer/0.1"
 
-DEFAULT_ENDPOINTS = (
+# The gateway every chain read goes through. crowd-api picks a provider per
+# request and holds the keys, so nothing here ever hits a public node on its
+# own: this is what the CLI, the Vercel functions and the workflows use
+# whenever CHARLIE_RPC_URLS is unset. It used to be three public nodes, which
+# meant the deployed /verify and /enroll quietly read the chain through
+# whichever of them answered while every workflow read through the gateway.
+GATEWAY = "https://crowd-api-gateway.vercel.app/"
+DEFAULT_ENDPOINTS = (GATEWAY,)
+
+# The public nodes, as an explicit opt-in (`--rpc`) for a machine that
+# cannot reach the gateway. Never a silent fallback: a read that failed on
+# the gateway and succeeded on a public node would publish a state the
+# gateway's rate limit was supposed to protect.
+PUBLIC_ENDPOINTS = (
     "https://solana-rpc.publicnode.com",
     "https://api.mainnet-beta.solana.com",
     "https://solana.drpc.org",

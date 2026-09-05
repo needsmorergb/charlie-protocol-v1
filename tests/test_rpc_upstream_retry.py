@@ -60,5 +60,28 @@ class TestUpstreamFailureIsRetried(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, RpcError)
 
 
+class TestTheDefaultEndpoint(unittest.TestCase):
+    """Every read goes through the gateway unless told otherwise.
+
+    The workflows always set CHARLIE_RPC_URLS to it; the deployed functions
+    and the CLI did not, and read public nodes instead. One default, and it
+    is the gateway, with the public nodes an explicit opt-in.
+    """
+
+    def test_the_default_is_the_gateway_alone(self):
+        from indexer import rpc
+
+        self.assertEqual(rpc.DEFAULT_ENDPOINTS, (rpc.GATEWAY,))
+        self.assertEqual(rpc.GATEWAY, "https://crowd-api-gateway.vercel.app/")
+        self.assertEqual(RpcClient().endpoint_urls, (rpc.GATEWAY,))
+
+    def test_public_nodes_are_not_in_the_default(self):
+        from indexer import rpc
+
+        for url in rpc.PUBLIC_ENDPOINTS:
+            self.assertNotIn(url, rpc.DEFAULT_ENDPOINTS)
+        self.assertTrue(all(u.startswith("https://") for u in rpc.PUBLIC_ENDPOINTS))
+
+
 if __name__ == "__main__":
     unittest.main()
