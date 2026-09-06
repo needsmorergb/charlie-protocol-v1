@@ -101,18 +101,22 @@ The program exists for three things:
 ## 3. Constants
 
 ```
-TOLL_BPS = 500                  5% of the creator fee
+TOLL_BPS = 2500                 25% of the creator fee
+                                advertised as 0.24% of every trade
 ```
 
-Five percent of the creator fee, which is not one number. Both schedules were
-read from pump's own `FeeConfig` accounts on 2026-09-04, and they are shaped
-very differently:
+A quarter of the creator fee, which is not one number. What the protocol
+advertises is a share of the TRADE, because that is how every comparable
+protocol quotes its rate and a share of a fee nobody outside this repository
+has heard of reads as smaller than it is. Both schedules were read from
+pump's own `FeeConfig` accounts on 2026-09-04, and they are shaped very
+differently:
 
 **On the bonding curve** — `8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt`, a
 single tier at every market cap:
 
 ```
-creator 30 bps        0.30% of volume        toll 0.015% of volume
+creator 30 bps        0.30% of volume        toll 0.075% of volume
 ```
 
 **After graduation** — `5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx`, 25
@@ -120,13 +124,22 @@ tiers, and the creator fee FALLS as market cap rises:
 
 | market cap | creator fee | toll, as a share of volume |
 |---|---|---|
-| >= 420 SOL | 95 bps | 0.0475% |
-| >= 4,420 SOL | 75 bps | 0.0375% |
-| >= 19,650 SOL | 60 bps | 0.0300% |
-| >= 49,120 SOL | 30 bps | 0.0150% |
-| >= 68,770 SOL | 20 bps | 0.0100% |
-| >= 88,400 SOL | 10 bps | 0.0050% |
-| >= 98,240 SOL | 5 bps | 0.0025% |
+| >= 420 SOL | 95 bps | **0.2375%** |
+| >= 4,420 SOL | 75 bps | 0.1875% |
+| >= 19,650 SOL | 60 bps | 0.1500% |
+| >= 49,120 SOL | 30 bps | 0.0750% |
+| >= 68,770 SOL | 20 bps | 0.0500% |
+| >= 88,400 SOL | 10 bps | 0.0250% |
+| >= 98,240 SOL | 5 bps | 0.0125% |
+
+**The advertised number is the first row, rounded: 0.24% of every trade.**
+That is the tier a coin lands on the moment it graduates, which is where a
+coin that has just enrolled actually trades, and it is the largest of the
+seven. Quoting it is honest only alongside the fee it is a share of, so
+every surface that shows `0.24%` also shows the 25% and pump's schedule --
+`indexer/legs.py::share_of_volume_percent` derives the figure from
+`TOLL_BPS` so the two cannot drift, and `tests/test_landing_copy.py` fails
+if the trade figure ever appears on the landing page without them.
 
 The famous 0.05% floor is real but it is the LARGE-cap rate, and a coin only
 reaches it above roughly 98,240 SOL of market cap. Everything below that pays
@@ -136,17 +149,34 @@ At $1,000,000 of daily volume:
 
 | where the coin is | creator fee/day | toll/day |
 |---|---|---|
-| on the curve, any size | $3,000 | **$150** |
-| graduated, ~420 to 1,470 SOL mcap | $9,500 | $475 |
-| graduated, ~49,120 SOL mcap | $3,000 | $150 |
-| graduated, above 98,240 SOL mcap | $500 | $25 |
+| on the curve, any size | $3,000 | **$750** |
+| graduated, ~420 to 1,470 SOL mcap | $9,500 | $2,375 |
+| graduated, ~49,120 SOL mcap | $3,000 | $750 |
+| graduated, above 98,240 SOL mcap | $500 | $125 |
 
-**Why 500 rather than 1000.** The spec briefly said 1000, on an assumption
-that turned out to be wrong: that a coin doing real volume sits at the 5 bps
-rate. It does not, because the rate tracks market cap and not volume, so the
-typical coin pays 30 to 95 bps and the base is six to nineteen times what was
-assumed. 500 now clears the bar that argument set for 1000, and the dev keeps
-95%.
+**Why 2500, having shipped at 500.** The rate started at 1000, on an
+assumption that turned out to be wrong: that a coin doing real volume sits at
+the 5 bps rate. It does not, because the rate tracks market cap and not
+volume, so the typical coin pays 30 to 95 bps. 500 was set against that
+correction, and it was set against nothing else -- no comparable was in view.
+
+The comparable is snowball, which took 0.5% of every trade across its coins
+and spent it buying and burning its own token. At 500 bps this protocol's
+equivalent was 0.0475% of a trade at the graduation tier: about a tenth of
+what a coin joining snowball was contributing to the same mechanism, funding
+a $CHARLIE buy-and-burn a tenth the size. The choice was to fund the leg
+comparably or to run a mechanism that could not compete for attention with
+the one it is modelled on. 2500 bps puts it at 0.2375%, roughly half of
+snowball's, and the dev still keeps three quarters of the fee.
+
+**The rate is forward-only.** pump makes a split permanent: once the config's
+one change is spent no key can alter it, the coin's own admin included. So a
+coin that enrolled at 500 cannot pay 2500 however much it wants to, and
+holding it to a rate that did not exist when it signed would un-enrol it for
+something it had no way to do differently. `legs.ENROLLED_AT` records what
+each coin enrolled at, `legs.required_bps(mint)` holds each coin to its own
+rate, and `legs.lowest_required_bps()` is how wide the on-chain scan has to
+cast to still find them.
 
 **Why not lower.** The toll's job includes paying for its own movement. The
 crank refuses to run until `L * TOLL_BPS / 10000` exceeds a multiple of the
@@ -154,7 +184,8 @@ reimbursement, so the rate does not decide whether the mechanism works, it
 decides how long a quiet coin waits before a distribution is worth making. At
 50 bps that wait becomes indefinite for the whole long tail: a distribution at
 pump's reserve yields about 4,000 lamports of toll against two transactions of
-gas. At 500 it is roughly 40,000 lamports, which moves.
+gas. At 500 it is roughly 40,000 lamports, which moves; at 2500, roughly
+200,000, which moves on a quieter coin.
 
 **The schedule is pump's to change.** Both `FeeConfig` accounts name
 `FFWtrEQ4B4PKQoVuHYzZq8FabGkVatYzDpEVHsK5rrhF` as admin, which is pump's own

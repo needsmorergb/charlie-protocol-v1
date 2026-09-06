@@ -190,8 +190,66 @@ PROGRAM_ID: str | None = None
 # What is spent on is buying $CHARLIE and burning it, which is a claim about
 # what happens AFTER the chain stops being evidence, and is made nowhere on a
 # coin's page.
-TOLL_BPS = 500
+TOLL_BPS = 2500
 TOLL_DESTINATION: str | None = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
+
+# Coins that enrolled before the rate changed, and the rate they enrolled at.
+#
+# pump makes a split PERMANENT: once the config's one change is spent, no key
+# can alter it, including the coin's own admin. So a coin that enrolled at the
+# old rate cannot pay the new one however much it wants to. Holding it to a
+# rate that did not exist when it signed would un-enrol it for something it
+# had no way to do differently, and the crank would stop paying a coin that
+# has kept its side of the bargain. The rate is forward-only; this is the
+# record of what came before.
+ENROLLED_AT: dict[str, int] = {
+    # The first real enrollment, 6 September 2026, at 500 bps.
+    "7mr9vEN4XEUDCjaDzZnVLAAE2VV5FmzBBti7t2Kpump": 500,
+}
+
+
+# The rate quoted the way the rest of the space quotes it: as a share of the
+# TRADE, not of the creator fee. Nobody outside this repository knows what a
+# creator fee is, and every comparable protocol advertises a percentage of
+# volume, so a share of the fee reads as smaller than it is against a number
+# that is not the same number.
+#
+# It is a range, not a figure, because pump's creator fee is a range: a flat
+# 30 bps while the coin is on its bonding curve, then 95 bps at graduation
+# falling to 5 bps as market cap climbs (BUILD.md section 3 has both
+# schedules, read off pump's own FeeConfig accounts). The headline uses the
+# tier a coin lands on the moment it graduates, which is where a coin that
+# just enrolled actually trades. Anywhere the headline is shown, the venue
+# and the tier are shown with it.
+PUMP_CREATOR_FEE_BPS_AT_GRADUATION = 95
+PUMP_CREATOR_FEE_BPS_ON_CURVE = 30
+
+
+def share_of_volume_percent(creator_fee_bps: int = PUMP_CREATOR_FEE_BPS_AT_GRADUATION,
+                            rate_bps: int | None = None) -> float:
+    """The toll as a percentage of trade volume at a given creator-fee tier."""
+    rate = TOLL_BPS if rate_bps is None else rate_bps
+    return creator_fee_bps * rate / 10_000 / 100
+
+
+def headline_percent(digits: int = 2) -> str:
+    """The advertised number: the toll as a share of a trade, at graduation."""
+    return f"{share_of_volume_percent():.{digits}f}"
+
+
+def required_bps(mint: str | None = None) -> int:
+    """What THIS coin must pay the collection wallet to count as enrolled:
+    the rate it enrolled at if it enrolled before the change, else today's."""
+    if mint is not None and mint in ENROLLED_AT:
+        return ENROLLED_AT[mint]
+    return TOLL_BPS
+
+
+def lowest_required_bps() -> int:
+    """The smallest rate any enrolled coin may carry. A scan looking for
+    enrolled coins has to cast this wide and then check each coin against
+    its own rate, or it would miss the grandfathered ones."""
+    return min([TOLL_BPS, *ENROLLED_AT.values()])
 
 
 @dataclass(frozen=True)

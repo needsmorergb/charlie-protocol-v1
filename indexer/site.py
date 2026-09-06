@@ -60,6 +60,16 @@ def _artifact_name(mint: str, suffix: str) -> str:
 # `TestNoFeeSplitPage.test_marker_matches_the_message_pump_actually_raises`
 # fails the moment the two drift.
 NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
+
+# What a coin pays the protocol to be enrolled, in the two ways it can be
+# said. TOLL_BPS is the share of the coin's creator fee, which is the part
+# that is fixed; TOLL_HEADLINE_PERCENT is that same share expressed against
+# the trade, which is how every comparable protocol quotes its rate and so
+# how a reader will read ours. Duplicated from `legs` rather than imported,
+# for the reason above, and pinned to it by
+# `TestTheEnrolmentRate.test_the_rate_on_the_page_is_the_rate_in_legs`.
+TOLL_BPS = 2500
+TOLL_HEADLINE_PERCENT = "0.24"
 # `observe` sets this `error_kind` when the bonding curve's creator is not a
 # fee-sharing config. A structured field beats matching an error message, and
 # the string marker above is kept only so a record written before this field
@@ -2864,13 +2874,20 @@ _LANDING_SOON = (
     "the program rather than chosen by whoever deploys it. The coin then gets "
     "a page like this one, on which no figure renders unless a passing check "
     "backs it.",
-    "Enrollment is open at /enroll. A coin is enrolled when its pump "
-    "fee-sharing config pays the protocol's collection wallet 5% of the "
-    "creator fee. pump enforces that config, paying every destination from "
-    "the coin's creator vault, and once the coin's one change is spent no key "
-    "can alter it. The other 95% goes wherever the coin's creator sends it. "
-    "Every coin page and the index say whether a coin is enrolled, read from "
-    "its config on the chain.",
+    f"Enrollment is open at /enroll. The protocol's share is "
+    f"{TOLL_HEADLINE_PERCENT}% of every trade -- pump pays the coin's creator a fee "
+    f"out of each one, and the protocol takes {TOLL_BPS // 100}% of that fee. A coin "
+    "is enrolled when its pump fee-sharing config pays the protocol's "
+    "collection wallet that share. pump enforces the config, paying every "
+    "destination from the coin's creator vault, and once the coin's one "
+    f"change is spent no key can alter it. The other {100 - TOLL_BPS // 100}% goes "
+    "wherever the coin's creator sends it. Every coin page and the index say "
+    "whether a coin is enrolled, read from its config on the chain.",
+    "The trade figure moves with pump, not with us: the quarter is fixed, "
+    "and pump's creator fee is 95 bps of the trade at the tier a coin lands "
+    "on when it graduates, 30 bps while it is still on its bonding curve, "
+    "and as little as 5 bps above roughly 98,240 SOL of market cap. The "
+    "quoted rate is the graduation tier.",
     "What does not exist yet is our program: the vaults it would derive and "
     "the buy-and-burn crank. Until it does, the protocol's share is collected "
     "from pump by hand and spent buying $CHARLIE and burning it, and the "

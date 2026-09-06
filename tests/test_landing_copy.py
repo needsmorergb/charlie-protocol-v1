@@ -29,9 +29,20 @@ class TestLandingCopyMatchesReality(unittest.TestCase):
         # Enrollment is open, and enrolled means one thing: the coin's pump
         # config pays the protocol's wallet its share, which pump enforces.
         self.assertIn("Enrollment is open at /enroll", self.rendered)
-        self.assertIn("5% of the creator fee", self.rendered)
-        self.assertIn("pump enforces that config", self.rendered)
+        self.assertIn(f"{site.TOLL_BPS // 100}% of that fee", self.rendered)
+        self.assertIn("pump enforces the config", self.rendered)
         self.assertIn("read from its config on the chain", self.rendered)
+
+    def test_the_advertised_trade_figure_never_appears_without_its_fee(self):
+        """The rate is quoted as a share of the trade because that is how the
+        space quotes one, and that figure is only true against a creator fee
+        pump sets and changes. Quoting it bare would be the one misleading
+        way to say it, so the fee it is a share of is on the page with it."""
+        self.assertIn(f"{site.TOLL_HEADLINE_PERCENT}% of every trade", self.rendered)
+        self.assertIn("pump pays the coin&#x27;s creator a fee out of each one",
+                      self.rendered)
+        self.assertIn("bps of the trade at the tier a coin lands on when it graduates",
+                      self.rendered)
 
     def test_it_does_not_claim_the_spending_is_on_chain(self):
         # The share is collected from pump and spent buying and burning

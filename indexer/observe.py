@@ -277,7 +277,7 @@ def observe(
     record.checks = (
         invariants.config_mint(mint, config),
         invariants.split_sum(split),
-        invariants.protocol_share(split),
+        invariants.protocol_share(split, mint),
         invariants.sol_burn_unspendable(split),
         sol_burn_check,
         burn_check,

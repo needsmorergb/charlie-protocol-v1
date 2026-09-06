@@ -11,11 +11,16 @@ named as not done. Spelling is American throughout: enroll, enrollment.
   signature creates the pump fee-sharing config and sets the split. The
   server (`api/enroll.py` → `indexer/enroll.py`) refuses any split that does
   not pay the protocol's collection wallet at least 5%.
-- **The 5% is set.** `indexer/legs.py`: `TOLL_DESTINATION =
-  8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8`, `TOLL_BPS = 500`. pump
-  enforces the split on chain; after the one-shot update it is permanent.
+- **The rate is set.** `indexer/legs.py`: `TOLL_DESTINATION =
+  8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8`, `TOLL_BPS = 2500` --
+  25% of the creator fee, advertised as 0.24% of every trade (that is the
+  same rate seen against pump's 95 bps creator fee at the graduation
+  tier; `legs.headline_percent()` derives it). pump enforces the split on
+  chain; after the one-shot update it is permanent, so the rate is
+  forward-only and `legs.ENROLLED_AT` grandfathers the coins that
+  enrolled at 500.
 - **Enrolled has one meaning**: the coin's on-chain split pays
-  `TOLL_DESTINATION` ≥ `TOLL_BPS`. `indexer/invariants.py::protocol_share`
+  `TOLL_DESTINATION` ≥ `legs.required_bps(mint)`. `indexer/invariants.py::protocol_share`
   is the `PROTOCOL_SHARE` check on every coin record (10 checks now). Every
   coin page carries an enrollment section (`site._enrollment`), the index an
   enrolled / not-enrolled marker, the landing page the explanation.
