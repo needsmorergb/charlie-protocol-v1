@@ -24,6 +24,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from indexer import legs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -64,7 +67,7 @@ class _Curve:
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 REAL_TOLL = api_enroll.enroll.legs.TOLL_DESTINATION
 # A split that carries the protocol's share, as every enrolled one must.
-SPLIT = f"{TOLL}:500,{BURN}:2000,{ADMIN}:7500"
+SPLIT = f"{TOLL}:2500,{BURN}:2000,{ADMIN}:5500"
 
 
 def setUpModule():
@@ -275,7 +278,7 @@ class TestEnrollingACoinWithNoConfig(ApiCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["can_create"])
         self.assertEqual(body["creator"], ADMIN)
-        self.assertEqual(body["toll"], {"address": TOLL, "bps": 500})
+        self.assertEqual(body["toll"], {"address": TOLL, "bps": legs.TOLL_BPS})
 
     def test_inspection_tells_anyone_else_they_may_not(self):
         curve, config = self._no_config()
