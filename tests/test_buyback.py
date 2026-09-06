@@ -537,5 +537,34 @@ class TestExplain(unittest.TestCase):
         self.assertIn("Nothing was sent", buyback.explain({"logs": [], "err": {"weird": 1}}))
 
 
+class TestSweepingAWalletThatFillsItself(unittest.TestCase):
+    """The protocol's collection wallet takes 5% of every enrolled coin's
+    creator fee. It arrives as dust and adds up, so a fixed lot refuses for
+    weeks while the balance grows. Sweeping burns what has arrived."""
+
+    def test_the_lot_is_the_balance_less_the_headroom(self):
+        balance = 3 * buyback.LAMPORTS_PER_SOL
+        self.assertEqual(buyback.sweep_lot(balance), balance - buyback.RESERVE_LAMPORTS)
+
+    def test_a_priority_fee_comes_out_of_the_lot_too(self):
+        balance = 3 * buyback.LAMPORTS_PER_SOL
+        plain = buyback.sweep_lot(balance)
+        with_fee = buyback.sweep_lot(balance, priority_micro_lamports=1000)
+        self.assertLess(with_fee, plain)
+
+    def test_a_wallet_below_the_headroom_sweeps_to_zero_not_a_negative_lot(self):
+        self.assertEqual(buyback.sweep_lot(0), 0)
+        self.assertEqual(buyback.sweep_lot(buyback.RESERVE_LAMPORTS - 1), 0)
+
+    def test_a_swept_lot_the_wallet_can_afford_is_accepted_by_the_planner(self):
+        """The headroom sweep_lot keeps is exactly the headroom the planner
+        demands, so a swept lot is never refused for being too large."""
+        balance = 3 * buyback.LAMPORTS_PER_SOL
+        lot = buyback.sweep_lot(balance)
+        state = buyback.observe(FakeRpc(chain(user_lamports=balance)), MINT, USER)
+        plan = buyback.plan_buy_and_burn(state, lot_lamports=lot, choose=lambda seq: seq[0])
+        self.assertEqual(plan.lot_lamports, lot)
+
+
 if __name__ == "__main__":
     unittest.main()
