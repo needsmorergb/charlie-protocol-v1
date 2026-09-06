@@ -32,17 +32,33 @@ What IS expressible is a share of the creator fee:
 | 50 | 0.5% | 0.00025% - 0.00475% |
 | 500 | 5% | 0.0025% - 0.0475% |
 | 1000 | 10% | 0.005% - 0.095% |
+| 2500 | 25% | 0.0125% - 0.2375% |
 
-**This is a decision, not a detail.** A competitor advertising "0.5% of every
-trade" is either describing a share of the fee in loose language, or describing
-something their own bot does with its trading, not something pump enforces.
-The protocol states its cut in the unit pump actually uses, and says so.
+**Decided: `TOLL_BPS` is 2500**, a quarter of the creator fee. 500 was set
+against the fee schedule alone and against no comparable; snowball took 0.5%
+of every trade for the same mechanism, which at 500 bps this protocol was
+matching at about a tenth. See `BUILD.md` section 3 for the full argument and
+for why the rate is forward-only.
 
-**Decided: `TOLL_BPS` is 500**, five percent of the creator fee. The earlier
-1000 rested on believing a high-volume coin pays 5 bps; the schedule read from
-the chain says that rate tracks market cap, not volume, so the typical coin
-pays 30 to 95 bps and the base is several times larger than assumed. See
-`BUILD.md` section 3.
+**How it is advertised, and why that is not the same question.** Everything
+above is a share of the creator fee, which is the only unit pump's config can
+express and the only unit anything here enforces. It is also a unit no reader
+outside this repository has, and a rate stated in it is compared against
+rates stated as a share of the trade -- so "25% of the creator fee" reads as
+larger than "0.5% of every trade" while being less than half of it.
+
+**Decided: the public number is 0.24% of every trade**, the right-hand column
+at the 95 bps tier, which is the tier a coin lands on when it graduates. The
+condition on quoting it is that it is never quoted alone: every surface that
+shows it also shows the 25%, the creator fee it is a quarter of, and that
+pump's schedule -- not this protocol -- is what moves it. That is what
+separates the claim from the loose version of it: the same table above is on
+the page, so a reader can see the number get smaller as a coin grows.
+
+`indexer/legs.py::share_of_volume_percent` derives the figure from `TOLL_BPS`
+rather than storing it, `site.TOLL_HEADLINE_PERCENT` is pinned to it by a
+test, and `tests/test_landing_copy.py` fails if the trade figure ever appears
+without the fee it is a share of.
 
 ---
 
@@ -253,7 +269,8 @@ Simpler, not harder.
 
 ## 9. Open questions this design does not settle
 
-1. ~~`TOLL_BPS`.~~ **Decided: 500.** Section 1, and `BUILD.md` section 3.
+1. ~~`TOLL_BPS`.~~ **Decided: 2500**, advertised as 0.24% of every trade.
+   Section 1, and `BUILD.md` section 3.
 2. ~~Is pump's split update really one-shot?~~ **Settled, on chain.** The
    fee-share program's own IDL carries both instructions,
    `update_fee_shares` (`bd0d8863bba4ed23`) and `update_fee_shares_v2`

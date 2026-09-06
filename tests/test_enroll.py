@@ -46,7 +46,7 @@ class _Config:
 
 def _split():
     return [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(BURN, 2000),
-            enroll.Share(ADMIN, 7500)]
+            enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS - 2000)]
 
 
 def setUpModule():
@@ -274,10 +274,11 @@ class TestTheToll(unittest.TestCase):
         self.assertIn(TOLL, str(caught.exception))
 
     def test_the_toll_at_the_wrong_rate_is_refused(self):
-        wrong = [enroll.Share(TOLL, 1000), enroll.Share(ADMIN, 9000)]
+        half = enroll.TOLL_BPS // 2
+        wrong = [enroll.Share(TOLL, half), enroll.Share(ADMIN, 10_000 - half)]
         with self.assertRaises(enroll.EnrollError) as caught:
             enroll.preflight(_Config(), ADMIN, wrong, curve=_Curve())
-        self.assertIn("fixed at 5%", str(caught.exception))
+        self.assertIn(f"fixed at {enroll.TOLL_BPS // 100}%", str(caught.exception))
 
     def test_the_toll_at_its_rate_passes(self):
         enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve())
@@ -302,8 +303,18 @@ class TestTheToll(unittest.TestCase):
         finally:
             enroll.legs.TOLL_DESTINATION = TOLL
 
-    def test_the_rate_is_five_percent(self):
-        self.assertEqual(enroll.TOLL_BPS, 500)
+    def test_the_rate_is_twenty_five_percent(self):
+        self.assertEqual(enroll.TOLL_BPS, 2500)
+
+    def test_a_coin_enrolled_at_the_old_rate_is_still_enrolled(self):
+        """pump makes a split permanent, so a coin that enrolled at 500 bps
+        cannot pay 2500 however much it wants to. The rate is forward-only:
+        holding it to a rate that did not exist when it signed would
+        un-enrol it for something it had no way to do differently."""
+        legacy = "7mr9vEN4XEUDCjaDzZnVLAAE2VV5FmzBBti7t2Kpump"
+        self.assertEqual(enroll.legs.required_bps(legacy), 500)
+        self.assertEqual(enroll.legs.required_bps("some-other-coin"), 2500)
+        self.assertEqual(enroll.legs.lowest_required_bps(), 500)
 
 
 class TestCreatingTheConfig(unittest.TestCase):

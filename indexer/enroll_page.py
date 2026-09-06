@@ -23,7 +23,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from . import site
+from . import legs, site
 
 ENROLL_FILENAME = "enroll.html"
 
@@ -328,6 +328,14 @@ def render(*, now=None) -> str:
     """
     stamp = site._stamp(now() if callable(now) else (now if now is not None else time.time()))
     esc = site.esc
+    # The advertised rate is a share of the trade, because that is how the
+    # rest of the space quotes one; the share of the creator fee is what is
+    # actually fixed, and both are on the page so neither can mislead.
+    rate = legs.TOLL_BPS // 100
+    headline = legs.headline_percent()
+    amm_bps = legs.PUMP_CREATOR_FEE_BPS_AT_GRADUATION
+    curve_bps = legs.PUMP_CREATOR_FEE_BPS_ON_CURVE
+    on_curve = f"{legs.share_of_volume_percent(curve_bps):g}"
     body = (
         "<header>"
         "<h1>Enroll your coin</h1>"
@@ -359,15 +367,23 @@ def render(*, now=None) -> str:
         "</section>"
         '<section id="splitBox" hidden>'
         "<h2>3. Set the split</h2>"
-        "<p>The first row is the protocol&#x27;s share, fixed at 5% of the "
-        "creator fee: it is the price of enrolling, and it funds buying and "
-        "burning $CHARLIE. Every other row is yours to set. The second row is "
+        f"<p>The first row is the protocol&#x27;s share: <strong>{headline}% of "
+        f"every trade</strong>, fixed. It is the price of enrolling, and it funds "
+        "buying and burning $CHARLIE. Every other row is yours to set. The second row is "
         "the buy-back-and-burn row: a wallet you hold that runs the keeper "
         "against this coin, so the SOL that lands there buys your coin and "
         "burns it. Paste that wallet and give it a share, or leave the row "
         "blank and it is not sent. The defaults send 20% to Solana&#x27;s "
         "incinerator and the rest to your wallet. Each row says what it does; "
         "the section below says how to run the keeper.</p>"
+        f"<p class=\"note\">Where that number comes from: pump pays the coin&#x27;s "
+        f"creator a fee out of every trade, and the protocol takes {rate}% of it. "
+        f"The {rate}% is what is fixed. The creator fee itself is a rate pump sets: "
+        f"{amm_bps} bps of the trade on the pump AMM at the tier a coin lands on when "
+        f"it graduates, which is {headline}% to the protocol, and {curve_bps} bps while "
+        f"the coin is still on its bonding curve, which is {on_curve}%. Above roughly "
+        "98,240 SOL of market cap pump&#x27;s creator fee falls to 5 bps and the "
+        "protocol&#x27;s share falls with it.</p>"
         '<div class="warn"><strong>pump lets a coin&#x27;s split be changed '
         "once.</strong> After this is sent, no key can change it again, "
         "including yours. Check every destination before you sign.</div>"
@@ -406,7 +422,7 @@ def render(*, now=None) -> str:
         "that is what the chain shows. When the program ships it will derive "
         "a burn address per coin, and a share pointed there will be cranked "
         "for you.</p>"
-        "<p>The protocol&#x27;s 5% is collected at the address on the first "
+        f"<p>The protocol&#x27;s {rate}% is collected at the address on the first "
         "row and spent running that same leg on $CHARLIE: buying it and burning "
         "it. No on-chain program "
         "enforces that share yet: this page refuses to build a split without "

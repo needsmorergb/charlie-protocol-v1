@@ -106,7 +106,7 @@ def split_sum(split) -> Check:
     )
 
 
-def protocol_share(split) -> Check:
+def protocol_share(split, mint: str | None = None) -> Check:
     """Is this coin in the protocol: does its on-chain split pay the
     protocol's collection wallet at least the protocol's rate?
 
@@ -121,7 +121,10 @@ def protocol_share(split) -> Check:
     coin that has not enrolled would turn this site into a toll booth for
     information it already has.
     """
-    destination, rate = legs.TOLL_DESTINATION, legs.TOLL_BPS
+    # The coin's own rate: today's, or the one it enrolled at before the
+    # rate changed. pump makes a split permanent, so a grandfathered coin
+    # could not pay a newer rate even if it wanted to.
+    destination, rate = legs.TOLL_DESTINATION, legs.required_bps(mint)
     equation = f"bps(TOLL_DESTINATION) >= {rate}"
     if destination is None:
         return _check("PROTOCOL_SHARE", UNCHECKED, [], equation,

@@ -654,8 +654,8 @@ def sweep_lot(balance_lamports: int, *, priority_micro_lamports: int = 0,
     `plan_buy_and_burn` insists on.
 
     A fixed lot suits a wallet somebody tops up. It does not suit a wallet
-    that FILLS ITSELF: the protocol's collection wallet takes 5% of every
-    enrolled coin's creator fee, which arrives as dust and adds up. A keeper
+    that FILLS ITSELF: the protocol's collection wallet takes its share of
+    every enrolled coin's creator fee, which arrives as dust and adds up. A keeper
     asked for a fixed 0.05 SOL there refuses on a wallet holding 0.049 and
     burns nothing, week after week, while the balance grows. Sweeping turns
     "burn a lot when I have one" into "burn what has arrived", which is what

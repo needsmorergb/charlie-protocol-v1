@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from indexer import invariants
+from indexer import legs as legs_module
 from indexer.base58 import decode, encode, pubkey_bytes
 from indexer.curve import find_program_address, is_on_curve
 from indexer.legs import GRANDFATHERED_SOL_BURN, Registry, split_of
@@ -501,13 +502,26 @@ class TestProtocolShare(unittest.TestCase):
         return split_of(type("Cfg", (), {"mint": CHARLIE, "shareholders": tuple(holders)})(), Registry())
 
     def test_a_split_paying_the_share_passes_and_names_the_wallet(self):
-        check = invariants.protocol_share(self._split([(self.TOLL, 500), (WALLET, 9500)]))
+        rate = legs_module.TOLL_BPS
+        check = invariants.protocol_share(self._split([(self.TOLL, rate), (WALLET, 10000 - rate)]))
         self.assertEqual(check.status, invariants.PASS)
         self.assertIn(self.TOLL, check.detail)
-        self.assertEqual(check.actual, "500")
+        self.assertEqual(check.actual, str(rate))
+
+    def test_a_coin_grandfathered_at_the_old_rate_still_passes(self):
+        """Its split is permanent, so it could not pay a newer rate."""
+        legacy = next(iter(legs_module.ENROLLED_AT))
+        old = legs_module.ENROLLED_AT[legacy]
+        split = split_of(type("Cfg", (), {"mint": legacy,
+                                          "shareholders": ((self.TOLL, old), (WALLET, 10000 - old))})(),
+                         Registry())
+        self.assertEqual(invariants.protocol_share(split, legacy).status, invariants.PASS)
+        self.assertEqual(invariants.protocol_share(split, "another-coin").status, invariants.FAIL)
 
     def test_more_than_the_rate_still_passes(self):
-        check = invariants.protocol_share(self._split([(self.TOLL, 1500), (WALLET, 8500)]))
+        check = invariants.protocol_share(
+            self._split([(self.TOLL, legs_module.TOLL_BPS + 1000),
+                         (WALLET, 9000 - legs_module.TOLL_BPS)]))
         self.assertEqual(check.status, invariants.PASS)
 
     def test_less_than_the_rate_fails(self):

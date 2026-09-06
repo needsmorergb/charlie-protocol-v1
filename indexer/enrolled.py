@@ -51,7 +51,10 @@ def scan(rpc, *, toll: str | None = None, min_bps: int | None = None, slots: int
     account held before, so a slot at or beyond the count is ignored.
     """
     toll = legs.TOLL_DESTINATION if toll is None else toll
-    min_bps = legs.TOLL_BPS if min_bps is None else min_bps
+    # Cast as wide as the LOWEST rate any enrolled coin may carry, then
+    # hold each coin to its own: a grandfathered coin pays less than
+    # today's rate and is still enrolled.
+    floor = legs.lowest_required_bps() if min_bps is None else min_bps
     if not toll:
         return {}
     paid: dict[str, int] = {}
@@ -75,7 +78,8 @@ def scan(rpc, *, toll: str | None = None, min_bps: int | None = None, slots: int
             mint = encode(data[11:43])
             bps = int.from_bytes(data[offset + 32 : offset + 34], "little")
             paid[mint] = paid.get(mint, 0) + bps
-    return {mint: bps for mint, bps in sorted(paid.items()) if bps >= min_bps}
+    return {mint: bps for mint, bps in sorted(paid.items())
+            if bps >= (legs.required_bps(mint) if min_bps is None else floor)}
 
 
 def mints(rpc, **options) -> list[str]:
