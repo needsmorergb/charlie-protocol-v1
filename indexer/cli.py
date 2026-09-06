@@ -714,6 +714,18 @@ def _buyback(args) -> int:
     rpc = RpcClient(_endpoints(args.rpc))
     wallet, keypair = _keeper_identity(args)
     lot = int(round(args.lot * buyback.LAMPORTS_PER_SOL))
+    if args.sweep:
+        # The wallet decides the lot. Read the balance once, here, so the
+        # number is printed before anything is built and a stand-down says
+        # what the wallet actually holds.
+        balance = rpc.balance(wallet)
+        lot = buyback.sweep_lot(balance, priority_micro_lamports=args.priority_fee)
+        print(f"sweep: {wallet} holds {balance / buyback.LAMPORTS_PER_SOL:.9f} SOL, "
+              f"lot {lot / buyback.LAMPORTS_PER_SOL:.9f} SOL after headroom")
+        if lot < buyback.MIN_LOT_LAMPORTS:
+            print(f"nothing to burn yet: a lot below {buyback.MIN_LOT_LAMPORTS / buyback.LAMPORTS_PER_SOL} SOL "
+                  "is fee noise. Nothing was built and nothing was sent")
+            return 0
     try:
         if args.every is not None:
             if keypair is None or not args.send:
@@ -971,6 +983,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     buyback_cmd.add_argument("mint")
     buyback_cmd.add_argument("--lot", type=float, default=0.05, help="SOL per crank, the maximum spend (default 0.05, ARCHITECTURE.md sec.2)")
+    buyback_cmd.add_argument("--sweep", action="store_true",
+                             help="ignore --lot and spend what the wallet holds, less fee and rent headroom; "
+                                  "below the minimum lot it stands down cleanly rather than failing")
     buyback_cmd.add_argument("--slippage-bps", type=int, default=100, help="how much less than the quote the buy may deliver before it fails whole (default 100)")
     buyback_cmd.add_argument("--also-burn", type=float, default=0.0, help="tokens you already hold to burn in the same transaction, on top of the ones bought")
     buyback_cmd.add_argument("--priority-fee", type=int, default=0, help="priority fee in micro-lamports per compute unit (default 0)")
