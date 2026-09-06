@@ -1284,9 +1284,10 @@ def _enrolled_observation():
         bonding_curve(mint): curve_account(config_addr),
         config_addr: config_account(
             mint,
-            [(site_legs.TOLL_DESTINATION, 500),
+            [(site_legs.TOLL_DESTINATION, site_legs.TOLL_BPS),
              ("1nc1nerator11111111111111111111111111111111", 2000),
-             ("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", 7500)],
+             ("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+              10000 - site_legs.TOLL_BPS - 2000)],
             admin_revoked=True,
         ),
         mint: mint_account(1_000_000_000),
@@ -2076,6 +2077,36 @@ class TestNoCounterfactualReachesACoinPage(unittest.TestCase):
         the measurement with it.
         """
         self.assertIn('id="the-burn"', self._page())
+
+
+class TestTheEnrolmentRate(unittest.TestCase):
+    """The landing page quotes the rate two ways, and `site.py` imports no fee
+    module, so it carries its own copy of both. This is what stops the page
+    from advertising a rate the crank no longer charges."""
+
+    def test_the_rate_on_the_page_is_the_rate_in_legs(self):
+        from indexer import legs
+        self.assertEqual(site.TOLL_BPS, legs.TOLL_BPS)
+        self.assertEqual(site.TOLL_HEADLINE_PERCENT, legs.headline_percent())
+
+    def test_the_headline_is_the_share_of_the_fee_seen_against_the_trade(self):
+        """Both numbers describe one rate. The share of the creator fee is
+        what a config actually pays; the trade figure is that share applied
+        to pump's creator fee at the tier a coin graduates onto."""
+        from indexer import legs
+        self.assertAlmostEqual(
+            float(site.TOLL_HEADLINE_PERCENT),
+            legs.PUMP_CREATOR_FEE_BPS_AT_GRADUATION * site.TOLL_BPS / 10_000 / 100,
+            places=2,
+        )
+
+    def test_the_landing_page_says_both_and_names_the_venue(self):
+        page = site.render_landing(_counters_fixture(), now=1)
+        self.assertIn(f"{site.TOLL_HEADLINE_PERCENT}% of every trade", page)
+        self.assertIn(f"{site.TOLL_BPS // 100}% of that fee", page)
+        # A percentage of a trade is meaningless without the fee it is a
+        # share of; quoting it bare is the thing this rate could mislead by.
+        self.assertIn("bps of the trade", page)
 
 
 if __name__ == "__main__":

@@ -297,10 +297,11 @@ def run(rpc, mints, *, payer: str, keypair=None, min_lamports: int = DEFAULT_MIN
                    shareholders=len(built.shareholders), graduated=built.graduated,
                    amm_lamports=built.amm_lamports, instructions=len(built.instructions),
                    toll_bps=built.toll_bps)
-        if built.toll_bps < legs.TOLL_BPS:
+        required = legs.required_bps(mint)
+        if built.toll_bps < required:
             row.update(outcome="skipped",
                        reason=(f"not enrolled: its split pays the protocol wallet {built.toll_bps} bps, "
-                               f"below {legs.TOLL_BPS}. The crank pays for enrolled coins only"))
+                               f"below {required}. The crank pays for enrolled coins only"))
             rows.append(row)
             continue
         if built.payable_lamports < min_lamports:

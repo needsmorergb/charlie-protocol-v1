@@ -25,6 +25,8 @@ from test_indexer import ADMIN, CHARLIE, FakeRpc, config_account  # noqa: E402
 from test_intake import charlie_accounts  # noqa: E402
 
 TOLL = legs.TOLL_DESTINATION
+RATE = legs.TOLL_BPS          # what a coin enrolling today must pay
+REST = 10_000 - RATE          # what is left for the dev to split
 INCINERATOR = "1nc1nerator11111111111111111111111111111111"
 OTHER = "22Zrdq4ia9nXni9625rc4e7JoMuLqSbv7d817P94pump"
 
@@ -81,27 +83,27 @@ class TestTheQuery(unittest.TestCase):
 
 class TestWhatCounts(unittest.TestCase):
     def test_a_config_paying_the_toll_its_rate_in_the_first_slot_is_enrolled(self):
-        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, 500), (INCINERATOR, 2000), (ADMIN, 7500)])})
-        self.assertEqual(enrolled.scan(rpc), {CHARLIE: 500})
+        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, RATE), (INCINERATOR, 2000), (ADMIN, REST - 2000)])})
+        self.assertEqual(enrolled.scan(rpc), {CHARLIE: RATE})
         self.assertEqual(enrolled.mints(rpc), [CHARLIE])
 
     def test_the_toll_further_down_a_hand_built_split_is_still_found(self):
-        rpc = _Rpc({"cfg": config_account(CHARLIE, [(ADMIN, 7500), (INCINERATOR, 2000), (TOLL, 500)])})
-        self.assertEqual(enrolled.scan(rpc), {CHARLIE: 500})
+        rpc = _Rpc({"cfg": config_account(CHARLIE, [(ADMIN, REST - 2000), (INCINERATOR, 2000), (TOLL, RATE)])})
+        self.assertEqual(enrolled.scan(rpc), {CHARLIE: RATE})
 
     def test_paying_the_toll_below_its_rate_is_not_enrolled(self):
-        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, 499), (ADMIN, 9501)])})
+        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, RATE - 1), (ADMIN, REST + 1)])})
         self.assertEqual(enrolled.scan(rpc), {})
 
     def test_the_toll_split_across_two_slots_is_summed(self):
-        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, 300), (TOLL, 200), (ADMIN, 9500)])})
-        self.assertEqual(enrolled.scan(rpc), {CHARLIE: 500})
+        rpc = _Rpc({"cfg": config_account(CHARLIE, [(TOLL, RATE - 200), (TOLL, 200), (ADMIN, REST)])})
+        self.assertEqual(enrolled.scan(rpc), {CHARLIE: RATE})
 
     def test_bytes_past_the_declared_count_are_not_a_shareholder(self):
         """A memcmp match is a byte comparison. A config that once named the
         toll in its second slot and now declares one shareholder still holds
         those bytes; they are nobody's share."""
-        account = config_account(CHARLIE, [(ADMIN, 10_000), (TOLL, 500)])
+        account = config_account(CHARLIE, [(ADMIN, 10_000), (TOLL, RATE)])
         raw = bytearray(base64.b64decode(account["data"][0]))
         raw[76:80] = (1).to_bytes(4, "little")
         account["data"][0] = base64.b64encode(bytes(raw)).decode()
@@ -109,15 +111,25 @@ class TestWhatCounts(unittest.TestCase):
         self.assertEqual(enrolled.scan(rpc), {})
 
     def test_beyond_the_scanned_slots_is_not_found_by_default(self):
-        holders = [(ADMIN, 100)] * enrolled.DEFAULT_SLOTS + [(TOLL, 500)]
+        holders = [(ADMIN, 100)] * enrolled.DEFAULT_SLOTS + [(TOLL, RATE)]
         rpc = _Rpc({"cfg": config_account(CHARLIE, holders)})
         self.assertEqual(enrolled.scan(rpc), {})
-        self.assertEqual(enrolled.scan(rpc, slots=enrolled.DEFAULT_SLOTS + 1), {CHARLIE: 500})
+        self.assertEqual(enrolled.scan(rpc, slots=enrolled.DEFAULT_SLOTS + 1), {CHARLIE: RATE})
+
+    def test_a_coin_enrolled_at_an_older_rate_is_still_enrolled(self):
+        """A sharing config is admin-revoked after its one update, so a coin
+        that enrolled at the old rate can never be raised to today's. The
+        scan casts as wide as the lowest rate on record and then holds each
+        coin to the rate it enrolled at."""
+        for mint, rate in legs.ENROLLED_AT.items():
+            rpc = _Rpc({"cfg": config_account(mint, [(TOLL, rate), (ADMIN, 10_000 - rate)])})
+            self.assertEqual(enrolled.scan(rpc), {mint: rate})
+            self.assertLess(rate, RATE)
 
     def test_coins_are_sorted_and_a_stranger_s_config_is_not_in_the_answer(self):
         rpc = _Rpc({
-            "a": config_account(OTHER, [(TOLL, 500), (ADMIN, 9500)]),
-            "b": config_account(CHARLIE, [(TOLL, 600), (ADMIN, 9400)]),
+            "a": config_account(OTHER, [(TOLL, RATE), (ADMIN, REST)]),
+            "b": config_account(CHARLIE, [(TOLL, RATE + 100), (ADMIN, REST - 100)]),
             "c": config_account("9MTfWK8chKHVJq1qnDvRZ2udovpzbP2N4tm2pFEipump", [(ADMIN, 10_000)]),
         })
         self.assertEqual(enrolled.mints(rpc), sorted([OTHER, CHARLIE]))

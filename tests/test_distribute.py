@@ -58,7 +58,8 @@ def crank_rpc(*, graduated=False, vault_lamports=50_000_000, amm_wsol=0, pool=Tr
         bonding_curve(CHARLIE): curve_account(CHARLIE_CONFIG, graduated=graduated),
         CHARLIE_CONFIG: config_account(
             CHARLIE,
-            [(legs.TOLL_DESTINATION, 500), (INCINERATOR, 2000), (ADMIN, 7500)],
+            [(legs.TOLL_DESTINATION, legs.TOLL_BPS), (INCINERATOR, 2000),
+             (ADMIN, 8000 - legs.TOLL_BPS)],
             admin_revoked=True,
         ),
         CHARLIE: mint_account(1_000_000_000),
@@ -248,7 +249,7 @@ class TestTheRun(unittest.TestCase):
 
     def test_an_enrolled_coin_s_row_says_what_it_pays_the_protocol(self):
         rows = distribute.run(crank_rpc(), [CHARLIE], payer=PAYER)
-        self.assertEqual(rows[0]["toll_bps"], 500)
+        self.assertEqual(rows[0]["toll_bps"], legs.TOLL_BPS)
 
     def test_pump_declining_to_distribute_is_a_skip_not_a_payout(self):
         """pump answers a vault below its own minimum by logging it and
