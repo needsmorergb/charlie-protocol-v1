@@ -237,6 +237,28 @@ def simulate(rpc, message: bytes) -> dict:
     return (result or {}).get("value") or {}
 
 
+# pump answers a vault below its own minimum by logging this and returning
+# SUCCESS -- no error, no transfer, the vault untouched. Measured: a real
+# payout was sent, confirmed, and reported "SENT ... to 4 shareholders" while
+# pump moved nothing, and the vault read the same lamports eleven hours later.
+# A crank that calls that a payout is lying about money, so the log is read.
+NO_OP_MARKER = "Insufficient fees for distribution"
+MINIMUM_MARKER = "Minimum vault balance needed:"
+
+
+def declined(value: dict) -> int | None:
+    """pump's own minimum, in lamports, when it declined to distribute --
+    `None` when it did not decline. Read from pump's log rather than
+    recomputed here: the number is pump's to set and it moves."""
+    for line in value.get("logs") or []:
+        if NO_OP_MARKER not in line:
+            continue
+        _before, _sep, after = line.partition(MINIMUM_MARKER)
+        digits = "".join(c for c in after if c.isdigit())
+        return int(digits) if digits else 0
+    return None
+
+
 def explain(value: dict) -> str:
     logs = " ".join(value.get("logs") or [])
     if "6054" in logs or "RemainingAccounts" in logs:
@@ -292,6 +314,16 @@ def run(rpc, mints, *, payer: str, keypair=None, min_lamports: int = DEFAULT_MIN
         value = simulate(rpc, built.message)
         if value.get("err") is not None:
             row.update(outcome="refused", reason=explain(value))
+            rows.append(row)
+            continue
+        minimum = declined(value)
+        if minimum is not None:
+            # pump succeeded and moved nothing. Sending it would cost a
+            # network fee, confirm, and pay nobody.
+            row.update(outcome="skipped", pump_minimum=minimum,
+                       reason=(f"pump declined to distribute: it needs {minimum} lamports in the "
+                               f"vault and the vault holds {built.payable_lamports}. Its own words, "
+                               "from the simulation; nothing was sent"))
             rows.append(row)
             continue
         row["units"] = value.get("unitsConsumed")

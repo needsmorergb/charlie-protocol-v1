@@ -36,13 +36,15 @@ class _Rpc(FakeRpc):
     """FakeRpc plus the two calls the crank makes beyond account reads."""
 
     simulate_err = None
+    simulate_logs = ()
 
     def call(self, method, params=None):
         if method == "getLatestBlockhash":
             return {"value": {"blockhash": BLOCKHASH}}
         if method == "simulateTransaction":
             self.simulated = params[0]
-            return {"value": {"err": self.simulate_err, "logs": [], "unitsConsumed": 31_000}}
+            return {"value": {"err": self.simulate_err, "logs": list(self.simulate_logs),
+                              "unitsConsumed": 31_000}}
         raise AssertionError(method)
 
 
@@ -247,6 +249,33 @@ class TestTheRun(unittest.TestCase):
     def test_an_enrolled_coin_s_row_says_what_it_pays_the_protocol(self):
         rows = distribute.run(crank_rpc(), [CHARLIE], payer=PAYER)
         self.assertEqual(rows[0]["toll_bps"], 500)
+
+    def test_pump_declining_to_distribute_is_a_skip_not_a_payout(self):
+        """pump answers a vault below its own minimum by logging it and
+        returning SUCCESS: no error, no transfer. A real payout was sent and
+        confirmed on that answer, reported "SENT ... to 4 shareholders", and
+        moved nothing -- the vault read the same lamports eleven hours later.
+        """
+        rpc = crank_rpc()
+        rpc.simulate_logs = [
+            "Program log: Instruction: DistributeCreatorFees",
+            "Program log: Insufficient fees for distribution. Minimum vault balance needed: "
+            "1621248 lamports. Use get_minimum_distributable_fee instruction to check the "
+            "minimum distributable amount.",
+        ]
+        sent = []
+        rows = distribute.run(rpc, [CHARLIE], payer=PAYER, keypair=object(),
+                              send=lambda *a: sent.append(a) or "sig")
+        self.assertEqual(rows[0]["outcome"], "skipped")
+        self.assertEqual(rows[0]["pump_minimum"], 1_621_248)
+        self.assertIn("pump declined", rows[0]["reason"])
+        self.assertIn("1621248", rows[0]["reason"])
+        self.assertEqual(sent, [], "nothing may be sent when pump says it will move nothing")
+
+    def test_pump_saying_nothing_about_a_minimum_still_pays(self):
+        rows = distribute.run(crank_rpc(), [CHARLIE], payer=PAYER)
+        self.assertEqual(rows[0]["outcome"], "simulated")
+        self.assertNotIn("pump_minimum", rows[0])
 
     def test_a_graduated_coin_s_amm_balance_counts_toward_the_floor(self):
         # 0 in the pump vault, 50M wSOL on the AMM side: the transaction can
