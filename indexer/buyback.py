@@ -648,6 +648,26 @@ def _ui(raw: int, decimals: int) -> float:
     return raw / (10 ** decimals)
 
 
+def sweep_lot(balance_lamports: int, *, priority_micro_lamports: int = 0,
+              compute_units: int = DEFAULT_COMPUTE_UNITS) -> int:
+    """The largest lot a wallet can spend and still keep the headroom
+    `plan_buy_and_burn` insists on.
+
+    A fixed lot suits a wallet somebody tops up. It does not suit a wallet
+    that FILLS ITSELF: the protocol's collection wallet takes 5% of every
+    enrolled coin's creator fee, which arrives as dust and adds up. A keeper
+    asked for a fixed 0.05 SOL there refuses on a wallet holding 0.049 and
+    burns nothing, week after week, while the balance grows. Sweeping turns
+    "burn a lot when I have one" into "burn what has arrived", which is what
+    makes the leg consistent as coins are added rather than lumpy.
+
+    Answers 0 rather than a negative number; the caller compares against
+    `MIN_LOT_LAMPORTS` and says why it is standing down.
+    """
+    headroom = RESERVE_LAMPORTS + priority_micro_lamports * compute_units // 1_000_000
+    return max(0, balance_lamports - headroom)
+
+
 def plan_buy_and_burn(state: State, *, lot_lamports: int = DEFAULT_LOT_LAMPORTS, slippage_bps: int = DEFAULT_SLIPPAGE_BPS,
                       also_burn: int = 0, priority_micro_lamports: int = 0, compute_units: int = DEFAULT_COMPUTE_UNITS,
                       choose=random.choice) -> Plan:
