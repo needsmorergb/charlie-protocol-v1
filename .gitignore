@@ -28,3 +28,5 @@ CLAUDE.md
 # committed public evidence is state/evidence/*.jsonl plus the record
 # published beside each coin page -- both regenerated from the current code.
 state/observations.jsonl
+marketing/video/scaffold.mov
+marketing/video/*.mov
