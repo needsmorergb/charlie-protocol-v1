@@ -32,3 +32,4 @@ marketing/video/scaffold.mov
 marketing/video/*.mov
 marketing/video/renders/
 marketing/video/masters/
+marketing/video/manim/media/
