@@ -33,3 +33,7 @@ marketing/video/*.mov
 marketing/video/renders/
 marketing/video/masters/
 marketing/video/manim/media/
+marketing/video/capture/_rec/
+marketing/video/capture/*.webm
+marketing/video/capture/*.mp4
+marketing/video/capture/*.mov
