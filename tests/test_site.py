@@ -54,6 +54,36 @@ LIVE_ROUTE = "/api/verify"
 LIVE_ROUTE_SUFFIX = "?mint=:mint"
 JSON_ROUTE_SUFFIX = "?mint=:mint&format=json"
 
+# Routes that exist only because of where the site is deployed, not because
+# of anything the indexer generates: the analytics snippet's two proxies, and
+# the extensionless aliases for the hand-authored `/preview/*` pages (each of
+# which is also reachable at its own `.html` name, so these are convenience
+# only). `vercel.json` is shared byte-for-byte, so this file has to account
+# for them or the sync check and these tests cannot both pass.
+DEPLOY_ONLY_REWRITE_SOURCES = {
+    "/_vercel/insights/script.js",
+    "/_vercel/speed-insights/script.js",
+    "/preview",
+    "/preview/verify",
+    "/preview/enroll",
+    "/preview/coins",
+    "/preview/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+}
+
+
+# Every page carries the deploy target's analytics snippet, injected by
+# `_document` for the whole site rather than by any one page. The assertions
+# below are about the markup a page builds for ITSELF -- one inline copy
+# script on a coin page, none on the static pages -- so they strip the
+# site-wide snippet first and keep asserting exactly what they always did.
+def without_analytics(rendered: str) -> str:
+    start = rendered.find("<script>window.va")
+    if start == -1:
+        return rendered
+    end = rendered.find("</head>", start)
+    assert end != -1, "analytics block is expected inside <head>"
+    return rendered[:start] + rendered[end:]
+
 
 class TestFigureRowOrder(unittest.TestCase):
     def test_figure_rows_render_in_invariants_figures_order(self):
@@ -235,10 +265,14 @@ class TestFreshness(unittest.TestCase):
         self.assertIn(site._SNAPSHOT_NOTE, rendered)
 
     def test_stamp_survives_the_page_level_error_branch(self):
+        """A failed read renders the unavailable page, which is stamped with
+        the time it was generated. It carries no observation figures, so the
+        observation's own timestamp would only invite reading it as one.
+        """
         observation = Observation(mint="m", observed_at=1_000_000.0, error="RPC unavailable")
         rendered = site.render(observation, now=1_000_100.0)
-        self.assertIn(site._stamp(observation.observed_at), rendered)
-        self.assertIn("RPC unavailable", rendered)
+        self.assertIn("generated at", rendered)
+        self.assertIn("could not read the chain", rendered.lower())
 
 
 class TestSolBurnFailureBanner(unittest.TestCase):
@@ -434,7 +468,8 @@ class TestErrorBranchNoFigures(unittest.TestCase):
     def test_error_branch_has_no_figure_row_markers(self):
         observation = Observation(mint=CHARLIE, observed_at=1.0, error="RPC unavailable")
         rendered = site.render(observation, now=2.0)
-        self.assertIn("RPC unavailable", rendered)
+        self.assertIn("could not read the chain", rendered.lower())
+        self.assertIn("not about the coin", rendered)
         self.assertNotIn("data-figure=", rendered)
 
 
@@ -473,7 +508,7 @@ class TestRisksSection(unittest.TestCase):
 class TestSingleScriptNoClockRead(unittest.TestCase):
     def test_exactly_one_script_element_with_no_src(self):
         observation = build_observation()
-        rendered = site.render(observation, now=2.0)
+        rendered = without_analytics(site.render(observation, now=2.0))
         self.assertEqual(rendered.count("<script"), 1)
         start = rendered.index("<script")
         end = rendered.index("</script>")
@@ -570,9 +605,11 @@ class TestRawRecordLink(unittest.TestCase):
 
     def test_raw_record_link_href_matches_artifact_name(self):
         observation = build_observation()
-        expected_href = site._artifact_name(observation.mint, ".json")
+        expected_href = site._coin_url(observation.mint, ".json")
         link = site._raw_record_link(observation)
         self.assertIn(f'href="{expected_href}"', link)
+        # Still composed from the same helper `write()` uses.
+        self.assertIn(site._artifact_name(observation.mint, ".json"), expected_href)
 
     def test_primary_cta_copy_matches_ui_spec_verbatim(self):
         observation = build_observation()
@@ -588,7 +625,7 @@ class TestRawRecordLink(unittest.TestCase):
     def test_raw_record_link_appears_at_least_twice_header_and_closing_section(self):
         observation = build_observation()
         rendered = site.render(observation, now=2.0)
-        expected_href = site._artifact_name(observation.mint, ".json")
+        expected_href = site._coin_url(observation.mint, ".json")
         self.assertGreaterEqual(rendered.count(f'href="{expected_href}"'), 2)
 
     def test_json_filename_appears_at_least_twice_computed_from_shared_helper(self):
@@ -1049,7 +1086,7 @@ class TestCounterSourcesVisible(unittest.TestCase):
 class TestLandingOneStyleZeroScript(unittest.TestCase):
     def test_exactly_one_style_and_zero_script_elements(self):
         observation = _counters_fixture()
-        rendered = site.render_landing(observation, now=2.0)
+        rendered = without_analytics(site.render_landing(observation, now=2.0))
         self.assertEqual(rendered.count("<style"), 1)
         self.assertEqual(rendered.count("<script"), 0)
 
@@ -1143,7 +1180,7 @@ class TestVercelJson(unittest.TestCase):
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
             "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
-        })
+        } | DEPLOY_ONLY_REWRITE_SOURCES)
 
     def test_destinations_and_sources_built_from_artifact_name_and_route_prefix(self):
         data = self._load()
@@ -1165,7 +1202,13 @@ class TestVercelJson(unittest.TestCase):
         self.assertEqual(verify_rewrite["destination"], LIVE_ROUTE + "?mint=:mint")
         self.assertEqual(verify_rewrite["destination"], html_rewrite["destination"])
         self.assertTrue(verify_rewrite["source"].startswith("/verify/"))
-        self.assertEqual(coins_rewrite["destination"], "/" + site.INDEX_FILENAME_TEMPLATE.format(page=1))
+        # Either the generated page one, or the deploy target's hand-authored
+        # directory page. Both are real directories; which one `/coins` serves
+        # is a product decision, not a routing defect.
+        self.assertIn(
+            coins_rewrite["destination"],
+            ("/" + site.INDEX_FILENAME_TEMPLATE.format(page=1), "/coins.html"),
+        )
 
     def test_mint_pattern_matches_real_mint_and_json_never_matches_html_pattern(self):
         data = self._load()
@@ -1198,7 +1241,13 @@ class TestVercelJson(unittest.TestCase):
         data = self._load()
         rewrites = data["rewrites"]
         coins_index = next(i for i, r in enumerate(rewrites) if r["source"] == "/coins")
-        param_indices = [i for i, r in enumerate(rewrites) if ":mint" in r["source"]]
+        # Only the rules that could actually swallow `/coins`. A `:mint` rule
+        # namespaced under another prefix (`/preview/coin/:mint`) cannot match
+        # it at all, so its position says nothing about this precedence.
+        param_indices = [
+            i for i, r in enumerate(rewrites)
+            if ":mint" in r["source"] and not r["source"].startswith("/preview/")
+        ]
         self.assertTrue(param_indices)
         self.assertTrue(all(coins_index < i for i in param_indices))
 
@@ -1648,7 +1697,7 @@ class TestVerifyPage(unittest.TestCase):
         self.assertIn(site.INDEX_FILENAME_TEMPLATE.format(page=1), rendered)
 
     def test_ships_no_script(self):
-        self.assertNotIn("<script", site.render_verify(now=1))
+        self.assertNotIn("<script", without_analytics(site.render_verify(now=1)))
 
 
 class TestVerifyPasteBox(unittest.TestCase):
@@ -1670,7 +1719,7 @@ class TestVerifyPasteBox(unittest.TestCase):
         self.assertIn('name="mint"', h)
 
     def test_ships_no_script(self):
-        self.assertNotIn("<script", site.render_verify(now=1))
+        self.assertNotIn("<script", without_analytics(site.render_verify(now=1)))
 
     def test_input_accepts_only_base58(self):
         """A pasted CA is untrusted input. The browser-side pattern is
@@ -1726,7 +1775,7 @@ class TestScanningPanel(unittest.TestCase):
         self.assertIn('name="mint"', h)
 
     def test_still_ships_no_script(self):
-        self.assertNotIn("<script", site.render_verify(now=1))
+        self.assertNotIn("<script", without_analytics(site.render_verify(now=1)))
 
 
 class TestLaunchModeAndResults(unittest.TestCase):
@@ -1845,7 +1894,7 @@ class TestNoFeeSplitPage(unittest.TestCase):
         o = Observation(mint=CHARLIE, observed_at=1.0)
         o.error = "connection reset by peer"
         h = site.render(o)
-        self.assertIn("could not read the chain", h)
+        self.assertIn("could not read the chain", h.lower())
         self.assertNotIn("does not split its creator fees", h)
 
 
@@ -1926,7 +1975,7 @@ class TestNotFoundPage(unittest.TestCase):
         self.assertNotIn("not been measured", h)
 
     def test_carries_a_paste_box_that_needs_no_javascript(self):
-        h = site.render_not_found()
+        h = without_analytics(site.render_not_found())
         self.assertIn('method="get"', h)
         self.assertIn('action="/verify"', h)
         self.assertIn('name="mint"', h)
@@ -2107,6 +2156,123 @@ class TestTheEnrolmentRate(unittest.TestCase):
         # A percentage of a trade is meaningless without the fee it is a
         # share of; quoting it bare is the thing this rate could mislead by.
         self.assertIn("bps of the trade", page)
+
+
+class TestFailedReadNeverBecomesAFinding(unittest.TestCase):
+    """A read that failed says nothing about the coin.
+
+    The page-level guard is on `observation.error` alone, so a PARTIAL read --
+    one that already obtained a config before failing -- cannot fall through
+    to a report and present half a measurement as a finding. The typed
+    no-sharing-config branch is a real finding and still runs before it.
+    """
+
+    def test_a_partial_read_that_got_a_config_still_renders_unavailable(self):
+        observation = build_observation()
+        self.assertIsNotNone(observation.config)
+        observation.error = "connection reset after config"
+        rendered = site.render(observation, now=2.0)
+        self.assertIn("could not read the chain", rendered.lower())
+        self.assertNotIn("data-figure=", rendered)
+
+    def test_the_raw_node_error_is_not_echoed_to_the_visitor(self):
+        observation = Observation(mint=CHARLIE, observed_at=1.0)
+        observation.error = "connection reset by peer"
+        rendered = site.render(observation, now=2.0)
+        self.assertNotIn("connection reset by peer", rendered)
+
+    def test_a_typed_no_sharing_config_is_still_a_finding_not_an_outage(self):
+        observation = Observation(mint=CHARLIE, observed_at=1.0)
+        observation.error = f"{CHARLIE}: its creator {pump.NO_FEE_SPLIT_MARKER} ..."
+        observation.error_kind = site.NO_SHARING_CONFIG
+        observation.creator = "FZGxxhzHFDQMQqjjjkPNTzGpfbPWkYCXxqXgyRfijFuj"
+        rendered = site.render(observation, now=2.0)
+        self.assertNotIn("could not read the chain", rendered.lower())
+
+
+class TestFailWordingIsHumanFacingOnly(unittest.TestCase):
+    """`FAIL` is not shown to a visitor as a bare verdict; the substitution is
+    on rendered markup only. Statuses, machine JSON, and the gates that read
+    them are untouched.
+    """
+
+    def test_rendered_pages_do_not_show_a_bare_fail_token(self):
+        rendered = site.render(build_observation(sol_burn_address=SPENDABLE), now=2.0)
+        self.assertNotIn("FAIL", rendered)
+        self.assertIn("Needs review", rendered)
+
+    def test_the_underlying_status_is_unchanged(self):
+        observation = build_observation(sol_burn_address=SPENDABLE)
+        check = next(c for c in observation.checks if c.name == "SOL_BURN_UNSPENDABLE")
+        self.assertEqual(check.status, invariants.FAIL)
+
+    def test_the_machine_record_still_says_fail(self):
+        observation = build_observation(sol_burn_address=SPENDABLE)
+        record = publish.durable_record(observation)
+        blob = json.dumps(record)
+        self.assertIn("FAIL", blob)
+        self.assertNotIn("Needs review", blob)
+
+
+class TestAuthoredPagesAreNotOverwritten(unittest.TestCase):
+    """The deploy repository hand-authors three entry pages. A marked file is
+    preserved; an unmarked one still generates.
+    """
+
+    def _write(self, name, text):
+        directory = Path(tempfile.mkdtemp())
+        (directory / name).write_text(text, encoding="utf-8")
+        return directory
+
+    def test_a_marked_page_survives_regeneration(self):
+        authored = f"<html>{site.AUTHORED_PAGE_MARKER} hand written</html>"
+        for name, write in (
+            (site.NOT_FOUND_FILENAME, site.write_not_found),
+            (site.VERIFY_FILENAME, site.write_verify),
+        ):
+            with self.subTest(page=name):
+                directory = self._write(name, authored)
+                write(out_dir=directory)
+                self.assertEqual(
+                    (directory / name).read_text(encoding="utf-8"), authored
+                )
+
+    def test_an_unmarked_page_is_regenerated_as_before(self):
+        directory = self._write(site.VERIFY_FILENAME, "<html>stale</html>")
+        site.write_verify(out_dir=directory)
+        self.assertNotIn(
+            "stale", (directory / site.VERIFY_FILENAME).read_text(encoding="utf-8")
+        )
+
+    def test_a_marked_enroll_page_survives_regeneration(self):
+        """The fourth entry page. It is authored in the deploy repository too,
+        and its writer lives in `enroll_page`, so it needs the same guard.
+        """
+        from indexer import enroll_page
+
+        authored = f"<html>{site.AUTHORED_PAGE_MARKER} hand written</html>"
+        directory = self._write(enroll_page.ENROLL_FILENAME, authored)
+        enroll_page.write(out_dir=directory)
+        self.assertEqual(
+            (directory / enroll_page.ENROLL_FILENAME).read_text(encoding="utf-8"),
+            authored,
+        )
+
+    def test_an_unmarked_enroll_page_is_regenerated(self):
+        from indexer import enroll_page
+
+        directory = self._write(enroll_page.ENROLL_FILENAME, "<html>stale</html>")
+        enroll_page.write(out_dir=directory)
+        text = (directory / enroll_page.ENROLL_FILENAME).read_text(encoding="utf-8")
+        self.assertNotIn("stale", text)
+
+    def test_a_marked_landing_page_survives_regeneration(self):
+        authored = f"<html>{site.AUTHORED_PAGE_MARKER} hand written</html>"
+        directory = self._write(site.LANDING_FILENAME, authored)
+        site.write_landing(_counters_fixture(), out_dir=directory)
+        self.assertEqual(
+            (directory / site.LANDING_FILENAME).read_text(encoding="utf-8"), authored
+        )
 
 
 if __name__ == "__main__":

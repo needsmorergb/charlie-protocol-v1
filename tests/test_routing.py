@@ -183,10 +183,18 @@ class TestEachPathResolvesToItsOwnRule(unittest.TestCase):
         with_mint = _first_match(self.rewrites, "/verify/" + MINT)
         self.assertNotEqual(bare["destination"], with_mint["destination"])
 
-    def test_coins_resolves_to_page_one(self):
+    def test_coins_resolves_to_a_directory_page(self):
+        """Either the generated page one or the deploy target's hand-authored
+        directory. The routing question is that `/coins` reaches a directory
+        and is not swallowed by a parameterised rule -- not which of the two
+        the product chose to serve there.
+        """
         rule = _first_match(self.rewrites, "/coins")
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], "/" + site.INDEX_FILENAME_TEMPLATE.format(page=1))
+        self.assertIn(
+            rule["destination"],
+            ("/" + site.INDEX_FILENAME_TEMPLATE.format(page=1), "/coins.html"),
+        )
 
     def test_unrouted_paths_fall_through_to_static_files(self):
         """Anything with no rule is served straight from `web/`. The landing

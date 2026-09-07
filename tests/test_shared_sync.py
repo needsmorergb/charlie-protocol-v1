@@ -54,10 +54,13 @@ def _module_paths(source: str, origin: Path) -> set[str]:
     def add(dotted: str) -> None:
         as_module = ROOT / (dotted.replace(".", "/") + ".py")
         as_package = ROOT / dotted.replace(".", "/") / "__init__.py"
+        # `as_posix()`, not `str()`: `SHARED` spells every path with forward
+        # slashes, and on Windows `str()` gives `indexer\site.py`, so the
+        # comparison failed for every module on that platform alone.
         if as_module.exists():
-            found.add(str(as_module.relative_to(ROOT)))
+            found.add(as_module.relative_to(ROOT).as_posix())
         elif as_package.exists():
-            found.add(str(as_package.relative_to(ROOT)))
+            found.add(as_package.relative_to(ROOT).as_posix())
 
     tree = ast.parse(source)
     package = origin.parent.relative_to(ROOT).as_posix().replace("/", ".")
