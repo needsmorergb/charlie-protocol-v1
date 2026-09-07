@@ -285,6 +285,7 @@ def durable_record(observation) -> dict:
         "mint": observation.mint,
         "observed_at": observation.observed_at,
         "error": observation.error,
+        "error_kind": observation.error_kind,
     }
     if observation.config is not None:
         record["config"] = {
