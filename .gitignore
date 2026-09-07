@@ -30,3 +30,5 @@ CLAUDE.md
 state/observations.jsonl
 marketing/video/scaffold.mov
 marketing/video/*.mov
+marketing/video/renders/
+marketing/video/masters/
