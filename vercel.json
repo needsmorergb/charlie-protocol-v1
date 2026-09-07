@@ -15,6 +15,34 @@
   },
   "rewrites": [
     {
+      "source": "/_vercel/insights/script.js",
+      "destination": "https://va.vercel-scripts.com/v1/script.js"
+    },
+    {
+      "source": "/_vercel/speed-insights/script.js",
+      "destination": "https://va.vercel-scripts.com/v1/speed-insights/script.js"
+    },
+    {
+      "source": "/preview",
+      "destination": "/preview/index.html"
+    },
+    {
+      "source": "/preview/verify",
+      "destination": "/preview/verify.html"
+    },
+    {
+      "source": "/preview/enroll",
+      "destination": "/preview/enroll.html"
+    },
+    {
+      "source": "/preview/coins",
+      "destination": "/preview/coins.html"
+    },
+    {
+      "source": "/preview/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+      "destination": "/preview/coin.html"
+    },
+    {
       "source": "/verify",
       "has": [
         {
@@ -27,7 +55,7 @@
     },
     {
       "source": "/coins",
-      "destination": "/coins-1.html"
+      "destination": "/coins.html"
     },
     {
       "source": "/enroll",

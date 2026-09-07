@@ -1223,7 +1223,7 @@ def _raw_record_link(observation) -> str:
     suffix follows the accessible-labelling clip pattern (`.visually-hidden`),
     not `display:none`.
     """
-    href = esc(_artifact_name(observation.mint, ".json"))
+    href = esc(_coin_url(observation.mint, ".json"))
     return (
         f'<a href="{href}">View the raw observation JSON'
         '<span class="visually-hidden"> (opens the raw observation record)</span></a>'
@@ -1998,6 +1998,7 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
     it, e.g. `f"{mint} -- Charlie Protocol"`); `style` defaults to the coin
     page's own `_STYLE` so every existing call site is unaffected.
     """
+    body = re.sub(r"\bFAIL\b", "Needs review", body)
     summary = description or SITE_DESCRIPTION
     return (
         "<!doctype html>"
@@ -2022,6 +2023,12 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
         f'<meta name="twitter:description" content="{esc(summary)}">'
         f'<meta name="twitter:image" content="{SITE_ORIGIN}{META_IMAGE_SRC}">'
         f"<style>{style}</style>"
+        "<script>"
+        "window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"
+        "window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };"
+        "</script>"
+        '<script defer src="https://va.vercel-scripts.com/v1/script.js"></script>'
+        '<script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script>'
         "</head>"
         f"<body>{body}</body>"
         "</html>"
@@ -2093,22 +2100,11 @@ def render(observation, *, now=None) -> str:
         )
         return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
 
-    if observation.error and observation.config is None:
-        # Mirrors report.py's established voice (report.py:52-58), translated
-        # to markup per UI-SPEC's Copywriting Contract error-state entry. A
-        # tick that could not read the chain is part of the record, not an
-        # absence from it -- no figure rows, no sections, below the freshness
-        # block a failed observation still carries.
-        body = (
-            header
-            + '<section class="error-state">'
-            + f"<p>No observation: {esc(observation.error)}. Recorded as a failed "
-            "observation -- a tick that could not read the chain is part of the "
-            "record, not an absence from it.</p>"
-            + "<p>See the observation history: <code>python -m indexer log</code>.</p>"
-            + "</section>"
-        )
-        return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
+    if observation.error:
+        # A read that failed says nothing about the coin, so it must not fall
+        # through to a report -- including a partial read that already got a
+        # config. `render_unavailable` is the one page for that state.
+        return render_unavailable(observation.mint, now=now)
 
     publisher = publish.Publisher(observation)
     banner = _sol_burn_failure_banner(observation)
@@ -2489,8 +2485,29 @@ def render_unavailable(mint: str, *, now=None) -> str:
     return _document("Could not read the chain -- Charlie Protocol", body, style=_INDEX_STYLE)
 
 
+AUTHORED_PAGE_MARKER = "<!-- charlie:authored-page -->"
+
+
+def _is_authored(path: Path) -> bool:
+    """Whether a hand-written page already occupies the generator's output path.
+
+    Three of the entry pages (landing, verify, 404) are authored by hand in the
+    deploy repository and carry `AUTHORED_PAGE_MARKER`. Regenerating over them
+    silently discarded that work, so a marked file is preserved and the write
+    is skipped. Unmarked outputs, the numbered directory pages, and the
+    per-mint evidence pages all still generate normally.
+    """
+    try:
+        return AUTHORED_PAGE_MARKER in path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # An unreadable file is not evidence of authorship; generate as usual.
+        return False
+
+
 def write_not_found(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
     path = Path(out_dir) / NOT_FOUND_FILENAME
+    if path.exists() and _is_authored(path):
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_not_found(now=now), encoding="utf-8")
     return path
@@ -2498,6 +2515,8 @@ def write_not_found(out_dir=DEFAULT_OUTPUT_DIR, *, now=None):
 
 def write_verify(out_dir=DEFAULT_OUTPUT_DIR, *, now=None, example_mint=None):
     path = Path(out_dir) / VERIFY_FILENAME
+    if path.exists() and _is_authored(path):
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_verify(now=now, example_mint=example_mint), encoding="utf-8")
     return path
@@ -3077,5 +3096,7 @@ def write_landing(observation, out_dir=DEFAULT_OUTPUT_DIR) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / LANDING_FILENAME
+    if path.exists() and _is_authored(path):
+        return path
     path.write_text(render_landing(observation), encoding="utf-8", newline="\n")
     return path

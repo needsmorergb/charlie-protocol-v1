@@ -444,6 +444,11 @@ def render(*, now=None) -> str:
 
 def write(out_dir=site.DEFAULT_OUTPUT_DIR, *, now=None):
     path = Path(out_dir) / ENROLL_FILENAME
+    # Same ownership rule the other entry pages follow (`site._is_authored`):
+    # the deploy repository hand-authors this page, and regenerating over it
+    # silently discarded that work.
+    if path.exists() and site._is_authored(path):
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render(now=now), encoding="utf-8")
     return path
