@@ -37,3 +37,10 @@ marketing/video/capture/_rec/
 marketing/video/capture/*.webm
 marketing/video/capture/*.mp4
 marketing/video/capture/*.mov
+
+# The video campaign's working tree. Its renders, clips and scaffold footage
+# were already ignored by the patterns above; the scripts and runbooks beside
+# them are working material for that campaign rather than part of the
+# protocol, and nothing in the repository imports or runs them. Kept on disk,
+# out of the repository -- recoverable from history at 711a534.
+marketing/
