@@ -108,7 +108,7 @@
       "status": "UNCHECKED"
     },
     {
-      "actual": "956338570365904",
+      "actual": "956338419723399",
       "backs": [
         "burn_total",
         "supply_destroyed"
@@ -178,6 +178,7 @@
     "version": 2
   },
   "error": null,
+  "error_kind": null,
   "evidence": {
     "initial_supply": {
       "creation_signature": "gzqXeVGjT3FouJae8w8ytDgxvKXhpEsrfhgdt4GvdGzecEz4QgTmjouXZpVMaTfdFFeyiAAwhxkTZkerYqynTxd",
@@ -197,10 +198,10 @@
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956338570365904,
+    "supply": 956338419723399,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1788777782.412986,
+  "observed_at": 1788861848.951435,
   "publishable": [
     "split"
   ],
