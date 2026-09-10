@@ -42,5 +42,28 @@ marketing/video/capture/*.mov
 # were already ignored by the patterns above; the scripts and runbooks beside
 # them are working material for that campaign rather than part of the
 # protocol, and nothing in the repository imports or runs them. Kept on disk,
-# out of the repository -- recoverable from history at 711a534.
+# out of the repository. Kept in the operator's own backup, not here:
+# these paths were purged from history rather than merely untracked.
 marketing/
+
+# Ops-only, not part of the published protocol.
+#
+# posts/ is the unposted half of building in public: X drafts written down
+# before they go out, with the register, the targets and the sequencing
+# beside them. The posted version is public the moment it is posted; the
+# draft and the reasoning behind it are not.
+posts/
+
+# Scratch inputs from measuring coins by hand. No code or test reads any of
+# them (checked by literal filename). Each datum is public on chain, but the
+# curated list is an ops signal: it says which coins were being scanned and
+# when.
+_cfgs.txt
+_mints.txt
+_enrollable.json
+
+# The internal handoff. Names the funded fee-payer wallet and its balance,
+# which secrets are set in which repository, and the open-items roadmap.
+# Operational detail about running the protocol, not about verifying it --
+# and the wallet it names pays for every crank run.
+HANDOFF.md
