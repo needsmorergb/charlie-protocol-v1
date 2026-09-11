@@ -201,13 +201,13 @@
     "supply": 956338419723399,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1788861848.951435,
+  "observed_at": 1789120765.4601505,
   "publishable": [
     "split"
   ],
   "schema": 3,
   "sol_burn_balances": {
-    "burn111111111111111111111111111111111111111": 179668087718
+    "burn111111111111111111111111111111111111111": 180691392944
   },
   "split": {
     "burn": 0,
