@@ -162,12 +162,36 @@ absence of a reading is not evidence of a burn.
 
 $CHARLIE routes to `burn111...111`, a burn address shared with other coins,
 which predates this spec. It passes `SOL_BURN_UNSPENDABLE`: what reaches it is
-out of circulation and stays there. What it does not allow is attribution --
-several coins pay into it, so a balance cannot be divided between them -- and
-that is why it carries the weaker `<=` invariant rather than `==`. No SOL burn
-total is published for $CHARLIE today because its inflow walk has not run, and
-an absence of evidence is `UNCHECKED`, never a total. New enrollments use the
-incinerator, where the runtime destroys what is credited.
+out of circulation and stays there. New enrollments use the incinerator, where
+the runtime destroys what is credited.
+
+**Decided: a burn to `burn111...111` is a burn, and is counted as one.**
+SOL that reaches it is out of circulation permanently and no key exists to
+bring it back, which is the standing every burn address on every chain has
+always had. The protocol treats it as it treats the incinerator: as SOL that
+has left the supply.
+
+Two differences remain true and are stated rather than hidden, because a
+reader will find them and the claim has to survive that:
+
+* **The mechanism differs.** The runtime deletes lamports credited to the
+  incinerator at the end of the block, so its balance returns to zero and the
+  zero is the evidence. `burn111...111` holds what it is sent, so its balance
+  accumulates instead. Unspendable by anyone, rather than destroyed by the
+  runtime. For a holder the consequence is identical; for a check the
+  evidence is shaped differently, which is why `SOL_BURN_BALANCE` inverts
+  its question per destination.
+* **The address is shared.** Several coins pay into it, so its BALANCE
+  cannot be divided between them, and a balance-derived total for one coin
+  is not available. That is a limit on one method of measuring, not on
+  whether the SOL was burned.
+
+**Attribution therefore comes per transaction, not from the balance**, which
+is what this section already requires of the incinerator: attribution is
+"exact rather than cumulative". Transfers into `burn111...111` from a known
+claim are attributable to the coin that made them, and a total assembled that
+way is publishable. It is `UNCHECKED` only until the walk that assembles it
+has run.
 
 ---
 

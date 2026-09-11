@@ -31,7 +31,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import coverage, enroll_page, intake, invariants, publish, site
+from . import coverage, dilution_page, enroll_page, intake, invariants, publish, site
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
@@ -301,6 +301,9 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # advertises a route it has not generated -- /verify was published before
     # its page existed once already.
     written.append(enroll_page.write(out_dir))
+    # The dilution page. Same rule as the others: generate it here so the site
+    # never links a route it has not written.
+    written.append(dilution_page.write(out_dir))
     return written
 
 

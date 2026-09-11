@@ -62,6 +62,10 @@
       "destination": "/enroll.html"
     },
     {
+      "source": "/dilution",
+      "destination": "/dilution.html"
+    },
+    {
       "source": "/verify",
       "destination": "/verify.html"
     },
