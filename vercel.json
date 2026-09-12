@@ -70,6 +70,10 @@
       "destination": "/buildlog.html"
     },
     {
+      "source": "/flywheel",
+      "destination": "/flywheel.html"
+    },
+    {
       "source": "/verify",
       "destination": "/verify.html"
     },

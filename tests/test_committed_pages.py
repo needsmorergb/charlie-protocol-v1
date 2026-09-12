@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import enroll_page, site  # noqa: E402
+from indexer import enroll_page, flywheel_page, site  # noqa: E402
 from indexer.cli import _index_inputs  # noqa: E402
 
 # The one thing that legitimately differs between two renders of the same page.
@@ -45,11 +45,19 @@ def static_pages(web: Path) -> dict:
     """
     records, _known = _index_inputs(web)
     example = records[0].get("mint") if records else None
-    return {
+    pages = {
         site.VERIFY_FILENAME: site.render_verify(example_mint=example),
         site.NOT_FOUND_FILENAME: site.render_not_found(),
         enroll_page.ENROLL_FILENAME: enroll_page.render(),
     }
+    # `/flywheel` renders from a recorded devnet run, not from a chain read,
+    # so it is the same bytes on every machine and a difference is staleness
+    # -- the thing this file exists to catch. It is skipped only when the
+    # proof has not been run at all, which is the one case where there is
+    # nothing to be stale against.
+    if flywheel_page.load() is not None:
+        pages[flywheel_page.FLYWHEEL_FILENAME] = flywheel_page.render()
+    return pages
 
 
 class PagesCase(unittest.TestCase):

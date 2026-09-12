@@ -54,7 +54,7 @@ from indexer.curve import find_program_address
 
 DEVNET = "https://api.devnet.solana.com"
 
-PROGRAM_ID = "6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ"
+PROGRAM_ID = "GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG"
 SYSTEM_PROGRAM = "11111111111111111111111111111111"
 INCINERATOR = "1nc1nerator11111111111111111111111111111111"
 
@@ -125,6 +125,45 @@ def account_after_write(address: str, *, tries: int = 20):
             return existing
         time.sleep(1.5 * (attempt + 1))
     raise RpcError(f"{address} did not appear after a confirmed write")
+
+
+def balance_at_least(address: str, want: int, *, tries: int = 25) -> int:
+    """A balance read that waits for a credit to be visible."""
+    for attempt in range(tries):
+        have = balance(address)
+        if have >= want:
+            return have
+        time.sleep(2 * (attempt + 1))
+    raise RpcError(f"{address} still below {want} lamports")
+
+
+def balance_at_most(address: str, want: int, *, tries: int = 25) -> int:
+    """A balance read that waits for a debit to be visible."""
+    for attempt in range(tries):
+        have = balance(address)
+        if have <= want:
+            return have
+        time.sleep(2 * (attempt + 1))
+    raise RpcError(f"{address} still above {want} lamports")
+
+
+def transaction_logs(signature: str, *, tries: int = 25) -> list:
+    """The log messages of a landed transaction.
+
+    `getTransaction` answers null for a transaction that is confirmed but
+    not yet finalized, and the confirmation this driver waits for is
+    `confirmed`. So this waits for the record to appear rather than reading
+    `None` and crashing, which is what the first run did.
+    """
+    for attempt in range(tries):
+        landed = rpc(
+            "getTransaction",
+            [signature, {"encoding": "json", "maxSupportedTransactionVersion": 0}],
+        )
+        if landed:
+            return (landed.get("meta") or {}).get("logMessages") or []
+        time.sleep(2 * (attempt + 1))
+    raise RpcError(f"{signature} has no transaction record to read logs from")
 
 
 def blockhash() -> str:
@@ -204,6 +243,7 @@ def ix_init_route(admin: str, mint: str, a: dict, ops_address: str) -> message.I
             (mint, False, False),
             (a["route"], False, True),
             (a["collector"], False, True),
+            (a["burn_pool"], False, True),
             (SYSTEM_PROGRAM, False, False),
         ],
         data_route(1, SOL_BURN_BPS, OWN_BURN_BPS, OPS_BPS, ops_address),
@@ -294,22 +334,34 @@ def expected_legs(l: int) -> dict:
 
 
 def event_from_logs(logs) -> dict | None:
-    """Parse the program's own DistributeEvent out of its logs, so the
-    recorded figures are the program's statement and not only our reading of
-    the balances."""
+    """Parse the program's own distribute event out of its logs.
+
+    The program emits it with `sol_log_data`, not a formatted string, and
+    the runtime prints that as one `Program data:` line carrying each field
+    as its OWN base64 value, space separated -- a tag then seven
+    little-endian integers. (Not concatenated into a single blob, which is
+    the obvious wrong guess; this was read off a simulation rather than
+    assumed.) Formatting the figures as text cost enough of the deployed
+    artifact to matter -- see the note at the emit site.
+
+    Recording the program's own statement matters: the balances say what
+    moved, and this says what the program believed it was doing. A page can
+    show the two agreeing.
+    """
+    tag = b"charlie:distribute"
+    names = ("l", "toll", "sol_burn", "own_burn", "ops", "remainder", "toll_bps")
     for line in logs:
-        if "DistributeEvent" not in line:
+        if not line.startswith("Program data: "):
             continue
-        fields = {}
-        for part in line.split("DistributeEvent", 1)[1].split():
-            if "=" not in part:
-                continue
-            key, _, value = part.partition("=")
-            try:
-                fields[key] = int(value)
-            except ValueError:
-                fields[key] = value
-        return fields
+        fields = line[len("Program data: "):].split()
+        if not fields or base64.b64decode(fields[0]) != tag:
+            continue
+        if len(fields) < 1 + len(names):
+            continue
+        return {
+            name: int.from_bytes(base64.b64decode(value), "little")
+            for name, value in zip(names, fields[1:])
+        }
     return None
 
 
@@ -373,7 +425,12 @@ def one_round(payer, seed, mint, a, ops, fee_lamports, index) -> dict:
     credit = send([ix_transfer(payer, a["collector"], fee_lamports)], payer, [seed])
     print(f"  fee arrives         {credit}")
 
-    collected = balance(a["collector"])
+    # Wait for the credit to be visible before reading what is
+    # distributable. A `confirmed` send does not guarantee the next
+    # `getBalance` is served by a node that has it, and reading the
+    # collector too early computes the split over the wrong `l` -- which is
+    # exactly how this driver first disagreed with the chain by one round.
+    collected = balance_at_least(a["collector"], before["collector"] + fee_lamports)
     distributable = collected - reserve
 
     result = simulate([ix_distribute(mint, a, ops)], payer)
@@ -383,12 +440,14 @@ def one_round(payer, seed, mint, a, ops, fee_lamports, index) -> dict:
     signature = send([ix_distribute(mint, a, ops)], payer, [seed])
     print(f"  distribute          {signature}")
 
-    landed = rpc(
-        "getTransaction",
-        [signature, {"encoding": "json", "maxSupportedTransactionVersion": 0}],
-    )
-    event = event_from_logs((landed.get("meta") or {}).get("logMessages") or [])
+    event = event_from_logs(transaction_logs(signature))
+    if event is None:
+        raise RpcError("the program logged no distribute event")
 
+    # Same lagging-read problem on the way out: wait until the collector has
+    # actually been debited before reading the destinations, so `moved` is
+    # this round's work and not a mixture of two.
+    balance_at_most(a["collector"], collected - event["toll"])
     after = {name: balance(address) for name, address in a.items()}
     after["ops"] = balance(ops)
 
@@ -397,6 +456,16 @@ def one_round(payer, seed, mint, a, ops, fee_lamports, index) -> dict:
         "own_burn": after["burn_pool"] - before["burn_pool"],
     }
     expected = expected_legs(distributable)
+
+    # The ops wallet is paid only once it can hold its share: an account
+    # below its rent-exempt minimum cannot be left holding lamports, so the
+    # program pays it zero and the share waits in the collector. The driver
+    # applies the same rule rather than asserting the program's arithmetic
+    # against a payment the runtime would have refused.
+    ops_rent = minimum_balance(0)
+    if expected["ops"] and before["ops"] + expected["ops"] < ops_rent:
+        expected["remainder"] += expected["ops"]
+        expected["ops"] = 0
 
     # The SOL burn leg cannot be read as a balance: the runtime destroys the
     # lamports at the end of the block, so the incinerator balance is always
@@ -410,8 +479,6 @@ def one_round(payer, seed, mint, a, ops, fee_lamports, index) -> dict:
     for leg in ("toll", "own_burn"):
         if moved[leg] != expected[leg]:
             raise RpcError(f"{leg}: chain moved {moved[leg]}, arithmetic says {expected[leg]}")
-    if event is None:
-        raise RpcError("the program logged no DistributeEvent")
     for leg in ("toll", "sol_burn", "own_burn", "ops", "remainder"):
         if event.get(leg) != expected[leg]:
             raise RpcError(
@@ -469,29 +536,58 @@ def refusals(payer: str, mint: str, a: dict, ops: str) -> list:
         })
         print(f"  {'REFUSED' if error else 'ACCEPTED -- BUG'}  {name}")
 
-    # A dev split that does not leave the toll alone, refused on write.
+    # A dev split that does not leave the toll alone.
+    #
+    # This has to be `set_route` on the EXISTING route, not `init_route`.
+    # Run against a route that already exists, `init_route` is refused with
+    # `AccountAlreadyInitialized` -- refused, but for the wrong reason, which
+    # would let a page claim the invariant is enforced on evidence that does
+    # not show it. `set_route` reaches the bps check.
+    name = "a dev sets their own shares to the whole fee"
     bad = (
         PROGRAM_ID,
         [
             (payer, True, True),
             (mint, False, False),
             (a["route"], False, True),
-            (a["collector"], False, True),
-            (SYSTEM_PROGRAM, False, False),
         ],
-        data_route(1, 10_000, 0, 0, ops),
+        data_route(2, 10_000, 0, 0, ops),
     )
     result = simulate([bad], payer)
     error = result.get("err")
-    name = "a dev sets their own shares to the whole fee"
+    log = next((line for line in logs_of(result) if "route:" in line), None)
     cases.append({
         "case": name,
         "refused": error is not None,
         "error": json.dumps(error) if error else None,
-        "log": next((line for line in logs_of(result) if "route:" in line), None),
-        "why": "the three dev shares must sum to 10000 - TOLL_BPS, enforced on write",
+        "log": log,
+        "why": "the three dev shares must sum to 10000 - TOLL_BPS, enforced on every write",
     })
     print(f"  {'REFUSED' if error else 'ACCEPTED -- BUG'}  {name}")
+
+    # And the same instruction with a LEGAL split must be accepted, or the
+    # refusal above proves only that set_route rejects everything.
+    name = "the dev moves their own three shares around"
+    ok = (
+        PROGRAM_ID,
+        [
+            (payer, True, True),
+            (mint, False, False),
+            (a["route"], False, True),
+        ],
+        data_route(2, 2_500, 2_500, 2_500, ops),
+    )
+    result = simulate([ok], payer)
+    error = result.get("err")
+    cases.append({
+        "case": name,
+        "refused": error is not None,
+        "error": json.dumps(error) if error else None,
+        "log": next((line for line in logs_of(result) if "route" in line), None),
+        "why": "a split that leaves the toll alone is the dev's to choose, any day",
+        "must_be_accepted": True,
+    })
+    print(f"  {'ACCEPTED' if not error else 'REFUSED -- BUG'}  {name}")
     return cases
 
 
@@ -505,6 +601,12 @@ def main(argv=None) -> int:
              "reads it, so devnet needs no real token.",
     )
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument(
+        "--cranker", type=Path, default=None,
+        help="a SECOND keypair, neither the coin's admin nor its ops wallet, "
+             "used for one extra round to show distribute is permissionless. "
+             "It needs a little SOL for fees and gets nothing back.",
+    )
     parser.add_argument("--fee", type=int, default=400_000,
                         help="lamports of creator fee per round")
     args = parser.parse_args(argv)
@@ -543,6 +645,45 @@ def main(argv=None) -> int:
     for index in range(1, args.rounds + 1):
         rounds.append(one_round(payer, seed, args.mint, a, ops, args.fee, index))
     record["rounds"] = rounds
+
+    # One round cranked by a stranger. `distribute` taking no signer is the
+    # claim, and a run whose only caller is also the ops wallet does not show
+    # it -- that caller had a reason to call. This one gets nothing back.
+    if args.cranker:
+        cranker, cranker_seed = load_keypair(args.cranker)
+        if cranker in (payer, ops):
+            raise SystemExit("--cranker must not be the admin or the ops wallet")
+        print(f"\n  -- extra round, cranked by a stranger: {cranker} --")
+        before_charlie = balance(a["charlie_pool"])
+        before_cranker = balance(cranker)
+        credit = send([ix_transfer(payer, a["collector"], args.fee)], payer, [seed])
+        balance_at_least(a["collector"], minimum_balance(0) + args.fee)
+        signature = send([ix_distribute(args.mint, a, ops)], cranker, [cranker_seed])
+        event = event_from_logs(transaction_logs(signature))
+        if event is None:
+            raise RpcError("the stranger's distribute logged no event")
+        gained = balance_at_least(
+            a["charlie_pool"], before_charlie + event["toll"]
+        ) - before_charlie
+        if gained != event["toll"]:
+            raise RpcError("the stranger's distribute did not pay the toll")
+        print(f"  fee arrives         {credit}")
+        print(f"  distribute          {signature}")
+        print(f"  toll   -> charlie   {event['toll']:>12,} lamports")
+        print("  the caller is paid nothing: no leg is payable to them")
+        record["permissionless"] = {
+            "cranker": cranker,
+            "is_admin": cranker == payer,
+            "is_ops": cranker == ops,
+            "credit_signature": credit,
+            "distribute_signature": signature,
+            "event": event,
+            "charlie_pool_gained": gained,
+            # The caller ends DOWN by the transaction fee. That is the point:
+            # the crank's incentive is the ops share and the protocol's own
+            # operation, never a bounty paid out of the legs (BUILD.md sec.5).
+            "cranker_lamports_delta": balance(cranker) - before_cranker,
+        }
 
     print("\n  -- what a caller cannot do --")
     record["refusals"] = refusals(payer, args.mint, a, ops)

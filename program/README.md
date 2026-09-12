@@ -43,7 +43,7 @@ whichever leg the code happens to pay first.
 **Deployed to devnet**, at the id in `declare_id!`:
 
 ```
-6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ   (devnet)
+GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG   (devnet)
 ```
 
 That is a devnet id and nothing else. **Mainnet gets its own keypair**,

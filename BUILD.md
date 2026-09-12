@@ -425,11 +425,37 @@ dev and the protocol depends on pump the same way every pump coin does.
 
 ## 12. Still open
 
-1. **Our program crediting the incinerator directly** has never been simulated,
-   because the program does not exist. Devnet, before the freeze.
+1. ~~**Our program crediting the incinerator directly** has never been
+   simulated.~~ **Done, and it lands.** The program is written and deployed to
+   devnet, and `distribute` credits the incinerator directly out of a
+   collector it owns. Two things had to change to get there, both found by
+   running it rather than by reading it:
+
+   * a `system_instruction::transfer` CPI out of the collector fails with
+     `ExternalAccountLamportSpend` — the system program will not debit an
+     account it does not own, so a program moves lamports out of its own PDA
+     by mutating the balances directly. That also removes the CPI from the
+     guarantee.
+   * `burn_pool` has to be created rent exempt at `init_route`. An own-burn
+     leg is routinely smaller than the rent minimum (60,000 lamports against
+     650,000 on the first run), and the runtime refuses any instruction that
+     leaves an account holding lamports below its own minimum — so crediting
+     an uncreated burn pool failed the whole distribution and took the toll
+     and the SOL burn down with it. The same reasoning applies to
+     `ops_address`, which this program cannot make rent exempt because it
+     does not own it: that share waits in the collector instead of failing
+     the round.
+
+   `/flywheel` publishes the run. It is devnet, and the fee *arriving* is a
+   transfer rather than pump, which the page says in its first paragraph.
 2. **The pump-can-reset result rests on one coin.** An RPC 429 ended the second.
 3. **`6019` versus `3005`** on truncated optional AMM accounts is inferred.
-4. **Everything is simulation against live state**, not landed transactions.
+4. **Simulation against live state for everything pump does**, and **landed
+   transactions on devnet for everything our program does.** The devnet run
+   is signatures, not simulations: the split, the direct incinerator credit,
+   and a `distribute` called by a wallet that is neither admin nor ops. The
+   three refusals on that page are simulated deliberately — a transaction
+   that must fail should not be paid for.
 5. **The real shareholder cap is unknown.** `6011 TooManyShareholders` carries
    the message `"format"`, so the IDL never states the number; the SDK says 10
    and `indexer/enroll.py` says 8 with a comment claiming parity with

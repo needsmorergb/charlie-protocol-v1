@@ -25,6 +25,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     declare_id,
     entrypoint::ProgramResult,
+    log::sol_log_data,
     msg,
     program::invoke_signed,
     program_error::ProgramError,
@@ -39,7 +40,7 @@ use solana_program::{
 // proof is deployed to. It is a DEVNET id: mainnet gets its own keypair,
 // generated once and deployed to after the pipeline has been run in
 // production (BUILD.md sec.10, and the deploy order is deliberate).
-declare_id!("6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ");
+declare_id!("GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG");
 
 /// The protocol's share of every enrolled coin's creator fee, in bps of that
 /// fee. 25%. `BUILD.md` sec.3 settled the rate and why it is forward-only.
@@ -118,12 +119,9 @@ impl Route {
             .and_then(|s| s.checked_add(self.ops_bps as u32))
             .ok_or(ProgramError::InvalidInstructionData)?;
         if sum != DEV_BPS_TOTAL as u32 {
-            msg!(
-                "route: shares sum to {} bps, must sum to {} (10000 - TOLL_BPS {})",
-                sum,
-                DEV_BPS_TOTAL,
-                TOLL_BPS
-            );
+            // Not formatted: the sum the caller sent is in the instruction
+            // data, and TOLL_BPS is a published constant.
+            msg!("route: the three dev shares must sum to 10000 - TOLL_BPS");
             return Err(ProgramError::InvalidInstructionData);
         }
         Ok(())
@@ -356,7 +354,7 @@ fn init_charlie_pool(accounts: &[AccountInfo]) -> ProgramResult {
         bump,
     }
     .write(&mut charlie_pool.try_borrow_mut_data()?)?;
-    msg!("charlie_pool initialised, toll_bps {}", TOLL_BPS);
+    msg!("charlie_pool initialised");
     Ok(())
 }
 
@@ -458,13 +456,9 @@ fn init_route(
         )?;
     }
 
-    msg!(
-        "route: sol_burn {} own_burn {} ops {} | toll {} (not a field)",
-        sol_burn_bps,
-        own_burn_bps,
-        ops_bps,
-        TOLL_BPS
-    );
+    // The shares are readable in `route(mint)` the moment this returns, so
+    // the log says what happened rather than restating them.
+    msg!("route initialised; the toll is not a field of it");
     Ok(())
 }
 
@@ -554,11 +548,7 @@ fn distribute(accounts: &[AccountInfo]) -> ProgramResult {
     // and it refuses rather than paying a rate nobody published.
     let stored = CharliePool::read(&charlie_pool.try_borrow_data()?)?;
     if stored.toll_bps != TOLL_BPS {
-        msg!(
-            "distribute: charlie_pool says toll {} but this program is {}",
-            stored.toll_bps,
-            TOLL_BPS
-        );
+        msg!("distribute: charlie_pool's stored toll and this program disagree");
         return Err(ProgramError::InvalidAccountData);
     }
 
@@ -639,18 +629,31 @@ fn distribute(accounts: &[AccountInfo]) -> ProgramResult {
     // than reverse-engineer bare lamport deltas out of three PDAs.
     //
     // The mint is not a field: it is account 0 of this instruction, so a
-    // reader already has it, and formatting a Pubkey through Display is the
-    // single most expensive thing a log line here can do.
-    msg!(
-        "DistributeEvent l={} toll={} sol_burn={} own_burn={} ops={} remainder={} toll_bps={}",
-        l,
-        legs.toll,
-        legs.sol_burn,
-        legs.own_burn,
-        legs.ops,
-        legs.remainder,
-        stored.toll_bps
-    );
+    // reader already has it.
+    //
+    // `ops` is what was PAID, which is not always what the split computed:
+    // an ops wallet that cannot hold its share yet is paid zero and the
+    // share waits in the collector. Reporting the computed figure would
+    // overstate a payment that did not happen, and `remainder` is what is
+    // left behind either way -- so both are derived from the debit.
+    //
+    // It is emitted with `sol_log_data` rather than a formatted `msg!`,
+    // which is BOTH smaller and easier to parse. Formatting seven u64s
+    // through `core::fmt` pulled enough of Rust's formatting machinery into
+    // the artifact to add roughly 30KB -- and a 96KB program needed ~190
+    // write transactions to deploy, which devnet refused twice. A reader
+    // gets fixed-width little-endian fields instead of a sentence, in the
+    // transaction's `data:` log line.
+    sol_log_data(&[
+        b"charlie:distribute",
+        &l.to_le_bytes(),
+        &legs.toll.to_le_bytes(),
+        &legs.sol_burn.to_le_bytes(),
+        &legs.own_burn.to_le_bytes(),
+        &ops_amount.to_le_bytes(),
+        &(l - debit).to_le_bytes(),
+        &stored.toll_bps.to_le_bytes(),
+    ]);
     Ok(())
 }
 

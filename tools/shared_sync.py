@@ -85,6 +85,7 @@ SHARED = (
     "indexer/enrolled.py",
     "indexer/evidence.py",
     "indexer/export.py",
+    "indexer/flywheel_page.py",
     "indexer/intake.py",
     "indexer/invariants.py",
     "indexer/legs.py",
