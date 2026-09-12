@@ -62,6 +62,22 @@
       "destination": "/enroll.html"
     },
     {
+      "source": "/dilution",
+      "destination": "/dilution.html"
+    },
+    {
+      "source": "/buildlog",
+      "destination": "/buildlog.html"
+    },
+    {
+      "source": "/flywheel",
+      "destination": "/flywheel.html"
+    },
+    {
+      "source": "/charlie-flywheel",
+      "destination": "/charlie-flywheel.html"
+    },
+    {
       "source": "/verify",
       "destination": "/verify.html"
     },

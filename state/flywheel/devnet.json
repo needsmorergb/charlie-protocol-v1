@@ -1,0 +1,143 @@
+{
+  "cluster": "devnet",
+  "program_id": "GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG",
+  "mint": "So11111111111111111111111111111111111111112",
+  "addresses": {
+    "route": "6v5FVNJj17keH2nSaYyrV3JxV5W6gEG6qMsGFfsnU5gW",
+    "collector": "HHeLyMeUgfhW6HahHaCvuNJuUW4h8ZqtkXfGFxMETA3s",
+    "burn_pool": "HkwxMnM4vdqijb9dzNZFdAS4WaZiGokZu1x4by8CY1Kg",
+    "charlie_pool": "CJEC7BywJ4fgveTPRpPbF4NxSgAzZxs6Dgo9wk1mV5qL"
+  },
+  "toll_bps": 2500,
+  "dev_split": {
+    "sol_burn_bps": 500,
+    "own_burn_bps": 2000,
+    "ops_bps": 5000
+  },
+  "ops_address": "6STUAQP58ujkUWdZ35GcSzWwToYNovK4pJTwU6HcZFZW",
+  "generated": 1789225375,
+  "init_charlie_pool": "already initialised",
+  "toll_bps_on_chain": 2500,
+  "init_route": "already initialised",
+  "route_on_chain": {
+    "sol_burn_bps": 500,
+    "own_burn_bps": 2000,
+    "ops_bps": 5000,
+    "ops_address": "6STUAQP58ujkUWdZ35GcSzWwToYNovK4pJTwU6HcZFZW"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "fee_lamports": 400000,
+      "credit_signature": "3QuvBo8NYra4JWQUgERBrp8Prcm13RHExioQaC41wQWxJWgyy6bgKppUpSQjViTSBC7US1jfuKEcBMEj2TERDn1n",
+      "distribute_signature": "5E3MWmzcu6NtFueRTx7g7ZkzpA39d1H287esQ7aiby5NMQJ3gVVuRMtdDxu25ZKT2JGLUFaGZhDF8FBj14XZar3F",
+      "distributable": 400000,
+      "legs": {
+        "toll": 100000,
+        "sol_burn": 20000,
+        "own_burn": 80000,
+        "ops": 200000,
+        "remainder": 0
+      },
+      "event": {
+        "l": 400000,
+        "toll": 100000,
+        "sol_burn": 20000,
+        "own_burn": 80000,
+        "ops": 200000,
+        "remainder": 0,
+        "toll_bps": 2500
+      },
+      "balances_moved": {
+        "toll": 100000,
+        "own_burn": 80000
+      }
+    },
+    {
+      "round": 2,
+      "fee_lamports": 400000,
+      "credit_signature": "5X2228b8RiNfjmkodFrWkkdU6NX4dfq4SZDP9vnvcv8J6WzbCxLCfw4jSj1J9SALPYdAZaZdVKob96FSdCJjvfQo",
+      "distribute_signature": "5PBfm9n2pa9ghnxL7sxMS2G7xAFU3hGtMdkBdXr9G7xAwmXYto1ASULw6DtqMaqvrL1hJEdiEYAWgqjz1XDh2Ljw",
+      "distributable": 400000,
+      "legs": {
+        "toll": 100000,
+        "sol_burn": 20000,
+        "own_burn": 80000,
+        "ops": 200000,
+        "remainder": 0
+      },
+      "event": {
+        "l": 400000,
+        "toll": 100000,
+        "sol_burn": 20000,
+        "own_burn": 80000,
+        "ops": 200000,
+        "remainder": 0,
+        "toll_bps": 2500
+      },
+      "balances_moved": {
+        "toll": 100000,
+        "own_burn": 80000
+      }
+    }
+  ],
+  "permissionless": {
+    "cranker": "67opedmogGBzbYXDR9F9TPqth9g3crnAof42ZxzaKBt8",
+    "is_admin": false,
+    "is_ops": false,
+    "credit_signature": "67koSQVHvXoJWTN54drjMcsarSsck6ghjfePEtdcSJUgvsYj7fKdExSzqYhN6MCcTSmjJhofjdwxsTyQWtNWmQjz",
+    "distribute_signature": "5tqYrAeUbhQhWVrZmr51as2oDmYdyugXzfJJJasUq5F8gxu5tUP5mnPGG6nFcDmtgYeLa4k2xkJLPszQwSfWaYWi",
+    "event": {
+      "l": 400000,
+      "toll": 100000,
+      "sol_burn": 20000,
+      "own_burn": 80000,
+      "ops": 200000,
+      "remainder": 0,
+      "toll_bps": 2500
+    },
+    "charlie_pool_gained": 100000,
+    "cranker_lamports_delta": -5000
+  },
+  "refusals": [
+    {
+      "case": "a caller substitutes their own ops address",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"InvalidArgument\"]}",
+      "log": "Program log: distribute: ops account is not the one route names",
+      "why": "ops_address is read out of route(mint), never taken from the caller"
+    },
+    {
+      "case": "a caller substitutes the incinerator",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"InvalidArgument\"]}",
+      "log": "Program log: distribute: the SOL burn leg pays the incinerator, and nothing else",
+      "why": "the SOL burn leg pays the incinerator, a constant in the program"
+    },
+    {
+      "case": "a dev sets their own shares to the whole fee",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"InvalidInstructionData\"]}",
+      "log": "Program log: route: the three dev shares must sum to 10000 - TOLL_BPS",
+      "why": "the three dev shares must sum to 10000 - TOLL_BPS, enforced on every write"
+    },
+    {
+      "case": "the dev moves their own three shares around",
+      "refused": false,
+      "error": null,
+      "log": "Program log: route updated",
+      "why": "a split that leaves the toll alone is the dev's to choose, any day",
+      "must_be_accepted": true
+    }
+  ],
+  "totals": {
+    "toll": 200000,
+    "sol_burn": 40000,
+    "own_burn": 160000,
+    "ops": 400000,
+    "remainder": 0,
+    "fee": 800000
+  },
+  "charlie_pool_balance": 3240480,
+  "burn_pool_balance": 2710240
+}

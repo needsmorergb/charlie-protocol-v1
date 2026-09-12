@@ -609,14 +609,23 @@ def _sol_burn_failure_sentence(config) -> str:
     """The permanence claim, computed from THIS coin's own `admin_revoked` --
     replaces a static sentence that asserted a permanence established only
     for one coin's revoked config. When `admin_revoked` is true the config
-    cannot be changed by anyone but pump, which is what makes "not pending"
-    a claim this coin's own state actually supports; when it is not revoked,
-    the config can still be changed by its admin, and nothing here may claim
-    otherwise.
+    cannot be changed by anyone but pump; when it is not revoked, the config
+    can still be changed by its admin, and nothing here may claim otherwise.
+
+    The absence is PENDING, not permanent. An earlier version said no total
+    was publishable "permanently, not pending", on the reasoning that
+    `burn111...111` is shared and a shared balance cannot be divided between
+    the coins paying into it. That conflated one measuring method with the
+    question itself: PROTOCOL.md section 3 attributes burns PER TRANSACTION
+    rather than from a balance, and per-transaction attribution works at a
+    shared address exactly as it works at the incinerator. So the total is
+    assemblable and simply has not been assembled. Saying "permanently" made
+    a publishable figure sound forbidden and would contradict any surface
+    that later published it.
     """
     if config is not None and config.admin_revoked:
-        return "No SOL burn total is publishable for this coin -- permanently, not pending: its configuration is admin_revoked, and cannot be changed by anyone but pump."
-    return "No SOL burn total is publishable for this coin. Its configuration is not admin_revoked, so it can still be changed by its own admin."
+        return "No SOL burn total is published for this coin yet: the walk that assembles it has not run. Its configuration is admin_revoked, so its routing cannot be changed by anyone but pump."
+    return "No SOL burn total is published for this coin yet: the walk that assembles it has not run. Its configuration is not admin_revoked, so it can still be changed by its own admin."
 
 
 def _sol_burn_failure_banner(observation) -> str:
@@ -2907,10 +2916,12 @@ _LANDING_SOON = (
     "on when it graduates, 30 bps while it is still on its bonding curve, "
     "and as little as 5 bps above roughly 98,240 SOL of market cap. The "
     "quoted rate is the graduation tier.",
-    "What does not exist yet is our program: the vaults it would derive and "
-    "the buy-and-burn crank. Until it does, the protocol's share is collected "
-    "from pump by hand and spent buying $CHARLIE and burning it, and the "
-    "chain shows the collecting, not the spending.",
+    "Our program is written and deployed to DEVNET, not to mainnet. It is "
+    "four instructions and the vaults it derives, and a reader can check "
+    "every line of it in the repository linked below. No mainnet program is "
+    "deployed, so on mainnet the protocol's share is still collected from "
+    "pump by hand and spent buying $CHARLIE and burning it, and the chain "
+    "shows the collecting, not the spending. The dated log is at /buildlog.",
     "$CHARLIE itself cannot enroll. Its config reads admin_revoked, which is "
     "how pump records that a coin has already used the single change it is "
     "allowed, and only pump can reset it.",
@@ -3039,6 +3050,10 @@ def render_landing(observation, *, now=None) -> str:
         "read while you wait.</p>"
         '<p class="meta">Own a coin? <a href="/enroll">Set where its creator '
         "fee goes</a>.</p>"
+        # The one page that argues rather than reports, linked from the hero
+        # because the question it answers is the one a reader arrives with.
+        '<p class="meta">Hold SOL? <a href="/dilution">See what issuance '
+        "costs your bag</a>.</p>"
         "</div>"
         + '<div class="hero-rule"></div>'
         f'<div class="rise d3">{freshness}</div>'
