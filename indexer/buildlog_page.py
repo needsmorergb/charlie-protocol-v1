@@ -107,7 +107,7 @@ _ENTRIES = [
         "from the mint or read from the coin's own route account. 13 tests "
         "pass. Deployed to DEVNET at the id below; mainnet gets its own "
         "keypair and is not this.",
-        "code": "6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ",
+        "code": "GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG",
         "code_label": "devnet program id",
     },
     {
@@ -125,6 +125,38 @@ _ENTRIES = [
         "instruction and no signer seeds handed to another program for a "
         "reader to follow. 13 tests pass, including a cross-check that the "
         "PDAs this program derives match the ones the Python driver derives.",
+    },
+    {
+        "date": "2026-09-12",
+        "status": "DEVNET",
+        "title": "The $CHARLIE flywheel, run on a chain",
+        "body": "A separate splitter program, deployed to devnet, answering a "
+        "hypothetical: $CHARLIE's own sharing config is admin_revoked and its "
+        "one irreversible update is spent, so nobody -- its deployer included "
+        "-- can point its fees anywhere. If that destination COULD be changed "
+        "to a splitter, would the mechanism hold? Three rounds ran. 2,400,000 "
+        "lamports of simulated fee split 1,349,414 to the incinerator, 674,707 "
+        "to the buyback vault, 674,707 to ops, and 3 lamports left behind "
+        "rather than swept to a leg. The fee ARRIVING is simulated, because "
+        "pump does not exist on devnet; the split of it is a landed "
+        "transaction every time. One round was cranked by a wallet that is not "
+        "ops, which is what permissionless means here. The buyback leg is "
+        "funded and not spent -- burning needs a live pool devnet does not "
+        "have -- and /charlie-flywheel says so rather than implying tokens "
+        "were burned.",
+        "code": "2CfShCuyuLw1935ihB5BjzaymdZsmPLNtUFAAqUeMHBS",
+        "code_label": "devnet splitter program id",
+    },
+    {
+        "date": "2026-09-12",
+        "status": "DEVNET",
+        "title": "A keeper that runs unattended",
+        "body": "The split is not much of a mechanism if a person has to run "
+        "it. The keeper calls split on an hourly schedule so fees do not sit, "
+        "and writes every invocation to state/flywheel/keeper.jsonl with its "
+        "signature and outcome -- including the idle ones, where there was "
+        "nothing above the rent reserve and it did nothing. A log that only "
+        "recorded the interesting runs would not be evidence of a schedule.",
     },
     {
         "date": None,
