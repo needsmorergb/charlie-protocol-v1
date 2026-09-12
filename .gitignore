@@ -67,3 +67,12 @@ _enrollable.json
 # Operational detail about running the protocol, not about verifying it --
 # and the wallet it names pays for every crank run.
 HANDOFF.md
+
+# Keypairs, anywhere. Both repositories are public, and a Solana keypair is
+# an ordinary-looking JSON array of 64 integers -- nothing about the file
+# announces what it is, so the pattern is here rather than relying on
+# noticing. HANDOFF.md: keys are the owner's to generate and rotate, and a
+# key that reaches a commit is burned whatever its balance was.
+*keypair*.json
+keeper.json
+id.json
