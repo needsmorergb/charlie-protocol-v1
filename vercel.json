@@ -66,6 +66,10 @@
       "destination": "/dilution.html"
     },
     {
+      "source": "/buildlog",
+      "destination": "/buildlog.html"
+    },
+    {
       "source": "/verify",
       "destination": "/verify.html"
     },

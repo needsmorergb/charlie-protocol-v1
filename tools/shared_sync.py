@@ -70,6 +70,7 @@ SHARED = (
     "indexer/__init__.py",
     "indexer/__main__.py",
     "indexer/base58.py",
+    "indexer/buildlog_page.py",
     "indexer/buyback.py",
     "indexer/cli.py",
     "indexer/coverage.py",

@@ -1177,6 +1177,7 @@ class TestVercelJson(unittest.TestCase):
             "/coins",
             "/enroll",
             "/dilution",
+            "/buildlog",
             "/verify",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",

@@ -39,7 +39,7 @@ use solana_program::{
 // proof is deployed to. It is a DEVNET id: mainnet gets its own keypair,
 // generated once and deployed to after the pipeline has been run in
 // production (BUILD.md sec.10, and the deploy order is deliberate).
-declare_id!("9yLFoJzo6gVvPUNEKsYhvhERfYnaW25GupjFQvQGbdVY");
+declare_id!("6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ");
 
 /// The protocol's share of every enrolled coin's creator fee, in bps of that
 /// fee. 25%. `BUILD.md` sec.3 settled the rate and why it is forward-only.
@@ -379,6 +379,7 @@ fn init_route(
     let mint = next_account_info(iter)?;
     let route_ai = next_account_info(iter)?;
     let collector = next_account_info(iter)?;
+    let burn_pool = next_account_info(iter)?;
     let system = next_account_info(iter)?;
 
     if !admin.is_signer {
@@ -390,7 +391,11 @@ fn init_route(
 
     let (route_key, route_bump) = route_pda(mint.key);
     let (collector_key, collector_bump) = collector_pda(mint.key);
-    if route_ai.key != &route_key || collector.key != &collector_key {
+    let (burn_key, burn_bump) = burn_pool_pda(mint.key);
+    if route_ai.key != &route_key
+        || collector.key != &collector_key
+        || burn_pool.key != &burn_key
+    {
         return Err(ProgramError::InvalidSeeds);
     }
     if !route_ai.data_is_empty() {
@@ -420,12 +425,35 @@ fn init_route(
     // sec.7 measured that pump pays an address that does not exist yet, but a
     // program-owned recipient is refused when executable, so creating it up
     // front is the safe order rather than an assumption.
-    if collector.data_is_empty() {
+    if collector.lamports() == 0 {
         create_pda(
             admin,
             collector,
             system,
             &[SEED_COLLECT, mint.key.as_ref(), &[collector_bump]],
+            0,
+        )?;
+    }
+
+    // `burn_pool` is created here too, and it has to be.
+    //
+    // The runtime refuses any instruction that leaves an account holding
+    // lamports but below its rent-exempt minimum. A distribution's own-burn
+    // leg is usually far smaller than that minimum -- 60,000 lamports
+    // against a 650,000 floor on the first devnet run -- so crediting a
+    // burn_pool that nobody had created failed the whole `distribute` with
+    // `InsufficientFundsForRent`, and took the other three legs down with
+    // it. Rent-exempt from the start, it can receive any amount.
+    //
+    // This is the same reasoning FEE-ROUTING.md sec.7 gives for creating the
+    // collector up front rather than trusting that an unfunded address can
+    // be paid. It applies to every destination this program owns.
+    if burn_pool.lamports() == 0 {
+        create_pda(
+            admin,
+            burn_pool,
+            system,
+            &[SEED_BURN, mint.key.as_ref(), &[burn_bump]],
             0,
         )?;
     }
@@ -497,7 +525,7 @@ fn distribute(accounts: &[AccountInfo]) -> ProgramResult {
 
     // -- every destination, checked against its derivation ----------------
     let (route_key, _) = route_pda(mint.key);
-    let (collector_key, collector_bump) = collector_pda(mint.key);
+    let (collector_key, _) = collector_pda(mint.key);
     let (burn_key, _) = burn_pool_pda(mint.key);
     let (charlie_key, _) = charlie_pool_pda();
 
@@ -552,31 +580,60 @@ fn distribute(accounts: &[AccountInfo]) -> ProgramResult {
     }
 
     let legs = split_legs(l, &route, stored.toll_bps);
-    let seeds: &[&[u8]] = &[SEED_COLLECT, mint.key.as_ref(), &[collector_bump]];
 
-    // Each leg is a system transfer signed for by the collector PDA. The
-    // collector is the only account this program will sign a debit for, and
-    // `distribute` is the only instruction that does it.
-    // No per-leg log: the amounts are all in the DistributeEvent below, and
-    // each transfer is visible in the transaction's own inner instructions
-    // against a destination a reader can re-derive. A second copy formatted
-    // through Pubkey's Display cost more of the deployed artifact than the
-    // information was worth.
+    // A destination this program does not own cannot be made rent exempt by
+    // this program, and the runtime refuses an instruction that leaves any
+    // account holding lamports below its own minimum. `ops_address` is an
+    // ordinary wallet the dev chose, so a brand new one would fail every
+    // distribution until somebody funded it -- and take the toll and both
+    // burn legs down with it, because they are all one instruction.
+    //
+    // Paying it only once it can hold what it is paid is the conservative
+    // half: the ops share stays in the collector and is counted in the next
+    // distribution, so nothing is lost and the other three legs still move.
+    let ops_rent = Rent::get()?.minimum_balance(ops.data_len());
+    let ops_payable = legs.ops > 0 && ops.lamports() + legs.ops >= ops_rent;
+    let ops_amount = if ops_payable { legs.ops } else { 0 };
+    if !ops_payable && legs.ops > 0 {
+        msg!("distribute: ops wallet below the rent minimum, its share waits");
+    }
+
+    // Each leg is a direct lamport move, NOT a system-program transfer.
+    //
+    // This is not a style choice. `collector` is owned by THIS program, and
+    // the runtime refuses to let the system program debit an account it does
+    // not own: a `transfer` CPI out of the collector fails with
+    // `ExternalAccountLamportSpend`, which is exactly what the first devnet
+    // run of this instruction did. A program moves lamports out of an
+    // account it owns by mutating the balances directly, and the runtime
+    // checks the sum is conserved when the instruction returns.
+    //
+    // It also removes the CPI from the guarantee. There is no inner
+    // instruction a reader has to follow, and no signer seeds handed to
+    // another program -- the debit is four lines of arithmetic on accounts
+    // this program already owns.
+    let mut debit = 0u64;
     for (amount, to) in [
         (legs.toll, charlie_pool),
         (legs.sol_burn, incinerator),
         (legs.own_burn, burn_pool),
-        (legs.ops, ops),
+        (ops_amount, ops),
     ] {
         if amount == 0 {
             continue;
         }
-        invoke_signed(
-            &system_instruction::transfer(collector.key, to.key, amount),
-            &[collector.clone(), to.clone(), system.clone()],
-            &[seeds],
-        )?;
+        **to.try_borrow_mut_lamports()? = to
+            .lamports()
+            .checked_add(amount)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        debit = debit
+            .checked_add(amount)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
     }
+    **collector.try_borrow_mut_lamports()? = collector
+        .lamports()
+        .checked_sub(debit)
+        .ok_or(ProgramError::InsufficientFunds)?;
 
     // The event, so a stranger can attribute the transfers to legs rather
     // than reverse-engineer bare lamport deltas out of three PDAs.

@@ -2916,10 +2916,12 @@ _LANDING_SOON = (
     "on when it graduates, 30 bps while it is still on its bonding curve, "
     "and as little as 5 bps above roughly 98,240 SOL of market cap. The "
     "quoted rate is the graduation tier.",
-    "What does not exist yet is our program: the vaults it would derive and "
-    "the buy-and-burn crank. Until it does, the protocol's share is collected "
-    "from pump by hand and spent buying $CHARLIE and burning it, and the "
-    "chain shows the collecting, not the spending.",
+    "Our program is written and deployed to DEVNET, not to mainnet. It is "
+    "four instructions and the vaults it derives, and a reader can check "
+    "every line of it in the repository linked below. No mainnet program is "
+    "deployed, so on mainnet the protocol's share is still collected from "
+    "pump by hand and spent buying $CHARLIE and burning it, and the chain "
+    "shows the collecting, not the spending. The dated log is at /buildlog.",
     "$CHARLIE itself cannot enroll. Its config reads admin_revoked, which is "
     "how pump records that a coin has already used the single change it is "
     "allowed, and only pump can reset it.",
