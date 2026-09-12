@@ -1,0 +1,108 @@
+# The splitter keeper: call `split` on a schedule so fees do not sit.
+#
+# `split` is permissionless and takes no signer, so the mechanism does not
+# depend on this workflow in particular -- anybody can call it, and nobody is
+# paid for doing so. But it does depend on SOMEBODY calling it, or the legs
+# accrue in the vault indefinitely. This is that somebody.
+#
+# Three reasons this is safe to leave running:
+#
+#   * an idle cycle is a SUCCESS. With nothing above the rent reserve the
+#     program logs "pending, not failed" and returns Ok, so a run that finds
+#     no fees is a green run and not a red one. The job never needs to know
+#     whether there is work.
+#   * a call costs 5,000 lamports. Hourly for a year is about 0.044 SOL.
+#   * the caller is paid nothing. No leg is payable to whoever calls, so
+#     running it more often extracts nothing and there is no bounty to farm.
+#
+# DEVNET ONLY, today. The splitter is deployed to devnet and the secret below
+# is a devnet keypair holding fee money and nothing else. Pointing this at
+# mainnet is a separate decision and needs a different secret.
+#
+# The key is written to the runner, used, and deleted in the same job. Never
+# generate or commit one here; the owner rotates it by replacing the secret.
+name: keeper
+
+on:
+  schedule:
+    # Hourly, a few minutes off the hour so it does not contend with every
+    # other cron job on the platform.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "simulate and sign nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two keepers calling at once would each pay a fee and one would find an
+  # empty vault. Harmless, but pointless.
+  group: keeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    # Without the secret there is nothing to sign with, and a job that fails
+    # for a missing secret every hour is noise. Skipped, visibly.
+    if: github.event_name == 'workflow_dispatch' || vars.KEEPER_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The indexer is standard-library only, deliberately, so there is
+      # nothing to install and no lockfile to trust.
+      - name: Check the toolchain is all that is needed
+        run: python -c "import json, urllib.request; print('stdlib only')"
+
+      - name: Run one cycle
+        if: ${{ !inputs.dry_run }}
+        env:
+          KEEPER_KEYPAIR: ${{ secrets.CHARLIE_KEEPER_KEYPAIR }}
+          OPS_ADDRESS: ${{ vars.CHARLIE_OPS_ADDRESS }}
+        run: |
+          if [ -z "$KEEPER_KEYPAIR" ]; then
+            echo "CHARLIE_KEEPER_KEYPAIR is not set; nothing to sign with."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEEPER_KEYPAIR" > keeper.json
+          trap 'shred -u keeper.json 2>/dev/null || rm -f keeper.json' EXIT
+          python -m tools.keeper \
+            --keypair keeper.json \
+            --ops "$OPS_ADDRESS" \
+            --once
+
+      - name: Simulate one cycle
+        if: ${{ inputs.dry_run }}
+        env:
+          OPS_ADDRESS: ${{ vars.CHARLIE_OPS_ADDRESS }}
+        run: |
+          # A dry run needs no key: it simulates with signatures zeroed.
+          python - <<'PY'
+          import json, os, pathlib, sys
+          sys.path.insert(0, ".")
+          from tools.keeper import once
+          from tools.splitter_devnet import CHARLIE_MINT, addresses
+          # A dry run signs nothing, so any on-curve address will do as the
+          # stand-in payer -- the ops wallet the config already names.
+          ops = os.environ["OPS_ADDRESS"]
+          cycle = once(ops, b"\0" * 32, CHARLIE_MINT, addresses(CHARLIE_MINT), ops, dry_run=True)
+          print(json.dumps(cycle, indent=2))
+          PY
+
+      - name: Publish the cycle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeper-log
+          path: state/flywheel/keeper.jsonl
+          if-no-files-found: ignore
+          retention-days: 30

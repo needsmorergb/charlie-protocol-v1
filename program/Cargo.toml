@@ -1,0 +1,29 @@
+[package]
+name = "charlie-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Charlie Protocol fee routing: the toll no dev can redirect."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "charlie_protocol"
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "2.1"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# NOT set, and both were tried: `panic = "abort"` and `opt-level = "z"` each
+# change which monomorphisations the compiler emits for solana-program's
+# transitive sha2/hybrid-array code, and several of those overflow BPF's 4KB
+# stack frame. None of that code is reachable from any instruction here, but
+# cargo-build-sbf refuses the artifact regardless, so the default release
+# profile is what ships.

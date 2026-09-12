@@ -31,7 +31,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import coverage, enroll_page, intake, invariants, publish, site
+from . import (
+    buildlog_page,
+    coverage,
+    dilution_page,
+    enroll_page,
+    flywheel_page,
+    splitter_page,
+    intake,
+    invariants,
+    publish,
+    site,
+)
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
@@ -301,6 +312,22 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # advertises a route it has not generated -- /verify was published before
     # its page existed once already.
     written.append(enroll_page.write(out_dir))
+    # The dilution page. Same rule as the others: generate it here so the site
+    # never links a route it has not written.
+    written.append(dilution_page.write(out_dir))
+    # The build log. Same rule again, and it carries the deploy gate in
+    # writing, so it must not be linked from a site that has not written it.
+    written.append(buildlog_page.write(out_dir))
+    # The flywheel proof. Written only when the devnet run it reports exists:
+    # unlike every other page here it has an input, and a page that invented
+    # an empty run would be claiming a distribution moved nothing rather
+    # than saying the proof has not been run.
+    if flywheel_page.load() is not None:
+        written.append(flywheel_page.write(out_dir))
+    # The $CHARLIE splitter page, same rule: it has an input, and a page
+    # that invented an empty run would be claiming a split moved nothing.
+    if splitter_page.load_all() is not None:
+        written.append(splitter_page.write(out_dir))
     return written
 
 

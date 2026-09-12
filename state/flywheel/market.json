@@ -1,0 +1,485 @@
+{
+  "cluster": "devnet",
+  "program_id": "2CfShCuyuLw1935ihB5BjzaymdZsmPLNtUFAAqUeMHBS",
+  "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+  "scenario": "rally",
+  "scenario_why": "more buys than sells, trade sizes climbing -- the case where the creator fee per trade FALLS as the cap crosses tiers",
+  "seed": 7,
+  "scale": 0.02,
+  "market_is_simulated": true,
+  "splitter_is_real": true,
+  "start": {
+    "base_reserve": 301891848592000,
+    "quote_reserve": 55813500000,
+    "price": 1.8487912230923028e-07,
+    "source": "$CHARLIE's live PumpSwap pool, mainnet, 2026-09-12"
+  },
+  "end": {
+    "base_reserve": 250110453263537,
+    "quote_reserve": 67368798351,
+    "price": 2.69356188323783e-07,
+    "market_cap_sol": 257.6073112583039,
+    "creator_fee_bps": 95
+  },
+  "simulated": {
+    "trades": 40,
+    "volume_lamports": 29029484925,
+    "creator_fee_lamports": 275780087
+  },
+  "trades": [
+    {
+      "side": "buy",
+      "gross_lamports": 519557509,
+      "creator_fee_lamports": 4935796,
+      "creator_fee_bps": 95,
+      "price": 1.8830415163309218e-07,
+      "market_cap_sol": 180.09063204691088,
+      "trade": 1
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 993854985,
+      "creator_fee_lamports": 9441622,
+      "creator_fee_bps": 95,
+      "price": 1.949434256195313e-07,
+      "market_cap_sol": 186.44031174425595,
+      "trade": 2
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 827028906,
+      "creator_fee_lamports": 7856774,
+      "creator_fee_bps": 95,
+      "price": 2.005559314177852e-07,
+      "market_cap_sol": 191.8080092050318,
+      "trade": 3
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 134098440,
+      "creator_fee_lamports": 1273935,
+      "creator_fee_bps": 95,
+      "price": 2.0147347459284203e-07,
+      "market_cap_sol": 192.68553064517658,
+      "trade": 4
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 104368704,
+      "creator_fee_lamports": 991502,
+      "creator_fee_bps": 95,
+      "price": 2.0218904684719388e-07,
+      "market_cap_sol": 193.36989080635112,
+      "trade": 5
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 151290364,
+      "creator_fee_lamports": 1437258,
+      "creator_fee_bps": 95,
+      "price": 2.0322857529515707e-07,
+      "market_cap_sol": 194.3640767210048,
+      "trade": 6
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 665552824,
+      "creator_fee_lamports": 6322751,
+      "creator_fee_bps": 95,
+      "price": 1.9863201656779443e-07,
+      "market_cap_sol": 189.96801237896932,
+      "trade": 7
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 229512843,
+      "creator_fee_lamports": 2180372,
+      "creator_fee_bps": 95,
+      "price": 2.001961479266887e-07,
+      "market_cap_sol": 191.46391888227637,
+      "trade": 8
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 959778172,
+      "creator_fee_lamports": 9117892,
+      "creator_fee_bps": 95,
+      "price": 1.936342407293163e-07,
+      "market_cap_sol": 185.18823136100193,
+      "trade": 9
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 886799275,
+      "creator_fee_lamports": 8424593,
+      "creator_fee_bps": 95,
+      "price": 1.9963535684374405e-07,
+      "market_cap_sol": 190.92758859057597,
+      "trade": 10
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1465569903,
+      "creator_fee_lamports": 13922914,
+      "creator_fee_bps": 95,
+      "price": 2.0975384704841652e-07,
+      "market_cap_sol": 200.6047267764114,
+      "trade": 11
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1294779265,
+      "creator_fee_lamports": 12300403,
+      "creator_fee_bps": 95,
+      "price": 2.1890127876572807e-07,
+      "market_cap_sol": 209.35316246032806,
+      "trade": 12
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 259169870,
+      "creator_fee_lamports": 2462113,
+      "creator_fee_bps": 95,
+      "price": 2.207557269404781e-07,
+      "market_cap_sol": 211.126722634082,
+      "trade": 13
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 497298644,
+      "creator_fee_lamports": 4724337,
+      "creator_fee_bps": 95,
+      "price": 2.1717035909190428e-07,
+      "market_cap_sol": 207.69774267601684,
+      "trade": 14
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 312053250,
+      "creator_fee_lamports": 2964505,
+      "creator_fee_bps": 95,
+      "price": 2.1939533986198512e-07,
+      "market_cap_sol": 209.8256734183875,
+      "trade": 15
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 976424529,
+      "creator_fee_lamports": 9276033,
+      "creator_fee_bps": 95,
+      "price": 2.2643062976601486e-07,
+      "market_cap_sol": 216.5540954657074,
+      "trade": 16
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 844229475,
+      "creator_fee_lamports": 8020180,
+      "creator_fee_bps": 95,
+      "price": 2.326029303794151e-07,
+      "market_cap_sol": 222.45717040595974,
+      "trade": 17
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 136421696,
+      "creator_fee_lamports": 1296006,
+      "creator_fee_bps": 95,
+      "price": 2.3360812146918264e-07,
+      "market_cap_sol": 223.41851670190803,
+      "trade": 18
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1036579961,
+      "creator_fee_lamports": 9847509,
+      "creator_fee_bps": 95,
+      "price": 2.4131671421448736e-07,
+      "market_cap_sol": 230.79087322009642,
+      "trade": 19
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 505513397,
+      "creator_fee_lamports": 4802377,
+      "creator_fee_bps": 95,
+      "price": 2.4512138686542485e-07,
+      "market_cap_sol": 234.42959226317944,
+      "trade": 20
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 707117345,
+      "creator_fee_lamports": 6717614,
+      "creator_fee_bps": 95,
+      "price": 2.504933294838241e-07,
+      "market_cap_sol": 239.5672195171568,
+      "trade": 21
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 1201850248,
+      "creator_fee_lamports": 11417577,
+      "creator_fee_bps": 95,
+      "price": 2.413111171247062e-07,
+      "market_cap_sol": 230.78552026623123,
+      "trade": 22
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 403939940,
+      "creator_fee_lamports": 3837429,
+      "creator_fee_bps": 95,
+      "price": 2.4434888789334715e-07,
+      "market_cap_sol": 233.6907884347427,
+      "trade": 23
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 811534930,
+      "creator_fee_lamports": 7709581,
+      "creator_fee_bps": 95,
+      "price": 2.3820714020168465e-07,
+      "market_cap_sol": 227.81693374767602,
+      "trade": 24
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1107695669,
+      "creator_fee_lamports": 10523108,
+      "creator_fee_bps": 95,
+      "price": 2.46529210988978e-07,
+      "market_cap_sol": 235.77600939749516,
+      "trade": 25
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1471253528,
+      "creator_fee_lamports": 13976908,
+      "creator_fee_bps": 95,
+      "price": 2.578036035254686e-07,
+      "market_cap_sol": 246.55863134306855,
+      "trade": 26
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 656278091,
+      "creator_fee_lamports": 6234641,
+      "creator_fee_bps": 95,
+      "price": 2.526950324704248e-07,
+      "market_cap_sol": 241.67288781494918,
+      "trade": 27
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 270377575,
+      "creator_fee_lamports": 2568586,
+      "creator_fee_bps": 95,
+      "price": 2.5477352507890655e-07,
+      "market_cap_sol": 243.6607199701088,
+      "trade": 28
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 106850522,
+      "creator_fee_lamports": 1015079,
+      "creator_fee_bps": 95,
+      "price": 2.539432266832672e-07,
+      "market_cap_sol": 242.86663783457743,
+      "trade": 29
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1158627756,
+      "creator_fee_lamports": 11006963,
+      "creator_fee_bps": 95,
+      "price": 2.6293187670797445e-07,
+      "market_cap_sol": 251.46321762402448,
+      "trade": 30
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1319442827,
+      "creator_fee_lamports": 12534706,
+      "creator_fee_bps": 95,
+      "price": 2.733585128047187e-07,
+      "market_cap_sol": 261.4350608813338,
+      "trade": 31
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1058178281,
+      "creator_fee_lamports": 10052693,
+      "creator_fee_bps": 95,
+      "price": 2.8186705146630156e-07,
+      "market_cap_sol": 269.5724709812753,
+      "trade": 32
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 890848046,
+      "creator_fee_lamports": 8463056,
+      "creator_fee_bps": 95,
+      "price": 2.8913122818277187e-07,
+      "market_cap_sol": 276.51979617205825,
+      "trade": 33
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 1267953281,
+      "creator_fee_lamports": 12045556,
+      "creator_fee_bps": 95,
+      "price": 2.7872190015096076e-07,
+      "market_cap_sol": 266.5645060301544,
+      "trade": 34
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 737442589,
+      "creator_fee_lamports": 7005704,
+      "creator_fee_bps": 95,
+      "price": 2.7275559538035853e-07,
+      "market_cap_sol": 260.8584417304365,
+      "trade": 35
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 137970670,
+      "creator_fee_lamports": 1310721,
+      "creator_fee_bps": 95,
+      "price": 2.716465070887622e-07,
+      "market_cap_sol": 259.7977300589349,
+      "trade": 36
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 988336839,
+      "creator_fee_lamports": 9389199,
+      "creator_fee_bps": 95,
+      "price": 2.637677471573477e-07,
+      "market_cap_sol": 252.26262876940524,
+      "trade": 37
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 1241790940,
+      "creator_fee_lamports": 11797013,
+      "creator_fee_bps": 95,
+      "price": 2.735905740315464e-07,
+      "market_cap_sol": 261.65699997641235,
+      "trade": 38
+    },
+    {
+      "side": "sell",
+      "gross_lamports": 609397591,
+      "creator_fee_lamports": 5789277,
+      "creator_fee_bps": 95,
+      "price": 2.68701432633618e-07,
+      "market_cap_sol": 256.98111494210224,
+      "trade": 39
+    },
+    {
+      "side": "buy",
+      "gross_lamports": 82716245,
+      "creator_fee_lamports": 785804,
+      "creator_fee_bps": 95,
+      "price": 2.69356188323783e-07,
+      "market_cap_sol": 257.6073112583039,
+      "trade": 40
+    }
+  ],
+  "settlements": [
+    {
+      "after_trade": 8,
+      "simulated_fee_lamports": 34440010,
+      "sent_lamports": 688800,
+      "credit_signature": "44s5bbAA86U9KNcfmZDyCZyKz13i5vQh8NdxzrJweqRe3e1cgqqXfKCo7WWwqmT2HiPf6SNTX2RYGDCizXqNTiyp",
+      "split_signature": "56bZhhjcuBmm62XRznAQk4zZTEyfs9waaK8KghvKPzK69q8cXQgD8Wose1oRAeNtHGGY4Gj6zE9QRcjpzVk9CLWs",
+      "event": {
+        "l": 688801,
+        "sol_burn": 344400,
+        "buyback": 172200,
+        "ops": 172200,
+        "remainder": 1
+      },
+      "price_at_settlement": 2.001961479266887e-07,
+      "market_cap_sol": 191.46391888227637,
+      "creator_fee_bps": 95
+    },
+    {
+      "after_trade": 16,
+      "simulated_fee_lamports": 63192790,
+      "sent_lamports": 1263855,
+      "credit_signature": "2GjCDc2WpcXc5g222bBM1nMLkPQdz7PUaJs99Zhu4gpRQRp4dmPqkEGUrH5joqbiqJCdEUDrSyevb832iXbsB1PP",
+      "split_signature": "3WzKNtb2SjjpS4MewmAQBGyKmbpb7ufbzJ4KZ8imF2ftLHTDGwoVVQepP7t92jJHf56WHvK3rzicBVeXxmpyPuqG",
+      "event": {
+        "l": 1263856,
+        "sol_burn": 631928,
+        "buyback": 315964,
+        "ops": 315964,
+        "remainder": 0
+      },
+      "price_at_settlement": 2.2643062976601486e-07,
+      "market_cap_sol": 216.5540954657074,
+      "creator_fee_bps": 95
+    },
+    {
+      "after_trade": 24,
+      "simulated_fee_lamports": 53648273,
+      "sent_lamports": 1072965,
+      "credit_signature": "5tp5GgbbzW5PhyUXGiZrvU3FQvmaYjwqnDpLZCaHC3ERHvC2Ta5fLdrC58gBLpvpg5fT9AqX9yKC2zcmNDS9uK8m",
+      "split_signature": "23XsLeXXuewYQybxj7vn4ed2nWWHdebfWAU36pdmJ2a7WoZzonqkQY8zJs82dp6XHZ5PU6Jrsn86zafmMBdRqvCF",
+      "event": {
+        "l": 1072965,
+        "sol_burn": 536482,
+        "buyback": 268241,
+        "ops": 268241,
+        "remainder": 1
+      },
+      "price_at_settlement": 2.3820714020168465e-07,
+      "market_cap_sol": 227.81693374767602,
+      "creator_fee_bps": 95
+    },
+    {
+      "after_trade": 32,
+      "simulated_fee_lamports": 67912684,
+      "sent_lamports": 1358253,
+      "credit_signature": "3bZAjptsatpgb2vRzGMAUYmd2mygbr7yHmPsKrmSVCufJS48hqFiXVcp5GeizAe826Lhp5sY4VVA6qDHPHDxqHLG",
+      "split_signature": "4arXpJDd1zExrhf9xAfHypHXc9aYKL4WuoFXYqUajno7KzJAyeR7K6hdoudC965bB19WNDgvJScGETQqp6TqXSDW",
+      "event": {
+        "l": 1358254,
+        "sol_burn": 679127,
+        "buyback": 339563,
+        "ops": 339563,
+        "remainder": 1
+      },
+      "price_at_settlement": 2.8186705146630156e-07,
+      "market_cap_sol": 269.5724709812753,
+      "creator_fee_bps": 95
+    },
+    {
+      "after_trade": 40,
+      "simulated_fee_lamports": 56586330,
+      "sent_lamports": 1131726,
+      "credit_signature": "2gBVreviJ3B4n6odMaaQTCyzzQRQswSQhxrsnAAUcnh8k9DPekH1g9oA4fX5t398rfznutrk7zoxjmkfjLKM61mG",
+      "split_signature": "3j3t2xyfVGaYNj5aAx6y4JcYTqRTUA9RGy9355TsuZmCnsDHew2z8rc4SgDMHY3qu9stTGiqVEJPZu2BgTUgWVB1",
+      "event": {
+        "l": 1131727,
+        "sol_burn": 565863,
+        "buyback": 282931,
+        "ops": 282931,
+        "remainder": 2
+      },
+      "price_at_settlement": 2.69356188323783e-07,
+      "market_cap_sol": 257.6073112583039,
+      "creator_fee_bps": 95
+    }
+  ],
+  "legs_real": {
+    "sol_burn": 2757800,
+    "buyback": 1378899,
+    "ops": 1378899
+  },
+  "split_total_lamports": 5515603,
+  "generated": 1789230688
+}

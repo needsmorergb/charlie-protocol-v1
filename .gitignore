@@ -28,3 +28,51 @@ CLAUDE.md
 # committed public evidence is state/evidence/*.jsonl plus the record
 # published beside each coin page -- both regenerated from the current code.
 state/observations.jsonl
+marketing/video/scaffold.mov
+marketing/video/*.mov
+marketing/video/renders/
+marketing/video/masters/
+marketing/video/manim/media/
+marketing/video/capture/_rec/
+marketing/video/capture/*.webm
+marketing/video/capture/*.mp4
+marketing/video/capture/*.mov
+
+# The video campaign's working tree. Its renders, clips and scaffold footage
+# were already ignored by the patterns above; the scripts and runbooks beside
+# them are working material for that campaign rather than part of the
+# protocol, and nothing in the repository imports or runs them. Kept on disk,
+# out of the repository. Kept in the operator's own backup, not here:
+# these paths were purged from history rather than merely untracked.
+marketing/
+
+# Ops-only, not part of the published protocol.
+#
+# posts/ is the unposted half of building in public: X drafts written down
+# before they go out, with the register, the targets and the sequencing
+# beside them. The posted version is public the moment it is posted; the
+# draft and the reasoning behind it are not.
+posts/
+
+# Scratch inputs from measuring coins by hand. No code or test reads any of
+# them (checked by literal filename). Each datum is public on chain, but the
+# curated list is an ops signal: it says which coins were being scanned and
+# when.
+_cfgs.txt
+_mints.txt
+_enrollable.json
+
+# The internal handoff. Names the funded fee-payer wallet and its balance,
+# which secrets are set in which repository, and the open-items roadmap.
+# Operational detail about running the protocol, not about verifying it --
+# and the wallet it names pays for every crank run.
+HANDOFF.md
+
+# Keypairs, anywhere. Both repositories are public, and a Solana keypair is
+# an ordinary-looking JSON array of 64 integers -- nothing about the file
+# announces what it is, so the pattern is here rather than relying on
+# noticing. HANDOFF.md: keys are the owner's to generate and rotate, and a
+# key that reaches a commit is burned whatever its balance was.
+*keypair*.json
+keeper.json
+id.json

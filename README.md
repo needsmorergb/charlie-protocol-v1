@@ -9,7 +9,6 @@ specifies — what a coin is permitted to *claim* about its fees in public.
 - [**PROTOCOL.md**](PROTOCOL.md) — the spec: legs, modes, invariants, claims policy
 - [**ARCHITECTURE.md**](ARCHITECTURE.md) — what goes on-chain, what does not, and why
 - [**BUILDLOG.md**](BUILDLOG.md) — build-in-public log, append-only
-- [**HANDOFF.md**](HANDOFF.md) — where the work stands and what is open, for the next session
 - `indexer/` — the code, and the executable statement of the spec
 
 Spec and implementation are in one repository on purpose. Every check in
@@ -68,10 +67,20 @@ stays there — the check asks whether SOL can come back, not whether the
 address was derived by a program. An earlier version of it demanded program
 derivation from every coin and printed a red FAIL on this one for not using a
 program that does not exist yet; that was a category error and it is
-retracted. No SOL burn total is published for $CHARLIE yet all the same, and
-for a different reason: `SOL_BURN_BALANCE` is UNCHECKED until the inflow walk
-runs, and an absence of evidence is never a total. Its config is
-`admin_revoked`, so its split is permanent whatever else changes.
+retracted. Its config is `admin_revoked`, so its split is permanent whatever
+else changes.
+
+A burn to `burn111…111` **is a burn**, counted as the incinerator's are: the
+SOL is out of circulation and no key brings it back. The two destinations
+differ in mechanism, and PROTOCOL.md section 3 states how — the runtime
+destroys what the incinerator is credited, while `burn111…111` holds it
+unspendably — but neither leaves the SOL in circulation.
+
+No SOL burn total is published for $CHARLIE **yet**, and the reason is now
+only that the walk which assembles it has not run. Because the address is
+shared, the total comes per transaction rather than from the balance, exactly
+as attribution already works for the incinerator. `SOL_BURN_BALANCE` reads
+UNCHECKED until then, and an absence of evidence is never a total.
 The opening-balance mechanism
 (EVID-02) is built and tested but dormant on live data until dedicated PDA
 vaults exist (phase 5) — every SOL burn destination today is the grandfathered

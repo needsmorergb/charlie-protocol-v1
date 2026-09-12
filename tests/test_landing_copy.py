@@ -18,6 +18,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from indexer import invariants, site  # noqa: E402
 
 
+def _occurrences(haystack: str, needle: str):
+    """Every index of `needle` in `haystack`."""
+    start = 0
+    while True:
+        idx = haystack.find(needle, start)
+        if idx == -1:
+            return
+        yield idx
+        start = idx + 1
+
+
 class TestLandingCopyMatchesReality(unittest.TestCase):
     def setUp(self):
         self.rendered = site._landing_soon()
@@ -50,7 +61,27 @@ class TestLandingCopyMatchesReality(unittest.TestCase):
         self.assertIn("the chain shows the collecting, not the spending", self.rendered)
 
     def test_it_says_which_half_is_not(self):
-        self.assertIn("does not exist yet", self.rendered)
+        """The program is written and on devnet; no mainnet program exists.
+
+        This assertion used to pin the phrase "does not exist yet", which
+        went stale the day the program was written -- the same way "no coin
+        can enroll" went stale, and for the same reason. So it pins the
+        property instead: the page must say the deployment is devnet, and
+        must say no mainnet program is deployed. Both halves matter. "Devnet"
+        alone reads as deployed to someone skimming, and a reader holding the
+        token is the one who pays for that reading.
+        """
+        self.assertIn("deployed to DEVNET, not to mainnet", self.rendered)
+        self.assertIn("No mainnet program is deployed", self.rendered)
+        # And it must never say the flat "deployed" without a cluster beside
+        # it. Checked by requiring every occurrence of the word to sit within
+        # a window that names one.
+        for idx in _occurrences(self.rendered, "deployed"):
+            window = self.rendered[max(0, idx - 90):idx + 90]
+            self.assertTrue(
+                "DEVNET" in window or "devnet" in window or "mainnet" in window,
+                f"bare 'deployed' with no cluster named: ...{window}...",
+            )
 
     def test_charlie_is_explained_as_a_spent_change_not_a_choice(self):
         # `revoke_fee_sharing_authority` answers 6023 DeprecatedInstruction for

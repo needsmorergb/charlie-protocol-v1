@@ -1,0 +1,135 @@
+{
+  "cluster": "devnet",
+  "program_id": "2CfShCuyuLw1935ihB5BjzaymdZsmPLNtUFAAqUeMHBS",
+  "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+  "mint_is_charlie": true,
+  "addresses": {
+    "config": "9E44vo11tu5MMae5AGua6NRqEq2ynNgDvkyFDjj7oDHg",
+    "vault": "3At3DX7Qt8z2EDH9dSX7sio8TTAozkfumCugh6PUwvhj",
+    "burn_vault": "8ZDndteXcJ89HG1Jbpjvt3wReFS6nWCCWB5acEDXB9UC"
+  },
+  "split": {
+    "sol_burn_bps": 5000,
+    "buyback_bps": 2500,
+    "ops_bps": 2500
+  },
+  "ops_address": "FkHGSWacsr3tY8jq9hWCwyMMBjbAsHcUWn4jF2Jjaedu",
+  "generated": 1789229745,
+  "initialise": "already initialised",
+  "config_on_chain": {
+    "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+    "ops_address": "FkHGSWacsr3tY8jq9hWCwyMMBjbAsHcUWn4jF2Jjaedu"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "fee_lamports": 800000,
+      "credit_signature": "5rGWPt12Z9PbuzCydTTMehuqFGUqkk12HtZUWFUUhkuTCYjrjdYuFhJTrfnNzicKCZsZy2Q3sN8RdWuTtGcbyLFx",
+      "split_signature": "SMBk1dLHgNrqBazqxToRkjYeRB2wfu5b6XsiYr7k5jqwXXp4brmNpw2CgpqQyAuUNgqv6LdCLavJacAR3NmYMP6",
+      "distributable": 1098829,
+      "legs": {
+        "sol_burn": 549414,
+        "buyback": 274707,
+        "ops": 274707,
+        "remainder": 1
+      },
+      "event": {
+        "l": 1098829,
+        "sol_burn": 549414,
+        "buyback": 274707,
+        "ops": 274707,
+        "remainder": 1
+      },
+      "buyback_balance_delta": 274707
+    },
+    {
+      "round": 2,
+      "fee_lamports": 800000,
+      "credit_signature": "2rDJWJFcuTsLjbj37dakgTyRATGr3iw6N4qmAwVWSCNDP6DACh2vktwiWWfA4i49BBhysrcUtkfa2KVhNjWAE9rL",
+      "split_signature": "25oc1zVcL6VhUipuT9sjV28AaXPKh6W71RSfPDJMXgXtJGz1RNDmHQLh65o4H5u3qcMaX2h7tZijhaqumKiqFyg3",
+      "distributable": 800001,
+      "legs": {
+        "sol_burn": 400000,
+        "buyback": 200000,
+        "ops": 200000,
+        "remainder": 1
+      },
+      "event": {
+        "l": 800001,
+        "sol_burn": 400000,
+        "buyback": 200000,
+        "ops": 200000,
+        "remainder": 1
+      },
+      "buyback_balance_delta": 200000
+    },
+    {
+      "round": 3,
+      "fee_lamports": 800000,
+      "credit_signature": "3ozwi2945UDGBUEAFeCXz4E32PVEPCzzku2dmemDcZ9Fd1Wpcm52qoxYQm3AvA3Ywd2Ybod38QPPcZp1sVkZB7pS",
+      "split_signature": "5hMbvJQ8E9v5jPC5aGUhdUdjPN4KcJ7b1DqPWkcf9CqXeXwHdrGCkGgsUdTcx46Gwiq2z21FFds3P8wNoprKpasw",
+      "distributable": 800001,
+      "legs": {
+        "sol_burn": 400000,
+        "buyback": 200000,
+        "ops": 200000,
+        "remainder": 1
+      },
+      "event": {
+        "l": 800001,
+        "sol_burn": 400000,
+        "buyback": 200000,
+        "ops": 200000,
+        "remainder": 1
+      },
+      "buyback_balance_delta": 200000
+    }
+  ],
+  "permissionless": {
+    "cranker": "67opedmogGBzbYXDR9F9TPqth9g3crnAof42ZxzaKBt8",
+    "is_ops": false,
+    "credit_signature": "2j2tqqCNcsTYHzafPx3LTpYJAjWxUEYcFgRKbw2HcGttxuXQ6R4SsAbE1e64LqEjWjUdFr3P9CZkXvsEsNxefxBh",
+    "split_signature": "28rqPHCTByo1FewFonRrKHi2vnjG7XmZ6ttNq3WALWFj8EHsuKaLqX9WwCSr3KQuPfsqYeZS7fGe2XQ8oLJyQrCh",
+    "event": {
+      "l": 800001,
+      "sol_burn": 400000,
+      "buyback": 200000,
+      "ops": 200000,
+      "remainder": 1
+    },
+    "burn_vault_gained": 200000,
+    "cranker_lamports_delta": -5000
+  },
+  "refusals": [
+    {
+      "case": "a caller substitutes their own ops address",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"InvalidArgument\"]}",
+      "log": "Program log: split: ops account is not the one config names",
+      "why": "ops_address is read out of config, never taken from the caller"
+    },
+    {
+      "case": "a caller substitutes the incinerator",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"InvalidArgument\"]}",
+      "log": "Program log: split: the SOL burn leg pays the incinerator, and nothing else",
+      "why": "the SOL burn leg pays the incinerator, a constant in the program"
+    },
+    {
+      "case": "anyone re-points the ops wallet",
+      "refused": true,
+      "error": "{\"InstructionError\": [0, \"AccountAlreadyInitialized\"]}",
+      "log": "Program log: already initialised for this mint; there is no second write",
+      "why": "there is no set_config instruction, and initialise refuses a config that already exists -- the proportions are compiled in and the ops address is written once"
+    }
+  ],
+  "totals": {
+    "sol_burn": 1349414,
+    "buyback": 674707,
+    "ops": 674707,
+    "remainder": 3,
+    "fee": 2400000
+  },
+  "burn_vault_balance": 2625337,
+  "vault_balance": 650241
+}

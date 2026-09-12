@@ -1,0 +1,22 @@
+[package]
+name = "charlie-splitter"
+version = "0.1.0"
+edition = "2021"
+description = "The $CHARLIE fee splitter: one destination, three legs, no key."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "charlie_splitter"
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "2.1"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+strip = true
