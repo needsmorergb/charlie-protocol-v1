@@ -104,11 +104,27 @@ _ENTRIES = [
         "distribute. The guarantee is the absence of code -- nothing debits a "
         "coin's collector except distribute, and no instruction anywhere sends "
         "to an address its caller supplied. Every destination is re-derived "
-        "from the mint or read from the coin's own route account. 11 tests "
+        "from the mint or read from the coin's own route account. 13 tests "
         "pass. Deployed to DEVNET at the id below; mainnet gets its own "
         "keypair and is not this.",
-        "code": "9yLFoJzo6gVvPUNEKsYhvhERfYnaW25GupjFQvQGbdVY",
+        "code": "6GfLJwxqBWHFeYjfJma3ZBtkRpcKLkZHVKcQ1s6CgSyJ",
         "code_label": "devnet program id",
+    },
+    {
+        "date": "2026-09-12",
+        "status": "DEVNET",
+        "title": "The first devnet run of distribute failed, and why",
+        "body": "A system-program transfer CPI cannot debit the collector, "
+        "because the collector is owned by this program and the runtime "
+        "refuses to let the system program move lamports out of an account it "
+        "does not own. The first devnet run returned "
+        "ExternalAccountLamportSpend. A program moves lamports out of an "
+        "account it owns by mutating the balances directly, with the runtime "
+        "checking the sum is conserved when the instruction returns -- which "
+        "also removes the CPI from the guarantee, so there is no inner "
+        "instruction and no signer seeds handed to another program for a "
+        "reader to follow. 13 tests pass, including a cross-check that the "
+        "PDAs this program derives match the ones the Python driver derives.",
     },
     {
         "date": None,
