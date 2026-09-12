@@ -80,8 +80,8 @@
       "actual": "0",
       "backs": [],
       "detail": "the split does not pay the protocol's collection wallet 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 at all",
-      "equation": "bps(TOLL_DESTINATION) >= 500",
-      "expected": ">= 500",
+      "equation": "bps(TOLL_DESTINATION) >= 2500",
+      "expected": ">= 2500",
       "name": "PROTOCOL_SHARE",
       "status": "FAIL"
     },
@@ -108,7 +108,7 @@
       "status": "UNCHECKED"
     },
     {
-      "actual": "956381633039163",
+      "actual": "956338419723399",
       "backs": [
         "burn_total",
         "supply_destroyed"
@@ -178,6 +178,7 @@
     "version": 2
   },
   "error": null,
+  "error_kind": null,
   "evidence": {
     "initial_supply": {
       "creation_signature": "gzqXeVGjT3FouJae8w8ytDgxvKXhpEsrfhgdt4GvdGzecEz4QgTmjouXZpVMaTfdFFeyiAAwhxkTZkerYqynTxd",
@@ -197,16 +198,16 @@
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956381633039163,
+    "supply": 956338419723399,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1788687537.5049026,
+  "observed_at": 1789205630.437655,
   "publishable": [
     "split"
   ],
   "schema": 3,
   "sol_burn_balances": {
-    "burn111111111111111111111111111111111111111": 179668087718
+    "burn111111111111111111111111111111111111111": 180691392944
   },
   "split": {
     "burn": 0,
