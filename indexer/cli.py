@@ -37,6 +37,7 @@ from . import (
     dilution_page,
     enroll_page,
     flywheel_page,
+    splitter_page,
     intake,
     invariants,
     publish,
@@ -323,6 +324,10 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # than saying the proof has not been run.
     if flywheel_page.load() is not None:
         written.append(flywheel_page.write(out_dir))
+    # The $CHARLIE splitter page, same rule: it has an input, and a page
+    # that invented an empty run would be claiming a split moved nothing.
+    if splitter_page.load_all() is not None:
+        written.append(splitter_page.write(out_dir))
     return written
 
 

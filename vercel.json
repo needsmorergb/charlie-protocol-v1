@@ -74,6 +74,10 @@
       "destination": "/flywheel.html"
     },
     {
+      "source": "/charlie-flywheel",
+      "destination": "/charlie-flywheel.html"
+    },
+    {
       "source": "/verify",
       "destination": "/verify.html"
     },

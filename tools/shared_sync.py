@@ -98,6 +98,7 @@ SHARED = (
     "indexer/rpc.py",
     "indexer/scan.py",
     "indexer/site.py",
+    "indexer/splitter_page.py",
     "indexer/store.py",
     "vercel.json",
     "web/assets/charlie-found.gif",

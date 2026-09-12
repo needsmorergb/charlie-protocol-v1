@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import enroll_page, flywheel_page, site  # noqa: E402
+from indexer import enroll_page, flywheel_page, site, splitter_page  # noqa: E402
 from indexer.cli import _index_inputs  # noqa: E402
 
 # The one thing that legitimately differs between two renders of the same page.
@@ -57,6 +57,8 @@ def static_pages(web: Path) -> dict:
     # nothing to be stale against.
     if flywheel_page.load() is not None:
         pages[flywheel_page.FLYWHEEL_FILENAME] = flywheel_page.render()
+    if splitter_page.load_all() is not None:
+        pages[splitter_page.SPLITTER_FILENAME] = splitter_page.render()
     return pages
 
 
