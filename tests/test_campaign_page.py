@@ -118,6 +118,19 @@ class AWithheldFigureIsNotZero(PageCase):
         page = self.page(withheld())
         self.assertIn("SOL_BURN_BALANCE", text_of(page))
 
+    def test_the_plain_reason_comes_before_the_check_identifier(self):
+        """A bare SOL_BURN_BALANCE leading the line reads as an error code to
+        anyone who has not seen a coin page -- "broken" rather than "not
+        checkable yet", the exact misreading this section prevents.
+        """
+        self.declare()
+        words = text_of(self.page(withheld()))
+        self.assertLess(
+            words.index("fixture detail"),
+            words.index("SOL_BURN_BALANCE"),
+            "the check identifier should follow the explanation, not lead it",
+        )
+
     def test_it_says_no_figure_is_published_rather_than_showing_one(self):
         self.declare()
         self.burn(3 * SOL, signature="sig-1")
@@ -153,6 +166,18 @@ class APublishableFigureIsShownWithItsCheck(PageCase):
         self.assertIn("1.000000 SOL", words)
         self.assertIn("backed by", words)
 
+    def test_the_declared_goal_is_not_typographically_equal_to_the_checked_figure(self):
+        """They were once the same function, the same units and the same
+        weight, so a reader skimming only the numbers saw two that looked
+        equally authoritative. One is a claim somebody typed; the other
+        survived a check.
+        """
+        self.declare()
+        self.burn(1 * SOL, signature="sig-1")
+        page = self.page(publishable())
+        self.assertIn("<em>5.000000 SOL</em>", page)
+        self.assertIn("<strong>1.000000 SOL</strong>", page)
+
     def test_the_bar_never_exceeds_one_hundred_percent(self):
         self.declare(target_value=1 * SOL)
         self.burn(50 * SOL, signature="sig-big")
@@ -173,6 +198,22 @@ class TheGoalIsNeverAMeasurement(PageCase):
     def test_a_coin_with_no_campaigns_claims_nothing(self):
         words = text_of(self.page(publishable()))
         self.assertIn("declared no burn campaigns", words)
+
+    def test_the_empty_state_routes_the_reader_somewhere(self):
+        """Absence stated twice is a dead end. The link promises no outcome --
+        it points at what IS measured for this coin."""
+        page = self.page(publishable())
+        self.assertIn(f'href="/{MINT}.html"', page)
+
+    def test_the_lede_and_the_cards_use_the_same_word_for_a_checked_figure(self):
+        """The lede once promised "a total is checked" while every card said
+        "recorded" -- two words for one idea, and a reader has to guess they
+        match."""
+        self.declare()
+        self.burn(1 * SOL, signature="sig-1")
+        words = text_of(self.page(publishable()))
+        self.assertIn("a total is recorded", words)
+        self.assertNotIn("a total is checked", words)
 
     def test_the_status_word_is_a_readers_word(self):
         self.declare(target_value=1 * SOL)

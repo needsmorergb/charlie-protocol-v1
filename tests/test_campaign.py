@@ -153,6 +153,49 @@ class TheStatedGoal(StoreCase):
         with self.assertRaises(campaign.CampaignError):
             self.declare(target_value=0)
 
+    def test_sol_typed_as_lamports_is_refused(self):
+        """The bug this pins, and it produced a FALSE PUBLIC CLAIM.
+
+        `--target 5` meaning five SOL stored five LAMPORTS. Six lamports of
+        dust then satisfied it, and a campaign named "Burn 5 SOL" reported
+        its target reached having burned a billionth of the goal. The figure
+        behind that was properly gated and correctly computed -- the gate
+        cannot catch a target that was already wrong on the way in.
+        """
+        with self.assertRaises(campaign.CampaignError) as caught:
+            self.declare(target_value=5)
+        message = str(caught.exception)
+        self.assertIn("LAMPORTS", message)
+        self.assertIn("5000000000", message, "the refusal must show what 5 SOL actually is")
+
+    def test_the_refusal_names_both_readings_of_the_number(self):
+        """A refusal that only says "too small" leaves the user guessing which
+        unit they got wrong."""
+        with self.assertRaises(campaign.CampaignError) as caught:
+            self.declare(target_value=3)
+        message = str(caught.exception)
+        self.assertIn("0.000000003", message)
+        self.assertIn("3000000000", message)
+
+    def test_a_deliberate_dust_target_is_allowed_explicitly(self):
+        row = self.declare(target_value=5, allow_dust_target=True)
+        self.assertEqual(row["target_value"], 5)
+
+    def test_a_token_target_is_not_held_to_the_sol_floor(self):
+        """Raw token units are not lamports -- a small token target is
+        ordinary, and refusing it would be the check misfiring."""
+        row = self.declare(asset=campaign.ASSET_TOKEN, target_value=5,
+                           trigger_type=campaign.TRIGGER_TOKEN_AMOUNT, trigger_value=5)
+        self.assertEqual(row["target_value"], 5)
+
+    def test_a_real_sol_target_passes_the_floor(self):
+        row = self.declare(target_value=5 * SOL)
+        self.assertEqual(row["target_value"], 5 * SOL)
+
+    def test_the_floor_itself_is_allowed(self):
+        row = self.declare(target_value=campaign.MINIMUM_SANE_SOL_TARGET)
+        self.assertEqual(row["target_value"], campaign.MINIMUM_SANE_SOL_TARGET)
+
     def test_a_threshold_trigger_without_a_threshold_is_refused(self):
         with self.assertRaises(campaign.CampaignError):
             self.declare(trigger_type=campaign.TRIGGER_SOL_AMOUNT, trigger_value=None)

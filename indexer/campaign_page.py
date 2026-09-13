@@ -69,12 +69,11 @@ def _trigger_sentence(row: dict) -> str:
         return "counts burns inside its declared window"
     if trigger == campaign.TRIGGER_SOL_AMOUNT:
         return (
-            "reached when "
+            "closes once recorded burns reach "
             f"{campaign.format_amount(row['trigger_value'], campaign.ASSET_SOL)}"
-            " has been burned"
         )
     if trigger == campaign.TRIGGER_TOKEN_AMOUNT:
-        return f"reached when {row['trigger_value']:,} raw token units have been burned"
+        return f"closes once recorded burns reach {row['trigger_value']:,} raw token units"
     return trigger
 
 
@@ -99,8 +98,16 @@ def _bar(progress) -> str:
 
 def _withheld(progress) -> str:
     """Why there is no figure, in the coin page's own vocabulary."""
+    # The plain sentence first, the check's own name after it. Leading with a
+    # bare identifier like SOL_BURN_BALANCE reads as an error code to anyone
+    # who has not seen a coin page -- "something is broken" rather than "not
+    # checkable yet", which is the exact misreading this section exists to
+    # prevent. The name stays, because a figure's backing check is what makes
+    # the withholding verifiable rather than an excuse.
     items = "".join(
-        f"<li><code>{site.esc(name)}</code> ({site.esc(status)}) &mdash; {site.esc(detail)}</li>"
+        f"<li>{site.esc(detail)} "
+        f'<span class="check">(check: <code>{site.esc(name)}</code>, '
+        f"{site.esc(status)})</span></li>"
         for name, status, detail in progress.withheld_by
     )
     return (
@@ -130,8 +137,8 @@ def _campaign_section(row: dict, progress) -> str:
         backing = ", ".join(progress.backed_by)
         measured = (
             f"{_bar(progress)}"
-            f'<p class="measured"><strong>{site.esc(value)}</strong> of '
-            f"{site.esc(target)} recorded</p>"
+            f'<p class="measured"><strong>{site.esc(value)}</strong> of the '
+            f"{site.esc(target)} goal, recorded</p>"
             + (
                 f'<p class="backing">backed by <code>{site.esc(backing)}</code></p>'
                 if backing
@@ -139,6 +146,12 @@ def _campaign_section(row: dict, progress) -> str:
             )
         )
 
+    # The declared goal is deliberately NOT bolded, and the recorded figure
+    # is. They were once typographically identical -- same function, same
+    # units, same weight -- so a reader skimming only the numbers saw two
+    # that looked equally authoritative, and the sentence telling them apart
+    # was the only thing doing that work. One of these is a claim somebody
+    # typed; the other survived a check. They should not look alike.
     return (
         '<section class="campaign">'
         f'<h2>{site.esc(row["name"])} '
@@ -146,7 +159,7 @@ def _campaign_section(row: dict, progress) -> str:
         f'{site.esc(_status_word(row["status"]))}</span></h2>'
         f"{description}"
         '<p class="goal"><strong>The goal, as declared:</strong> '
-        f"{site.esc(target)} &mdash; {site.esc(_trigger_sentence(row))}. "
+        f'<em>{site.esc(target)}</em> &mdash; {site.esc(_trigger_sentence(row))}. '
         "This is a statement the coin made, not a measurement.</p>"
         f"{measured}"
         "</section>"
@@ -176,6 +189,8 @@ code { background: var(--panel); padding: 1px 4px; }
 .status-reached { color: var(--accent); }
 .status-closed, .status-cancelled { color: var(--pass-glyph); }
 .goal, .description { font-size: 0.9rem; }
+.goal em { font-style: normal; color: var(--pass-glyph); }
+.check { color: var(--pass-glyph); font-size: 0.78rem; }
 .bar {
   height: 10px; background: var(--panel); margin: var(--sp-md) 0 var(--sp-sm);
 }
@@ -213,6 +228,8 @@ def render(mint: str, results, *, now=None) -> str:
         sections = (
             '<p class="none">This coin has declared no burn campaigns. '
             "Nothing is claimed here, and nothing is measured.</p>"
+            f'<p><a href="/{site.esc(mint)}.html">What is measured for this coin</a> '
+            'is on its own page, campaigns or not.</p>'
         )
 
     body = [
@@ -220,7 +237,7 @@ def render(mint: str, results, *, now=None) -> str:
         f'<p class="lede">What <code>{site.esc(mint)}</code> said it would burn, '
         "beside what the chain has recorded toward it. The two are different "
         "kinds of statement and this page keeps them apart: a goal is declared, "
-        "a total is checked.</p>",
+        "a total is recorded.</p>",
         sections,
         "<h2>How to read this</h2>",
         "<p>A <strong>goal</strong> is a claim the coin made. Nothing verifies "

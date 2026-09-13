@@ -24,11 +24,18 @@ UNCHECKED while wearing a word that implies it can. `REFUSED_TRIGGERS`
 names each one and why, so asking for one gets a sentence rather than a
 silent failure.
 
-What a campaign is allowed to claim is therefore narrow: *this is the goal,
-this is what the chain has recorded toward it, and this is the check that
-backs that figure.* It never claims the goal will be met, never implies a
-price effect, and -- per PROTOCOL.md sec.2 -- a campaign page carries no
-projection at all.
+What a campaign may claim is narrow: the goal, what the chain has recorded
+toward it, and the check that backs that figure. Nothing more. PROTOCOL.md
+sec.2 already forbids implying a price floor, and a campaign page is bound
+by the same rule.
+
+**The window is a subset, which is what makes the sum trustworthy.** A
+campaign counts a slice of the same rows the coin-level check verified --
+`SOL_BURN_TOTAL` and `SUPPLY_DESTROYED` are all-time aggregates, and a
+campaign's window is always contained within that. A windowed subset of
+checked evidence is still checked evidence. If those windows are ever
+decoupled, this containment is the property that has to be re-established
+before `progress_of` can keep calling itself gated.
 
 `REACHED` is a statement about recorded evidence, not about execution. A
 campaign whose target is met has had that much burned; it has not thereby
@@ -45,6 +52,21 @@ from dataclasses import dataclass
 from . import invariants, legs, publish
 
 LAMPORTS_PER_SOL = 1_000_000_000
+
+# Below this, a SOL target is almost certainly SOL typed as lamports.
+#
+# `--target 5` meaning five SOL stores five LAMPORTS -- a billionth of the
+# goal -- and the next speck of dust that lands satisfies it, so a campaign
+# named "Burn 5 SOL" reports its target reached having burned effectively
+# nothing. The figure behind that is properly gated and correctly computed;
+# the GOAL is garbage, and a gate cannot catch a target that was wrong on
+# the way in. This is the one input a typo can turn into a false public
+# claim, so it is refused rather than accepted and displayed small.
+#
+# 0.001 SOL is deliberately low: it refuses the typo without refusing a
+# genuinely tiny campaign, and `allow_dust_target` exists for anyone who
+# really means it.
+MINIMUM_SANE_SOL_TARGET = 1_000_000
 
 # -- the closed vocabularies (owned here, enforced by `evidence.py`) --------
 
@@ -154,6 +176,7 @@ def validate(
     trigger_value: int | None = None,
     starts_at: int | None = None,
     ends_at: int | None = None,
+    allow_dust_target: bool = False,
 ) -> None:
     """Everything that must hold before a campaign is worth storing.
 
@@ -170,6 +193,21 @@ def validate(
     if int(target_value) <= 0:
         raise CampaignError(
             "a campaign's target must be positive -- a goal of zero is met by doing nothing"
+        )
+    if (
+        asset == ASSET_SOL
+        and not allow_dust_target
+        and 0 < int(target_value) < MINIMUM_SANE_SOL_TARGET
+    ):
+        raise CampaignError(
+            f"a SOL target is in LAMPORTS, and {int(target_value)} lamports is "
+            f"{int(target_value) / LAMPORTS_PER_SOL:.9f} SOL. For "
+            f"{int(target_value)} SOL pass {int(target_value) * LAMPORTS_PER_SOL} "
+            "(1 SOL = 1,000,000,000 lamports). A target this small is met by "
+            "the next speck of dust that lands, so the campaign would report "
+            "its goal reached having burned almost nothing -- pass "
+            "allow_dust_target (--allow-dust-target) if that is genuinely what "
+            "you meant."
         )
     if trigger_type in TRIGGERS_REQUIRING_VALUE and trigger_value is None:
         raise CampaignError(f"trigger {trigger_type!r} needs a threshold (--trigger-value)")
@@ -192,6 +230,7 @@ def declare(
     starts_at: int | None = None,
     ends_at: int | None = None,
     created_at: int | None = None,
+    allow_dust_target: bool = False,
 ) -> dict:
     """Validate and store one campaign. Returns the stored row.
 
@@ -208,6 +247,7 @@ def declare(
         trigger_value=trigger_value,
         starts_at=starts_at,
         ends_at=ends_at,
+        allow_dust_target=allow_dust_target,
     )
     created_at = created_at if created_at is not None else int(time.time())
     identifier = campaign_id(mint, name)

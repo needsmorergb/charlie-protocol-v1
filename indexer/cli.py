@@ -166,15 +166,13 @@ def _scan(args) -> int:
 
 
 def _campaign(args) -> int:
-    """CAMP-01: declare a campaign, or report what the chain records toward
-    the coin's existing ones.
+    """Declare a burn campaign, or report what the chain records toward one.
 
     Declaring writes a stated goal and nothing else -- no figure, no chain
-    read. Listing takes one observation (the same `observe()` every other
-    surface uses) and runs `campaign.evaluate`, which recomputes each
-    campaign's progress **through `publish.Publisher`**: a coin whose totals
-    are withheld yields campaigns with no progress figure rather than
-    campaigns with an ungated one.
+    read. Listing observes the coin once and evaluates its campaigns through
+    the same gate every figure on this site passes: a coin whose totals are
+    withheld gets campaigns with no progress figure, never one with an
+    ungated number standing in for it.
 
     Exit codes match the rest of the CLI: 2 when the coin could not be
     observed at all, 0 otherwise. A campaign short of its target is not a
@@ -184,7 +182,12 @@ def _campaign(args) -> int:
     try:
         if args.declare:
             if args.target is None:
-                print("--declare needs --target", file=sys.stderr)
+                print(
+                    "--declare needs --target: an amount in LAMPORTS for --asset sol "
+                    "(--target 5000000000 is 5 SOL), or raw token units for "
+                    "--asset token",
+                    file=sys.stderr,
+                )
                 return 2
             try:
                 row = campaign.declare(
@@ -198,6 +201,7 @@ def _campaign(args) -> int:
                     asset=args.asset,
                     starts_at=args.starts_at,
                     ends_at=args.ends_at,
+                    allow_dust_target=args.allow_dust_target,
                 )
             except campaign.CampaignError as exc:
                 print(f"refused: {exc}", file=sys.stderr)
@@ -240,7 +244,7 @@ def _campaign(args) -> int:
             )
             if progress.withheld_by:
                 for name, check_status, detail in progress.withheld_by:
-                    print(f"  withheld by {name} ({check_status}): {detail}")
+                    print(f"  not published -- blocked by {name} ({check_status}): {detail}")
             elif progress.backed_by:
                 print(f"  backed by {', '.join(progress.backed_by)}")
     finally:
@@ -1136,15 +1140,26 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_cmd.add_argument("--description")
     campaign_cmd.add_argument(
         "--trigger", default=campaign.TRIGGER_MANUAL,
-        help=f"one of {', '.join(campaign.TRIGGERS)} (default {campaign.TRIGGER_MANUAL})",
+        help=f"one of {', '.join(campaign.TRIGGERS)} (default {campaign.TRIGGER_MANUAL}). "
+             f"{', '.join(sorted(campaign.REFUSED_TRIGGERS))} are refused, each with a "
+             "reason -- see campaign.REFUSED_TRIGGERS",
     )
     campaign_cmd.add_argument(
         "--trigger-value", type=int,
-        help="the threshold a sol_amount/token_amount trigger fires at, in lamports or raw token units",
+        help="when the campaign CLOSES, for a sol_amount/token_amount trigger: lamports "
+             "or raw token units. Usually the same number as --target, which is what the "
+             "page displays as the goal",
     )
     campaign_cmd.add_argument(
         "--target", type=int,
-        help="the goal, in lamports (asset sol) or raw token units (asset token)",
+        help="the goal the page displays. LAMPORTS for --asset sol (--target 5000000000 "
+             "is 5 SOL; 1 SOL = 1,000,000,000), or raw token units for --asset token",
+    )
+    campaign_cmd.add_argument(
+        "--allow-dust-target", action="store_true",
+        help="permit a SOL target below 0.001 SOL. Refused by default: a target that small "
+             "is met by the next speck of dust, so the campaign reports its goal reached "
+             "having burned almost nothing",
     )
     campaign_cmd.add_argument(
         "--asset", default=campaign.ASSET_SOL, choices=list(campaign.ASSETS),
