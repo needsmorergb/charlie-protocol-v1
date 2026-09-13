@@ -1178,6 +1178,7 @@ class TestVercelJson(unittest.TestCase):
             "/enroll",
             "/dilution",
             "/buildlog",
+            "/phases",
             "/flywheel",
             "/charlie-flywheel",
             "/verify",
