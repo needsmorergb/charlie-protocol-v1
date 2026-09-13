@@ -106,6 +106,7 @@ class StoreCase(unittest.TestCase):
             target_value=5 * SOL,
             asset=campaign.ASSET_SOL,
             created_at=1_000,
+            allow_unverified_declarer=True,
         )
         fields.update(overrides)
         return campaign.declare(self.evidence, **fields)
@@ -209,6 +210,107 @@ class TheStatedGoal(StoreCase):
             self.declare(
                 trigger_type=campaign.TRIGGER_SCHEDULE, starts_at=5_000, ends_at=1_000
             )
+
+
+class WhoMaySpeakForACoin(StoreCase):
+    """A campaign puts words in a coin's mouth: a goal it is measured against,
+    and a `closed` status if it misses. Without a check, anyone could declare
+    "burn 500 SOL by Friday" for a token they have nothing to do with.
+
+    The authority is not one this protocol invents -- it is the admin pump's
+    own sharing config names, the same one the on-chain program checks before
+    it will write a coin's route.
+    """
+
+    ADMIN = "2CFywHXDPjDK2iRQsb95vnjgncDUZeQKJ6MceJ4ALpdc"
+    STRANGER = "9strangerWa11etDoesNotOwnThisCoin1111111111"
+
+    class FakeConfig:
+        def __init__(self, admin):
+            self.admin = admin
+
+    def declare_as(self, declared_by, admin=None, **overrides):
+        fields = dict(
+            mint=MINT, name="Burn 5 SOL", trigger_type=campaign.TRIGGER_SOL_AMOUNT,
+            trigger_value=5 * SOL, target_value=5 * SOL, asset=campaign.ASSET_SOL,
+            created_at=1_000,
+            config=self.FakeConfig(admin if admin is not None else self.ADMIN),
+            declared_by=declared_by,
+        )
+        fields.update(overrides)
+        return campaign.declare(self.evidence, **fields)
+
+    def test_the_coins_admin_may_declare(self):
+        row = self.declare_as(self.ADMIN)
+        self.assertEqual(row["status"], campaign.STATUS_ACTIVE)
+
+    def test_a_stranger_may_not_declare_for_a_coin_they_do_not_own(self):
+        with self.assertRaises(campaign.CampaignError) as caught:
+            self.declare_as(self.STRANGER)
+        message = str(caught.exception)
+        self.assertIn("not this coin's admin", message)
+        self.assertIn(self.ADMIN, message, "the refusal must name who may actually declare")
+
+    def test_a_refused_declaration_stores_nothing(self):
+        """A refusal that still wrote the row would be worse than no check."""
+        with self.assertRaises(campaign.CampaignError):
+            self.declare_as(self.STRANGER)
+        self.assertEqual(self.evidence.campaigns(mint=MINT), [])
+
+    def test_declaring_without_a_declarer_is_refused(self):
+        with self.assertRaises(campaign.CampaignError) as caught:
+            self.declare_as(None)
+        self.assertIn("declared-by", str(caught.exception))
+
+    def test_a_coin_with_no_sharing_config_has_nobody_who_may_speak_for_it(self):
+        """Refused rather than passed: absence of an admin is not permission."""
+        with self.assertRaises(campaign.CampaignError) as caught:
+            campaign.declare(
+                self.evidence, mint=MINT, name="x",
+                trigger_type=campaign.TRIGGER_MANUAL, target_value=5 * SOL,
+                asset=campaign.ASSET_SOL, created_at=1_000, config=None,
+            )
+        self.assertIn("sharing config", str(caught.exception))
+
+    def test_the_operator_opt_out_records_itself_as_unverified(self):
+        """An unverified declaration must not be indistinguishable from a
+        checked one in the append-only record."""
+        row = self.declare()
+        detail = self.evidence.campaign_events(row["campaign_id"])[0]["detail"]
+        self.assertIn("unverified", detail)
+
+    def test_a_verified_declaration_records_the_declarer(self):
+        row = self.declare_as(self.ADMIN)
+        detail = self.evidence.campaign_events(row["campaign_id"])[0]["detail"]
+        self.assertIn(self.ADMIN, detail)
+
+
+class ADeadlineOnAnUndatedCampaign(StoreCase):
+    """`advance()` closes a campaign on `ends_at` alone, whatever its trigger.
+
+    So a deadline handed to a manual campaign closes it unmet at that time,
+    permanently, on a page the coin does not control -- while nothing about
+    the campaign reads as scheduled. Proven before it was fixed: a manual
+    campaign with ends_at=5000 advanced to `closed` at now=9000.
+    """
+
+    def test_a_manual_trigger_takes_no_deadline(self):
+        with self.assertRaises(campaign.CampaignError) as caught:
+            self.declare(trigger_type=campaign.TRIGGER_MANUAL, trigger_value=None, ends_at=5_000)
+        message = str(caught.exception)
+        self.assertIn("takes no deadline", message)
+        self.assertIn("schedule", message, "the refusal must name the trigger that does")
+
+    def test_a_sol_amount_trigger_takes_no_deadline_either(self):
+        with self.assertRaises(campaign.CampaignError):
+            self.declare(ends_at=5_000)
+
+    def test_a_scheduled_campaign_still_takes_its_window(self):
+        row = self.declare(
+            trigger_type=campaign.TRIGGER_SCHEDULE, trigger_value=None,
+            starts_at=1_000, ends_at=5_000,
+        )
+        self.assertEqual(row["ends_at"], 5_000)
 
 
 class TriggersItRefuses(StoreCase):

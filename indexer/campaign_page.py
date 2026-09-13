@@ -239,6 +239,16 @@ def render(mint: str, results, *, now=None) -> str:
         "kinds of statement and this page keeps them apart: a goal is declared, "
         "a total is recorded.</p>",
         sections,
+        "<h2>What a campaign costs this coin</h2>",
+        "<p><strong>Nothing, and it changes nothing about the coin's fees.</strong> "
+        "A campaign is a stated goal measured against public chain data. It is not "
+        "enrollment, it moves no money, and it leaves the coin's fee split exactly "
+        "as it was &mdash; that split is a separate decision, made on chain, and "
+        "pump makes it permanent once set.</p>",
+        "<p>What a campaign does require is that the coin's own admin declared it. "
+        "The wallet is checked against the admin the coin's sharing config names, "
+        "which is the authority pump recognises &mdash; so a goal on this page was "
+        "set by whoever controls the coin, not by a passer-by.</p>",
         "<h2>How to read this</h2>",
         "<p>A <strong>goal</strong> is a claim the coin made. Nothing verifies "
         "it, because there is nothing yet to verify &mdash; it is an intention.</p>",

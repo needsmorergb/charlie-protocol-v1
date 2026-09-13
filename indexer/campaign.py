@@ -184,6 +184,22 @@ def validate(
     typed something impossible should be told which part.
     """
     refuse_unsupported(trigger_type)
+    if trigger_type != TRIGGER_SCHEDULE and ends_at is not None:
+        # A deadline on a campaign that does not have a window is the one
+        # combination that silently creates a permanent public failure: a
+        # manual campaign counts from its declaration and never closes
+        # itself, but `advance()` gates closure on `ends_at` alone, so a
+        # deadline handed to a manual trigger closes it exactly as a
+        # scheduled one -- `closed`, unmet, forever, on a page the coin does
+        # not control. Either the caller meant a scheduled campaign or they
+        # meant no deadline; both are one word away, and neither is what
+        # this was.
+        raise CampaignError(
+            f"trigger {trigger_type!r} takes no deadline: --ends-at closes a campaign "
+            "whatever its trigger, so this one would close unmet at that time even "
+            "though nothing about it is scheduled. Use --trigger schedule with "
+            "--starts-at and --ends-at for a dated campaign, or drop --ends-at."
+        )
     if trigger_type not in TRIGGERS:
         raise CampaignError(
             f"trigger {trigger_type!r} is not one of {', '.join(TRIGGERS)}"
@@ -231,6 +247,9 @@ def declare(
     ends_at: int | None = None,
     created_at: int | None = None,
     allow_dust_target: bool = False,
+    config=None,
+    declared_by: str | None = None,
+    allow_unverified_declarer: bool = False,
 ) -> dict:
     """Validate and store one campaign. Returns the stored row.
 
@@ -239,7 +258,51 @@ def declare(
     call returns the row already stored, with its original target and
     `created_at` intact. Re-declaring is therefore never a way to retarget a
     campaign that is not going to meet its goal.
+
+    **Who may speak for a coin.** A campaign puts words in a coin's mouth on
+    a public page: a goal it will be measured against, and a `closed` status
+    if it misses. Without a check, anyone could declare "burn 500 SOL by
+    Friday" for a token they have nothing to do with, and the coin's page
+    would carry a promise it never made.
+
+    So `declared_by` is checked against the coin's live
+    `sharing_config.admin`, which is the same authority pump already
+    recognises and the same rule the on-chain program applies to
+    `init_route`/`set_route` -- ownership is not a claim this protocol
+    invents, it is one it reads. `config` is the coin's `SharingConfig`
+    (the caller reads it; this module holds no RPC handle, which is what
+    keeps every test of it offline).
+
+    A coin with no sharing config has no admin to check against, and that is
+    a refusal rather than a pass: there is nobody the chain says may speak
+    for it. `allow_unverified_declarer` is the deliberate opt-out, for an
+    operator declaring on a coin's behalf with its knowledge -- it records
+    that the declaration was not verified rather than pretending it was.
     """
+    if not allow_unverified_declarer:
+        if config is None:
+            raise CampaignError(
+                "declaring needs the coin's sharing config, so the declarer can be "
+                "checked against the admin pump recognises. A coin with no sharing "
+                "config has nobody the chain says may speak for it -- pass "
+                "allow_unverified_declarer (--allow-unverified-declarer) to declare "
+                "anyway, and the declaration is recorded as unverified."
+            )
+        admin = getattr(config, "admin", None)
+        if declared_by is None:
+            raise CampaignError(
+                "declaring needs --declared-by: the wallet claiming to speak for this "
+                f"coin. Its sharing config names {admin} as admin."
+            )
+        if declared_by != admin:
+            raise CampaignError(
+                f"{declared_by} is not this coin's admin. Its sharing config names "
+                f"{admin}, and that is the authority pump recognises -- the same one "
+                "the protocol program checks before it will write a coin's route. A "
+                "campaign declared by anyone else would put a goal on the coin's page "
+                "that the coin never set."
+            )
+
     validate(
         trigger_type=trigger_type,
         target_value=target_value,
@@ -266,10 +329,13 @@ def declare(
         created_at=created_at,
     )
     if inserted:
+        # The declarer travels with the declaration. An unverified one says so
+        # in the record rather than being indistinguishable from a checked one.
+        who = declared_by if declared_by else "unverified declarer"
         evidence.record_campaign_event(
             campaign_id=identifier,
             event="declared",
-            detail=f"{name}: {target_value} {asset}",
+            detail=f"{name}: {target_value} {asset} (by {who})",
             occurred_at=created_at,
         )
     return evidence.campaign(identifier)

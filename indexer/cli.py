@@ -168,8 +168,12 @@ def _scan(args) -> int:
 def _campaign(args) -> int:
     """Declare a burn campaign, or report what the chain records toward one.
 
-    Declaring writes a stated goal and nothing else -- no figure, no chain
-    read. Listing observes the coin once and evaluates its campaigns through
+    Declaring writes a stated goal and no figure. It does read the chain for
+    one thing: the coin's sharing config, so `--declared-by` can be checked
+    against the admin pump recognises. A campaign speaks for a coin on a
+    public page, and the chain already names who may do that.
+
+    Listing observes the coin once and evaluates its campaigns through
     the same gate every figure on this site passes: a coin whose totals are
     withheld gets campaigns with no progress figure, never one with an
     ungated number standing in for it.
@@ -189,6 +193,18 @@ def _campaign(args) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            config = None
+            if not args.allow_unverified_declarer:
+                rpc = RpcClient(_endpoints(args.rpc))
+                try:
+                    config = read_sharing_config(rpc, read_bonding_curve(rpc, args.mint))
+                except Exception as exc:  # DecodeError, RpcUnavailable, anything upstream
+                    print(
+                        f"could not read {args.mint}'s sharing config, so the declarer "
+                        f"cannot be checked against its admin: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
             try:
                 row = campaign.declare(
                     evidence,
@@ -202,6 +218,9 @@ def _campaign(args) -> int:
                     starts_at=args.starts_at,
                     ends_at=args.ends_at,
                     allow_dust_target=args.allow_dust_target,
+                    config=config,
+                    declared_by=args.declared_by,
+                    allow_unverified_declarer=args.allow_unverified_declarer,
                 )
             except campaign.CampaignError as exc:
                 print(f"refused: {exc}", file=sys.stderr)
@@ -1154,6 +1173,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--target", type=int,
         help="the goal the page displays. LAMPORTS for --asset sol (--target 5000000000 "
              "is 5 SOL; 1 SOL = 1,000,000,000), or raw token units for --asset token",
+    )
+    campaign_cmd.add_argument(
+        "--declared-by",
+        help="the wallet claiming to speak for this coin. Checked against the admin its "
+             "sharing config names -- the same authority pump recognises and the protocol "
+             "program checks before writing a coin's route",
+    )
+    campaign_cmd.add_argument(
+        "--allow-unverified-declarer", action="store_true",
+        help="declare without checking the declarer against the coin's admin, for an "
+             "operator declaring on a coin's behalf. The declaration is recorded as "
+             "unverified rather than presented as checked",
     )
     campaign_cmd.add_argument(
         "--allow-dust-target", action="store_true",

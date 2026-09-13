@@ -91,6 +91,7 @@ class PageCase(unittest.TestCase):
             mint=MINT, name="Burn 5 SOL", trigger_type=campaign.TRIGGER_SOL_AMOUNT,
             trigger_value=5 * SOL, target_value=5 * SOL, asset=campaign.ASSET_SOL,
             created_at=1_000,
+            allow_unverified_declarer=True,
         )
         fields.update(overrides)
         return campaign.declare(self.evidence, **fields)

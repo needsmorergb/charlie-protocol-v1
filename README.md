@@ -23,9 +23,9 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 405 offline tests |
-| `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
-| `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>` | **built and deployed** · `/enroll` remains phase 5 |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 950 offline tests |
+| `program/` — `init_charlie_pool`, `init_route`, `set_route`, `distribute` | **written and on devnet** at `GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG` · **not on mainnet**, which is the funding-gated one-way door |
+| `web/` — `/`, `/coin/<mint>`, `/coins`, `/verify/<mint>`, `/enroll`, `/campaigns/<mint>` | **built and deployed** · `/enroll` is live on mainnet, one coin enrolled |
 
 Deployed at [charlieprotocol.fun](https://charlieprotocol.fun). Intake is
 **submission-driven** (D-33/D-34): there is no cadence over enumerated
