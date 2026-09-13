@@ -103,6 +103,15 @@ PERMITTED_STATEMENTS = {
         "the same literal with a ? for the mint, whose value is bound, not "
         "interpolated -- a mint reaching this query came off an RPC response "
         "and never touches the statement text",
+    ("cli.py", "_empty_over_populated", "_COUNT_BY_TABLE[table]"): (
+        "a lookup into a module-level dict whose every VALUE is a plain string "
+        "literal written in cli.py -- `SELECT COUNT(*) FROM <table>`, one per "
+        "table, spelled out rather than built. The key comes from "
+        "export.EXPORT_TABLES, itself a literal tuple, and a key that is not in "
+        "the dict raises KeyError instead of reaching execute(). Nothing from a "
+        "chain read, a file or a caller can select or shape the statement text. "
+        "Pinned by TestTheAllowlistedSitesStillLookLikeThemselves."
+    ),
 }
 
 # Each `{...}` inside an f-string handed to an execute-family call.
@@ -345,6 +354,34 @@ class TestTheAllowlistedSitesStillLookLikeThemselves(unittest.TestCase):
         self.assertIsInstance(joined, (ast.GeneratorExp, ast.ListComp))
         self.assertIsInstance(joined.elt, ast.Constant)
         self.assertEqual(joined.elt.value, "?")
+
+    def test_the_count_statements_are_every_one_a_literal(self):
+        """`_COUNT_BY_TABLE`'s entry says the dict holds only string literals.
+        Without this, a value could become an f-string and the entry would
+        still name the site and still say why it used to be safe.
+        """
+        tree = ast.parse((INDEXER_DIR / "cli.py").read_text(encoding="utf-8"), filename="cli.py")
+        bindings = self.bindings_of(tree, "_COUNT_BY_TABLE")
+        self.assertEqual(len(bindings), 1, "_COUNT_BY_TABLE is bound more than once")
+        kind, node = bindings[0]
+        self.assertEqual(kind, "assign")
+        self.assertIsInstance(node.value, ast.Dict)
+        for key, value in zip(node.value.keys, node.value.values):
+            self.assertIsInstance(key, ast.Constant)
+            self.assertIsInstance(key.value, str)
+            self.assertIsInstance(value, ast.Constant, ast.unparse(value))
+            self.assertIsInstance(value.value, str)
+            self.assertTrue(value.value.startswith("SELECT COUNT(*) FROM "), value.value)
+
+    def test_every_exported_table_has_a_count_statement(self):
+        """The guard counts rows through EXPORT_TABLES, so a table added there
+        without an entry here would raise KeyError mid-export instead of
+        counting. Both lists are literals, so this can be checked statically.
+        """
+        from indexer.cli import _COUNT_BY_TABLE
+        from indexer.export import EXPORT_TABLES
+
+        self.assertEqual({t for t, _o in EXPORT_TABLES}, set(_COUNT_BY_TABLE))
 
     def test_the_sharing_config_query_is_built_from_literals(self):
         """`query` is concatenation and a join, and every piece of both has to

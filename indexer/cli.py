@@ -35,6 +35,7 @@ from pathlib import Path
 from . import (
     buildlog_page,
     campaign,
+    campaign_page,
     coverage,
     dilution_page,
     enroll_page,
@@ -46,7 +47,7 @@ from . import (
     site,
 )
 from .evidence import DEFAULT_DB_PATH, Evidence
-from .export import DEFAULT_EXPORT_DIR, export_all, import_all
+from .export import DEFAULT_EXPORT_DIR, EXPORT_TABLES, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
 from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
@@ -219,6 +220,11 @@ def _campaign(args) -> int:
             return 2
 
         results = campaign.evaluate(args.mint, record, evidence)
+        if args.write:
+            # The page renders `results` -- already through the gate -- so
+            # writing it cannot compute a figure of its own.
+            print(f"wrote {campaign_page.write(args.mint, results, Path(args.out))}")
+            return 0
         if not results:
             print(f"{args.mint}: no campaigns declared")
             return 0
@@ -583,14 +589,84 @@ def _intake(args) -> int:
 
 
 def _export(args) -> int:
+    """Write the deterministic committed text export.
+
+    **Refuses to export an empty store over a populated one.** The `.db` is a
+    cache and is not committed, so a fresh checkout has an empty one; the
+    export is the record. Running this before `load` therefore wrote ten
+    zero-byte files over the committed evidence -- 12KB of burn_event,
+    discrepancy, initial_supply and scan_cursor, gone, with the command
+    reporting success for every one of them. It is truthful (the store really
+    does hold nothing) and it is destructive, which is the combination worth
+    a guard rather than a note in a docstring.
+
+    The rule is narrow on purpose: refuse only when this store has NO rows at
+    all AND the target export has some. A partially-populated store is a real
+    state (one table measured, another not yet), and refusing that would
+    block ordinary use. `--force` is the escape hatch for the one legitimate
+    case, deliberately emptying the record.
+    """
     evidence = Evidence(args.db)
     try:
+        if not args.force:
+            refusal = _empty_over_populated(evidence, Path(args.out))
+            if refusal is not None:
+                print(refusal, file=sys.stderr)
+                return 1
         written = export_all(evidence, args.out)
     finally:
         evidence.close()
     for path in written:
         print(f"wrote {path}")
     return 0
+
+
+def _empty_over_populated(evidence, out_dir: Path) -> str | None:
+    """The refusal sentence, or None when the export is safe to write.
+
+    Counts rows through the same `EXPORT_TABLES` the export walks, so a table
+    added to the store is covered here the moment it is added there.
+    """
+    rows = 0
+    for table, _order_by in EXPORT_TABLES:
+        for row in evidence.connection.execute(_COUNT_BY_TABLE[table]):
+            rows += int(row[0])
+    if rows:
+        return None
+
+    committed = 0
+    for table, _order_by in EXPORT_TABLES:
+        path = out_dir / f"{table}.jsonl"
+        if path.exists():
+            committed += sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    if not committed:
+        return None
+
+    return (
+        f"refusing to export: this store holds no rows and {out_dir} holds "
+        f"{committed}. Exporting now would replace the committed record with "
+        "empty files and report success for every one of them.\n"
+        f"Load the record into the store first:  python -m indexer load --db {evidence.path}\n"
+        "Pass --force only to deliberately empty the committed export."
+    )
+
+
+# One literal `SELECT COUNT(*)` per table rather than an f-string built from
+# the table name: `tests/test_discipline.py` flags any non-literal statement
+# reaching `execute()`, and a counting query is not worth an allowlist entry
+# when the tables are known at author time.
+_COUNT_BY_TABLE = {
+    "inflow": "SELECT COUNT(*) FROM inflow",
+    "opening_balance": "SELECT COUNT(*) FROM opening_balance",
+    "scan_cursor": "SELECT COUNT(*) FROM scan_cursor",
+    "initial_supply": "SELECT COUNT(*) FROM initial_supply",
+    "burn_event": "SELECT COUNT(*) FROM burn_event",
+    "discrepancy": "SELECT COUNT(*) FROM discrepancy",
+    "submission": "SELECT COUNT(*) FROM submission",
+    "sharing_config": "SELECT COUNT(*) FROM sharing_config",
+    "campaign": "SELECT COUNT(*) FROM campaign",
+    "campaign_event": "SELECT COUNT(*) FROM campaign_event",
+}
 
 
 def _distribute(args) -> int:
@@ -1004,6 +1080,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_cmd.add_argument("--db", default=str(DEFAULT_DB_PATH), help=f"default {DEFAULT_DB_PATH}")
     export_cmd.add_argument("--out", default=str(DEFAULT_EXPORT_DIR), help=f"default {DEFAULT_EXPORT_DIR}")
+    export_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="export even when this store is empty and the committed record is not "
+             "(deliberately emptying it)",
+    )
     export_cmd.set_defaults(handler=_export)
 
     refresh_cmd = sub.add_parser(
@@ -1075,6 +1157,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"SQLite evidence store to read/write (default {DEFAULT_DB_PATH})",
     )
     campaign_cmd.add_argument("--json", action="store_true", help="one JSON record per campaign")
+    campaign_cmd.add_argument(
+        "--write", action="store_true",
+        help=f"write the coin's campaign page under --out instead of printing",
+    )
+    campaign_cmd.add_argument(
+        "--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}"
+    )
     campaign_cmd.set_defaults(handler=_campaign)
 
     reconcile_cmd = sub.add_parser(
