@@ -22,6 +22,12 @@ state/*.db-shm
 # Agent tooling configuration, not project documentation. Nothing a verifier
 # needs, and it is the clearest authorship tell in the tree.
 CLAUDE.md
+.maestro/
+.codex/
+.cursor/
+AGENTS.md
+HANDOFF-CLAUDE.md
+HANDOFF-CODEX.md
 
 # The append-only observation log is the local working record. It carries
 # superseded schema-1 rows whose wording predates the current spec, and the
@@ -66,7 +72,15 @@ _enrollable.json
 # which secrets are set in which repository, and the open-items roadmap.
 # Operational detail about running the protocol, not about verifying it --
 # and the wallet it names pays for every crank run.
+#
+# The glob, not just the literal name. `HANDOFF.md` alone missed
+# HANDOFF-2026-09-13.md, which names the same crank fee payer
+# (DqP9Wb...htmwj) on its line 41 and sat untracked-but-addable in a public
+# repository until it was noticed by hand. A dated successor is the normal
+# way this file gets written, so the pattern has to cover the family rather
+# than the one name that existed when the rule was added.
 HANDOFF.md
+HANDOFF-*.md
 
 # Keypairs, anywhere. Both repositories are public, and a Solana keypair is
 # an ordinary-looking JSON array of 64 integers -- nothing about the file
