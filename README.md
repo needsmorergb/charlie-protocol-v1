@@ -23,9 +23,9 @@ check that can fail" cannot open by overstating itself.
 
 | | State |
 |---|---|
-| `indexer/` — reads sharing configs, runs the checks | **built** · 405 offline tests |
-| `program/` — `init_vault`, `crank_burn` | **not built** · no program id exists |
-| `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>` | **built and deployed** · `/enroll` remains phase 5 |
+| `indexer/` — reads sharing configs, runs the checks | **built** · 893 offline tests |
+| `program/` — `init_charlie_pool`, `init_route`, `set_route`, `distribute` | **written and deployed to devnet** at `GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG` · 13 tests · **not deployed to mainnet**, which is the funding-gated one-way door |
+| `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>`, `/enroll`, `/dilution`, `/buildlog`, `/phases`, `/flywheel` | **built and deployed** |
 
 Deployed at [charlieprotocol.fun](https://charlieprotocol.fun). Intake is
 **submission-driven** (D-33/D-34): there is no cadence over enumerated
@@ -91,9 +91,11 @@ observation.
 
 The plan for closing that runs to five phases, and "done" for each one means a
 check that currently reads `UNCHECKED` returns `PASS` or `FAIL` — not that code
-exists. The public surface lands in phase 2, deliberately ahead of the deploy
-gate rather than behind it. Phase 1 is complete; the program is phase 4 and is
-not written.
+exists. The public surface lands in phase 3, deliberately ahead of the deploy
+gate rather than behind it. The program is phase 4: it is written and deployed
+to devnet, and it is not deployed to mainnet. Which phases the checks currently
+call complete is at [`/phases`](https://charlieprotocol.fun/phases), graded by
+those checks rather than asserted here.
 
 ## Running the indexer
 

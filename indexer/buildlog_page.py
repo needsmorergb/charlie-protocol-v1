@@ -59,7 +59,7 @@ _ENTRIES = [
     {
         "date": "2026-08-30",
         "status": "SHIPPED",
-        "title": "Phase 1 -- the evidence walk",
+        "title": "Phase 3 -- the evidence walk, and what it reconciles",
         "body": "Fee inflows reconciled per destination, SPL burn and boost "
         "decoders, initial supply derived from the coin's own CreateEvent, and "
         "the atomicity check that holds a swap and its burn to one "
@@ -69,7 +69,7 @@ _ENTRIES = [
     {
         "date": "2026-08-31",
         "status": "SHIPPED",
-        "title": "Phase 2 -- the public surface",
+        "title": "Phase 3, continued -- the public surface",
         "body": "The coin page, its raw JSON record, and the checks list that "
         "names every check that passed, failed, or was never run. Built "
         "deliberately ahead of the deploy gate rather than behind it.",

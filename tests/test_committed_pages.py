@@ -25,11 +25,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import enroll_page, flywheel_page, site, splitter_page  # noqa: E402
+from indexer import enroll_page, flywheel_page, phases_page, site, splitter_page  # noqa: E402
 from indexer.cli import _index_inputs  # noqa: E402
 
 # The one thing that legitimately differs between two renders of the same page.
-TIMESTAMP = re.compile(r"generated at [^<]*")
+# Two phrasings are in use -- `site.py`/`enroll_page` write "generated at
+# <stamp>", `buildlog_page`/`phases_page` write "Page generated <stamp>. It is
+# a snapshot..." -- and a mask that covered only the first compares two clock
+# readings and fails on every run rather than only on staleness.
+TIMESTAMP = re.compile(r"(?:generated at|Page generated) [^<.]*")
 
 
 def mask(page: str) -> str:
@@ -49,6 +53,10 @@ def static_pages(web: Path) -> dict:
         site.VERIFY_FILENAME: site.render_verify(example_mint=example),
         site.NOT_FOUND_FILENAME: site.render_not_found(),
         enroll_page.ENROLL_FILENAME: enroll_page.render(),
+        # Rendered with no observation, exactly as `cli._write_index` writes
+        # it, so a difference here is staleness rather than a coin's checks
+        # having moved underneath the page.
+        phases_page.PHASES_FILENAME: phases_page.render(),
     }
     # `/flywheel` renders from a recorded devnet run, not from a chain read,
     # so it is the same bytes on every machine and a difference is staleness
