@@ -35,7 +35,9 @@ trust is a worse guarantee than 20 lines they can check.
 
 ## Status
 
-**Written.** 11 tests pass (`cargo test`), covering the properties the design
+**Written.** 13 tests pass (`cargo test`) -- 11 in this crate plus the two in
+`tests/derive.rs`, which is the whole of what `cargo test` runs and the count
+`/buildlog` states. They cover the properties the design
 claims: the toll is unmoved by any dev split, legs never exceed what came in,
 and the integer-division remainder stays in the collector rather than favouring
 whichever leg the code happens to pay first.

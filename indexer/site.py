@@ -3054,6 +3054,10 @@ def render_landing(observation, *, now=None) -> str:
         # because the question it answers is the one a reader arrives with.
         '<p class="meta">Hold SOL? <a href="/dilution">See what issuance '
         "costs your bag</a>.</p>"
+        # Graded by the checks rather than asserted, which is the one claim
+        # this project makes about itself that a reader can audit directly.
+        '<p class="meta">What is actually done? <a href="/phases">The phases, '
+        "graded by their own checks</a>.</p>"
         "</div>"
         + '<div class="hero-rule"></div>'
         f'<div class="rise d3">{freshness}</div>'

@@ -37,6 +37,7 @@ from . import (
     dilution_page,
     enroll_page,
     flywheel_page,
+    phases_page,
     splitter_page,
     intake,
     invariants,
@@ -318,6 +319,11 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # The build log. Same rule again, and it carries the deploy gate in
     # writing, so it must not be linked from a site that has not written it.
     written.append(buildlog_page.write(out_dir))
+    # The phases page. Same rule again. Written with no observation here: this
+    # helper has no chain read to pass it, so the page renders each phase's
+    # stated status and says on the page that nothing was measured for this
+    # render, which is the honest rendering rather than a silently ungraded one.
+    written.append(phases_page.write(out_dir))
     # The flywheel proof. Written only when the devnet run it reports exists:
     # unlike every other page here it has an input, and a page that invented
     # an empty run would be claiming a distribution moved nothing rather
