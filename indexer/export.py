@@ -30,6 +30,8 @@ EXPORT_TABLES: tuple[tuple[str, str], ...] = (
     ("discrepancy", "id"),
     ("submission", "repo, issue_number, attempted_at"),
     ("sharing_config", "address, config_hash"),
+    ("campaign", "created_at, campaign_id"),
+    ("campaign_event", "campaign_id, occurred_at, event"),
 )
 
 

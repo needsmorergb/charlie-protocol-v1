@@ -575,6 +575,17 @@ NON_FIGURE_EMITTERS = {
         "transaction the operator built or sent; no coin-wide figure, no name in "
         "invariants.FIGURES"
     ),
+    "indexer.cli:_campaign": (
+        "prints a campaign's STATED GOAL (name, target, trigger, status) and, when "
+        "listing, the progress `campaign.progress_of` computed -- which is itself "
+        "obtained through publish.Publisher, so a withheld figure prints the "
+        "blocking check's name and detail rather than a number. A campaign's "
+        "progress is deliberately NOT a member of invariants.FIGURES: it is a "
+        "windowed sum of the same inflow/burn_event rows SOL_BURN_TOTAL and "
+        "SUPPLY_DESTROYED already back, gated on those figures rather than on a "
+        "sixth check of its own, because there is nothing about a stated goal for "
+        "a chain to falsify beyond the burns already checked"
+    ),
     "indexer.cli:_load": (
         "prints how many rows each table of the committed export loaded -- a count "
         "of records read from a file, not a measurement of a coin. Nothing here is "

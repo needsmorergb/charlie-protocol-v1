@@ -95,6 +95,14 @@ PERMITTED_STATEMENTS = {
     ("evidence.py", "submissions", "self._SELECT_BY_REPO_AND_MINT"):
         "the same literal with a ? for each, both bound rather than "
         "interpolated",
+    ("evidence.py", "campaigns", "self._SELECT_CAMPAIGNS"):
+        "a string literal defined on the class, with no interpolation of any "
+        "kind in it -- `campaigns()` chooses between two whole literals "
+        "rather than building a WHERE clause, exactly as `submissions()` does",
+    ("evidence.py", "campaigns", "self._SELECT_CAMPAIGNS_BY_MINT"):
+        "the same literal with a ? for the mint, whose value is bound, not "
+        "interpolated -- a mint reaching this query came off an RPC response "
+        "and never touches the statement text",
 }
 
 # Each `{...}` inside an f-string handed to an execute-family call.

@@ -258,6 +258,65 @@ class Evidence:
             """
         )
         self._conn.execute("CREATE INDEX IF NOT EXISTS submission_mint ON submission(mint)")
+
+        # -- campaign (CAMP-01) ---------------------------------------------
+        # A campaign is a STATED GOAL, not a measurement. Everything in this
+        # table is what somebody declared -- the target, the trigger, the
+        # asset -- and nothing in it is a figure read off the chain. Progress
+        # is never stored here: it is recomputed from `inflow`/`burn_event`
+        # every time it is asked for, through the same gate every other
+        # figure passes (`campaign.progress_of`). A stored progress column
+        # would be a number that goes stale in a table that looks
+        # authoritative, which is the exact failure `legs.classify_split`
+        # already refuses to cache for.
+        #
+        # Mutable by design, unlike every other table here, and the reason is
+        # that a campaign is an intention rather than an observation: a dev
+        # may pause one, extend it, or close it. So `status` and `updated_at`
+        # change in place -- but `campaign_event` below records every such
+        # change as its own append-only row, so the history of what a
+        # campaign claimed is never rewritten even though its current state
+        # is.
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS campaign (
+                campaign_id    TEXT    PRIMARY KEY,
+                mint           TEXT    NOT NULL,
+                name           TEXT    NOT NULL,
+                description    TEXT,
+                trigger_type   TEXT    NOT NULL,
+                trigger_value  INTEGER,
+                target_value   INTEGER NOT NULL,
+                asset          TEXT    NOT NULL,
+                status         TEXT    NOT NULL,
+                starts_at      INTEGER,
+                ends_at        INTEGER,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS campaign_mint ON campaign(mint)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS campaign_status ON campaign(status)")
+
+        # Append-only, `submission`'s pattern applied to a campaign's
+        # lifecycle: every status change is a NEW row and no row is ever
+        # edited. A campaign that was quietly retargeted after missing its
+        # goal is the thing this table exists to make impossible to hide.
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS campaign_event (
+                campaign_id  TEXT    NOT NULL,
+                occurred_at  INTEGER NOT NULL,
+                event        TEXT    NOT NULL,
+                detail       TEXT,
+                PRIMARY KEY (campaign_id, occurred_at, event)
+            )
+            """
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS campaign_event_campaign ON campaign_event(campaign_id)"
+        )
         self._conn.commit()
 
     # -- inflow ---------------------------------------------------------
@@ -925,6 +984,207 @@ class Evidence:
             (answered_at, closed_at, repo, int(issue_number), int(attempted_at)),
         )
         self._conn.commit()
+
+    # -- campaign (CAMP-01) -------------------------------------------------
+    # The closed vocabularies live in `campaign.py` beside the code that
+    # evaluates them, exactly as `record_submission`'s reason vocabulary is
+    # owned by `intake.py` rather than re-declared here. Same deliberate
+    # lower-imports-higher edge, same reason: a vocabulary has one owner, and
+    # the store enforces the caller's contract structurally instead of
+    # trusting every call site.
+
+    def record_campaign(
+        self,
+        *,
+        campaign_id: str,
+        mint: str,
+        name: str,
+        trigger_type: str,
+        target_value: int,
+        asset: str,
+        status: str,
+        description: str | None = None,
+        trigger_value: int | None = None,
+        starts_at: int | None = None,
+        ends_at: int | None = None,
+        created_at: int | None = None,
+    ) -> bool:
+        """Declare a campaign. Returns True iff this call inserted a NEW row.
+
+        `INSERT OR IGNORE` on `campaign_id`: re-declaring an existing
+        campaign is a no-op, never a silent retarget. Changing a live
+        campaign's goal is not something this method can do -- and that is
+        deliberate, because a target that can be edited after the fact is not
+        a target, it is a description of whatever happened.
+
+        Every vocabulary argument is checked against `campaign.py`'s closed
+        set, so a trigger this engine cannot evaluate fails loudly here
+        rather than being stored as a fact nothing can ever answer.
+        """
+        from . import campaign as _campaign
+
+        if trigger_type not in _campaign.TRIGGERS:
+            raise ValueError(f"{trigger_type!r} is not a member of campaign.TRIGGERS")
+        if status not in _campaign.STATUSES:
+            raise ValueError(f"{status!r} is not a member of campaign.STATUSES")
+        if asset not in _campaign.ASSETS:
+            raise ValueError(f"{asset!r} is not a member of campaign.ASSETS")
+        if int(target_value) <= 0:
+            raise ValueError("a campaign's target must be positive -- a goal of zero is met by doing nothing")
+        if trigger_type in _campaign.TRIGGERS_REQUIRING_VALUE and trigger_value is None:
+            raise ValueError(f"trigger {trigger_type!r} requires a trigger_value")
+
+        created_at = created_at if created_at is not None else int(time.time())
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO campaign
+                (campaign_id, mint, name, description, trigger_type, trigger_value,
+                 target_value, asset, status, starts_at, ends_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                campaign_id,
+                mint,
+                name,
+                description,
+                trigger_type,
+                int(trigger_value) if trigger_value is not None else None,
+                int(target_value),
+                asset,
+                status,
+                starts_at,
+                ends_at,
+                created_at,
+                created_at,
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def set_campaign_status(
+        self, campaign_id: str, status: str, *, detail: str | None = None, at: int | None = None
+    ) -> None:
+        """The one permitted mutation of a campaign row, and it writes an
+        append-only `campaign_event` alongside (mirroring `set_atomic`'s
+        one-column-only rule, with a history row the others do not need).
+
+        A campaign's current status changes; the record of it having changed
+        does not.
+        """
+        from . import campaign as _campaign
+
+        if status not in _campaign.STATUSES:
+            raise ValueError(f"{status!r} is not a member of campaign.STATUSES")
+        at = at if at is not None else int(time.time())
+        self._conn.execute(
+            "UPDATE campaign SET status = ?, updated_at = ? WHERE campaign_id = ?",
+            (status, at, campaign_id),
+        )
+        self.record_campaign_event(
+            campaign_id=campaign_id, event=status, detail=detail, occurred_at=at
+        )
+
+    def record_campaign_event(
+        self,
+        *,
+        campaign_id: str,
+        event: str,
+        detail: str | None = None,
+        occurred_at: int | None = None,
+    ) -> bool:
+        """One row per lifecycle event, never rewritten."""
+        occurred_at = occurred_at if occurred_at is not None else int(time.time())
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO campaign_event
+                (campaign_id, occurred_at, event, detail)
+            VALUES (?, ?, ?, ?)
+            """,
+            (campaign_id, int(occurred_at), event, detail),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def campaign(self, campaign_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM campaign WHERE campaign_id = ?", (campaign_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    _SELECT_CAMPAIGNS = "SELECT * FROM campaign ORDER BY created_at, campaign_id"
+    _SELECT_CAMPAIGNS_BY_MINT = (
+        "SELECT * FROM campaign WHERE mint = ? ORDER BY created_at, campaign_id"
+    )
+
+    def campaigns(self, *, mint: str | None = None) -> list[dict]:
+        """Two literal query strings rather than one built conditionally --
+        `tests/test_discipline.py` flags any non-literal fragment reaching
+        `execute()`, and this is the shape `submissions()` already uses for
+        the same reason.
+        """
+        if mint is not None:
+            rows = self._conn.execute(self._SELECT_CAMPAIGNS_BY_MINT, (mint,)).fetchall()
+        else:
+            rows = self._conn.execute(self._SELECT_CAMPAIGNS).fetchall()
+        return [dict(row) for row in rows]
+
+    def campaign_events(self, campaign_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM campaign_event WHERE campaign_id = ? ORDER BY occurred_at, event",
+            (campaign_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def burned_lamports_since(self, mint: str, destinations: tuple, since: int | None) -> int:
+        """Recorded SOL-burn inflows for `mint`, optionally only those at or
+        after `since` (block time). The sum a campaign's progress is computed
+        from -- read from the same `inflow` rows `SOL_BURN_BALANCE` checks,
+        never from a separate campaign-specific tally.
+
+        Positive rows only, mirroring `recorded_lamports`: an outflow must
+        never net away progress.
+
+        Returns 0 when `destinations` is empty rather than summing the whole
+        table -- a campaign whose coin has no SOL-burn destination has made
+        no progress, which is not the same as "every burn on the chain".
+        """
+        if not destinations:
+            return 0
+        total = 0
+        for destination in destinations:
+            if since is None:
+                row = self._conn.execute(
+                    "SELECT COALESCE(SUM(lamports), 0) AS total FROM inflow "
+                    "WHERE mint = ? AND destination = ? AND lamports > 0",
+                    (mint, destination),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT COALESCE(SUM(lamports), 0) AS total FROM inflow "
+                    "WHERE mint = ? AND destination = ? AND lamports > 0 "
+                    "AND block_time IS NOT NULL AND block_time >= ?",
+                    (mint, destination, int(since)),
+                ).fetchone()
+            total += int(row["total"])
+        return total
+
+    def tokens_burned_since(self, mint: str, since: int | None) -> int:
+        """Recorded token burns for `mint`, optionally windowed by block
+        time -- the token-side counterpart of `burned_lamports_since`, read
+        from the same `burn_event` rows `SUPPLY_DESTROYED` is computed from.
+        """
+        if since is None:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(tokens_burned), 0) AS total FROM burn_event WHERE mint = ?",
+                (mint,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(tokens_burned), 0) AS total FROM burn_event "
+                "WHERE mint = ? AND block_time IS NOT NULL AND block_time >= ?",
+                (mint, int(since)),
+            ).fetchone()
+        return int(row["total"])
 
     def cursor_endpoints(self, target: str, purpose: str) -> list[str]:
         """Every endpoint that successfully walked at least one signature for

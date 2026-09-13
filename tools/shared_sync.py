@@ -72,6 +72,7 @@ SHARED = (
     "indexer/base58.py",
     "indexer/buildlog_page.py",
     "indexer/buyback.py",
+    "indexer/campaign.py",
     "indexer/cli.py",
     "indexer/coverage.py",
     "indexer/curve.py",
