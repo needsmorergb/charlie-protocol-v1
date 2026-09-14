@@ -11,6 +11,10 @@
     "api/enroll.py": {
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 20
+    },
+    "api/launch.py": {
+      "includeFiles": "{indexer/**,web/**}",
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -60,6 +64,10 @@
     {
       "source": "/enroll",
       "destination": "/enroll.html"
+    },
+    {
+      "source": "/launch",
+      "destination": "/launch.html"
     },
     {
       "source": "/dilution",

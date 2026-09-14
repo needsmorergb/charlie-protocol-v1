@@ -66,6 +66,7 @@ RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 # measured belongs to production.
 SHARED = (
     "api/enroll.py",
+    "api/launch.py",
     "api/verify.py",
     "indexer/__init__.py",
     "indexer/__main__.py",
@@ -88,6 +89,8 @@ SHARED = (
     "indexer/flywheel_page.py",
     "indexer/intake.py",
     "indexer/invariants.py",
+    "indexer/launch.py",
+    "indexer/launch_page.py",
     "indexer/legs.py",
     "indexer/message.py",
     "indexer/observe.py",
