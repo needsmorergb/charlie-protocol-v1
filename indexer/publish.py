@@ -521,6 +521,13 @@ NON_FIGURE_EMITTERS = {
         "would report once checked -- but never presented as checked, which is the "
         "distinction PUB-01 draws"
     ),
+    "indexer.cli:_report_distribution": (
+        "prints one line per coin the distribute crank handled -- the outcome word, "
+        "the transaction signature, the vault balance in raw lamports and a "
+        "shareholder count. Chain-read operational state for the operator's log, "
+        "none of it a name in invariants.FIGURES; the coin page reads payouts back "
+        "from the chain rather than from this print"
+    ),
     "indexer.cli:_export": (
         "prints the file paths export_all() wrote -- filenames, not figures"
     ),

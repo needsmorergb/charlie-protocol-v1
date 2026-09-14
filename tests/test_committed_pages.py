@@ -6,8 +6,8 @@ retracted one until a scheduled job happened to regenerate that page. Nothing
 failed in between, in either repository, because nothing compares a committed
 artifact against the code that writes it.
 
-Only the pages that need no chain read are checked here -- `/verify`, `/404`
-and `/enroll` are the same bytes on every machine, so a difference is always
+Only the pages that need no chain read are checked here -- `/verify`, `/404`,
+`/enroll` and `/launch` are the same bytes on every machine, so a difference is always
 staleness and never a fresh measurement. A coin page and the landing page are
 observations; they are the publishing jobs' business, not this file's.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import enroll_page, flywheel_page, phases_page, site, splitter_page  # noqa: E402
+from indexer import enroll_page, flywheel_page, launch_page, phases_page, site, splitter_page  # noqa: E402
 from indexer.cli import _index_inputs  # noqa: E402
 
 # The one thing that legitimately differs between two renders of the same page.
@@ -53,6 +53,7 @@ def static_pages(web: Path) -> dict:
         site.VERIFY_FILENAME: site.render_verify(example_mint=example),
         site.NOT_FOUND_FILENAME: site.render_not_found(),
         enroll_page.ENROLL_FILENAME: enroll_page.render(),
+        launch_page.LAUNCH_FILENAME: launch_page.render(),
         # Rendered with no observation, exactly as `cli._write_index` writes
         # it, so a difference here is staleness rather than a coin's checks
         # having moved underneath the page.

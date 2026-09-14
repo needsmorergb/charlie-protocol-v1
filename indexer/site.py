@@ -2406,6 +2406,10 @@ def render_verify(*, now=None, example_mint=None) -> str:
         '<p><strong>Own a coin?</strong> '
         '<a href="/enroll">Set where its creator fee goes</a> -- connect the '
         "wallet that administers it and route the fee yourself.</p>"
+        '<p><strong>Launching one?</strong> '
+        '<a href="/launch">Create it here with its burn built in</a> -- pump '
+        "makes the coin, your wallet signs, and the fee destinations are set "
+        "before anyone has traded it.</p>"
         "</main>"
         f'<p class="meta">generated at {esc(stamp)}</p>'
         f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
@@ -2897,6 +2901,14 @@ _LANDING_SOON_HEADING = "Launch with Charlie Protocol"
 # `invariants.FIGURES`, and the no-figure-names test covers the whole
 # rendered document, prose included.
 _LANDING_SOON = (
+    "Launching is open at /launch. A coin is created there through pump's "
+    "own create instruction, with the wallet that signs as its creator, and "
+    "its fee destinations are set in the next transaction, before anyone has "
+    "traded it: a share to Solana's incinerator, the protocol's share, and "
+    "the rest wherever the creator says. pump lets those destinations be "
+    "changed exactly once, and launching this way spends that one change at "
+    "creation, on purpose. Two wallet approvals; the key never leaves the "
+    "wallet, and nothing here holds the coin at any point.",
     "When it ships, a coin will name its three fee destinations when it is "
     "created -- SOL_BURN, BURN and OPS -- and its SOL burn vault will be derived by "
     "the program rather than chosen by whoever deploys it. The coin then gets "
@@ -3050,6 +3062,8 @@ def render_landing(observation, *, now=None) -> str:
         "read while you wait.</p>"
         '<p class="meta">Own a coin? <a href="/enroll">Set where its creator '
         "fee goes</a>.</p>"
+        '<p class="meta">Launching one? <a href="/launch">Create it with its '
+        "burn built in</a>.</p>"
         # The one page that argues rather than reports, linked from the hero
         # because the question it answers is the one a reader arrives with.
         '<p class="meta">Hold SOL? <a href="/dilution">See what issuance '
