@@ -26,7 +26,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from . import legs, site
+from . import site
 
 LAUNCH_FILENAME = "launch.html"
 
@@ -136,7 +136,12 @@ function addRow(addr, pct, locked, label, caption, hint) {
   var rm = document.createElement('button');
   rm.type = 'button'; rm.className = 'rm';
   if (locked) {
-    a.readOnly = true; b.readOnly = true;
+    // The protocol row. Its value is what makes the total 100, but the
+    // figure shown is the fee as it is stated everywhere: per transaction.
+    a.readOnly = true; b.readOnly = true; b.hidden = true;
+    var fixed = document.createElement('span');
+    fixed.className = 'share-fixed'; fixed.textContent = '0.25% of each transaction';
+    row.appendChild(fixed);
     rm.textContent = label || 'protocol share'; rm.disabled = true;
   } else {
     rm.textContent = 'remove';
@@ -161,8 +166,8 @@ function openSplit() {
     return;
   }
   var tollPct = state.toll.bps / 100;
-  addRow(state.toll.address, tollPct, true, 'Charlie Protocol ' + tollPct + '%',
-         'The protocol\u0027s share. It buys $CHARLIE and burns it.');
+  addRow(state.toll.address, tollPct, true, 'Charlie Protocol',
+         'The protocol\u0027s share: 0.25% of each transaction, fixed. It buys $CHARLIE and burns it.');
   addRow('1nc1nerator11111111111111111111111111111111', 20, false, null,
          'Solana\u0027s incinerator. SOL sent here is destroyed. This row is the SOL burn; without it there is none.');
   addRow(state.wallet, 100 - 20 - tollPct, false, null,
@@ -206,7 +211,11 @@ async function build() {
     if (d.error) { say('buildNote', d.error, 'bad'); return; }
     state.built = d;
     state.mint = d.mint;
-    var lines = rows.shares.map(function (s) { var p = s.split(':'); return '  ' + (parseInt(p[1], 10) / 100) + '%   ' + p[0]; }).join('\n');
+    var lines = rows.shares.map(function (s) {
+      var p = s.split(':');
+      if (state.toll && p[0] === state.toll.address) { return '  0.25% of each transaction   ' + p[0] + '   (protocol)'; }
+      return '  ' + (parseInt(p[1], 10) / 100) + '% of the creator fee   ' + p[0];
+    }).join('\n');
     say('buildNote', 'Simulated against mainnet: no error.\n\nCoin: ' + d.name + ' (' + d.symbol + ')\nMint: ' + d.mint +
         '\nRent: about ' + (d.rent_lamports / 1e9).toFixed(4) + ' SOL for the coin, then about 0.0059 SOL for the fee config.' +
         '\n\nThe split that will be set, permanently, in the second approval:\n\n' + lines +
@@ -336,6 +345,7 @@ button.primary:hover, button.primary:focus-visible {
   color: var(--ink); opacity: 0.8; margin-top: -2px; }
 .share-row.locked .share-addr, .share-row.locked .share-bps { background: var(--panel); color: var(--ink); }
 .share-row.locked .rm { border-style: solid; cursor: default; }
+.share-row .share-fixed { flex: 0 0 auto; padding: var(--sp-sm); font-size: 14px; font-weight: 700; }
 #total.ok { color: var(--pass-glyph); font-weight: 700; }
 #total.bad { color: var(--destructive); font-weight: 700; }
 .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -359,11 +369,6 @@ def render(*, now=None) -> str:
     """
     stamp = site._stamp(now() if callable(now) else (now if now is not None else time.time()))
     esc = site.esc
-    rate = legs.TOLL_BPS // 100
-    headline = legs.headline_percent()
-    amm_bps = legs.PUMP_CREATOR_FEE_BPS_AT_GRADUATION
-    curve_bps = legs.PUMP_CREATOR_FEE_BPS_ON_CURVE
-    on_curve = f"{legs.share_of_volume_percent(curve_bps):g}"
     body = (
         "<header>"
         "<h1>Launch a coin with its burn built in</h1>"
@@ -394,7 +399,7 @@ def render(*, now=None) -> str:
         "rent, the fee config about 0.0059 SOL, plus two network fees. Both "
         "figures were read from mainnet&#x27;s own rent calculator.</li>"
         "<li><strong>Decide the split now.</strong> The protocol&#x27;s row is "
-        f"fixed at {rate}% of the creator fee. Only the incinerator row destroys SOL; "
+        "fixed at 0.25% of each transaction. Only the incinerator row destroys SOL; "
         "if you remove it there is no SOL burn and this page will still let you, "
         "because the split is yours. Every other row simply receives SOL.</li>"
         "<li><strong>Have the image, name and ticker ready.</strong> Name up to "
@@ -435,21 +440,13 @@ def render(*, now=None) -> str:
         "</section>"
         '<section id="splitBox" hidden>'
         "<h2>3. Set the split</h2>"
-        f"<p>The first row is the protocol&#x27;s share: <strong>{headline}% of "
-        f"every trade</strong>, fixed. It is the price of launching here, and it "
+        "<p>The first row is the protocol&#x27;s share: <strong>0.25% of each "
+        "transaction</strong>, fixed. It is the price of launching here, and it "
         "funds buying and burning $CHARLIE. The second row is Solana&#x27;s "
         "incinerator: SOL sent there is removed from the supply at the end of "
         "the block, and that row is the burn this page is named for. The third "
         "row is your wallet. Add rows or change the numbers as you like; the "
         "total must be exactly 100%.</p>"
-        f"<p class=\"note\">Where that number comes from: pump pays the coin&#x27;s "
-        f"creator a fee out of every trade, and the protocol takes {rate}% of it. "
-        f"The {rate}% is what is fixed. The creator fee itself is a rate pump sets: "
-        f"{curve_bps} bps of the trade while the coin is on its bonding curve, which "
-        f"is where a new coin starts and is {on_curve}% to the protocol, then "
-        f"{amm_bps} bps at the tier a coin lands on when it graduates, which is "
-        f"{headline}%. Above roughly 98,240 SOL of market cap pump&#x27;s creator fee "
-        "falls to 5 bps and the protocol&#x27;s share falls with it.</p>"
         '<div id="shares"></div>'
         '<p><button type="button" id="addRow">Add a destination</button> '
         '&nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p>'
