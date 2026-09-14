@@ -2,7 +2,8 @@
 
 The launch door's server half. Three things it does, and one it never does:
 
-* GET with `authority`, `name`, `symbol`, `uri`: generates a fresh mint
+* GET with `authority`, `name`, `symbol`, `uri`, `shares`: validates the split,
+  including its transaction size, before generating a fresh mint
   keypair, builds pump's `create` with the dev as creator, signs it with the
   MINT (a key that is powerless the moment the instruction runs), simulates
   it against mainnet, and returns it for the dev's wallet to sign and send.
@@ -37,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from indexer import enroll, launch, legs  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
+from indexer.message import MessageError  # noqa: E402
 from indexer.rpc import RpcClient, RpcError  # noqa: E402
 
 BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
@@ -159,11 +161,13 @@ class handler(BaseHTTPRequestHandler):
                 return self._status(one("status"), one("mint"))
             if not one("authority"):
                 return self._describe()
-            return self._build(one("authority"), one("name"), one("symbol"), one("uri"))
+            return self._build(one("authority"), one("name"), one("symbol"), one("uri"), one("shares"))
         except launch.LaunchError as exc:
             return self._fail(str(exc))
         except enroll.EnrollError as exc:
             return self._fail(str(exc))
+        except MessageError as exc:
+            return self._fail(f"This split does not fit a transaction: {exc}")
         except RpcError as exc:
             return self._fail(f"The chain answered an error: {exc}", status=502)
         except Exception:  # pragma: no cover - the last line of defence
@@ -229,16 +233,29 @@ class handler(BaseHTTPRequestHandler):
             "steps": 2,
         })
 
-    def _build(self, authority: str, name: str, symbol: str, uri: str):
+    def _build(self, authority: str, name: str, symbol: str, uri: str, raw_shares: str):
         dev = _address(authority)
         if dev is None:
             return self._fail("That is not a valid wallet address.")
         if legs.TOLL_DESTINATION is None:
             return self._fail("Launching is not open yet: the protocol's collection address has not been set.")
         meta = launch.validate_metadata(name, symbol, uri)
+        shares = []
+        if not raw_shares:
+            return self._fail("Choose the fee split before building the coin.")
+        for item in raw_shares.split(","):
+            address, sep, bps = item.partition(":")
+            if not sep or not bps.isascii() or not bps.isdecimal():
+                return self._fail("Each split row needs an address and whole-number basis points.")
+            shares.append(enroll.Share(address, int(bps)))
+        launch.preflight(dev, shares, meta)
+        # The account does not exist yet, so a full split simulation must wait.
+        # Still reject impossible splits (including oversized messages) BEFORE
+        # asking the creator to pay for the coin's accounts.
+        mint = launch.new_mint()
+        enroll.enrollment_message(mint.address, dev, shares, "11111111111111111111111111111111", create=True)
         rpc = _rpc()
         blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
-        mint = launch.new_mint()
         message = launch.create_message(mint.address, dev, meta, blockhash)
         transaction = launch.partially_signed(message, mint)
         encoded = base64.b64encode(transaction).decode()
@@ -263,6 +280,7 @@ class handler(BaseHTTPRequestHandler):
             "mint": mint.address,
             "blockhash": blockhash,
             "simulated": True,
+            "split_checked": True,
             "units": value.get("unitsConsumed"),
             "name": meta.name, "symbol": meta.symbol, "uri": meta.uri,
             "rent_lamports": CREATE_RENT_LAMPORTS,
