@@ -33,6 +33,7 @@ DEV = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
 URI = "https://ipfs.io/ipfs/bafkreibs2xlm4qm4ubh2g4wsnstlgcviephup43gq3yikzsyiltww2xpwq"
 BLOCKHASH = "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi"
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+DEFAULT_SHARES = f"{TOLL}:2500,{DEV}:7500"
 
 
 class _Rpc:
@@ -114,7 +115,7 @@ class TestDescribe(_Base):
 
 
 class TestBuild(_Base):
-    def _build(self, rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}"):
+    def _build(self, rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}"):
         with mock.patch.object(api_launch, "RpcClient", return_value=rpc):
             return self.server.get(f"/api/launch?{query}")
 
@@ -130,6 +131,7 @@ class TestBuild(_Base):
         mint_public = decode(body["mint"])
         self.assertTrue(ed25519.verify(mint_public, message, tx[65:129]))
         self.assertTrue(body["simulated"])
+        self.assertTrue(body["split_checked"])
         self.assertEqual(body["units"], 117654)
         self.assertEqual(body["next"], f"/api/enroll?mint={body['mint']}&authority={DEV}")
         # And what was simulated is what is returned.
@@ -153,13 +155,13 @@ class TestBuild(_Base):
 
     def test_bad_metadata_is_refused_before_the_chain_is_read(self):
         rpc = _Rpc()
-        status, body = self._build(rpc, query=f"authority={DEV}&name=&symbol=PROBE&uri={URI}")
+        status, body = self._build(rpc, query=f"authority={DEV}&name=&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}")
         self.assertEqual(status, 400)
         self.assertIn("name", body["error"])
         self.assertEqual(rpc.calls, [])
 
     def test_a_bad_wallet_address_is_refused(self):
-        status, body = self._build(_Rpc(), query=f"authority=nope&name=x&symbol=X&uri={URI}")
+        status, body = self._build(_Rpc(), query=f"authority=nope&name=x&symbol=X&uri={URI}&shares={DEFAULT_SHARES}")
         self.assertEqual(status, 400)
         self.assertIn("wallet", body["error"])
 
@@ -168,6 +170,23 @@ class TestBuild(_Base):
         status, body = self._build(_Rpc())
         self.assertEqual(status, 400)
         self.assertIn("not open", body["error"])
+
+    def test_split_is_required_and_checked_before_rpc(self):
+        rpc = _Rpc()
+        status, body = self._build(
+            rpc, query=f"authority={DEV}&name=x&symbol=X&uri={URI}"
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("split", body["error"])
+        self.assertEqual(rpc.calls, [])
+
+        status, body = self._build(
+            rpc,
+            query=f"authority={DEV}&name=x&symbol=X&uri={URI}&shares={TOLL}:2500,{DEV}:9000",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("exactly 10000", body["error"])
+        self.assertEqual(rpc.calls, [])
 
 
 class TestStatus(_Base):

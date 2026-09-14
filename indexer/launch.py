@@ -4,10 +4,9 @@ LNCH-01: the second door. `/enroll` is for a coin that already trades and
 spends its one config change on a split chosen after the fact. `/launch` is
 for a coin that does not exist yet: pump's own `create`, followed by the same
 two fee-share instructions `enroll.enrollment_message` already sends, so the
-coin is created and its split is set before anyone has traded it. The
-one-shot is still spent -- there is no version of pump's program where it is
-not -- but it is spent deliberately, at block zero, on a split the dev chose,
-rather than left lying around to be spent by accident.
+coin is created and its split is set in the next transaction. Trades can
+land between them and pay fees to pump's default destination. The one-shot
+is spent deliberately on the split the dev chose.
 
 **Every byte of `create` here is derived from pump's on-chain IDL** (the copy
 in `_idl_6EF8rrec.json`, pinned by `tests/test_launch.py` against the
@@ -284,6 +283,11 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
         validated = enroll.validate(shares)
         enroll.require_toll(validated)
     except enroll.EnrollError as exc:
+        if "protocol's share" in str(exc):
+            raise LaunchError(
+                "The protocol row must be included exactly once at 0.25% of each transaction. "
+                "Change the other destinations instead."
+            ) from None
         raise LaunchError(str(exc)) from None
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
