@@ -2409,7 +2409,7 @@ def render_verify(*, now=None, example_mint=None) -> str:
         '<p><strong>Launching one?</strong> '
         '<a href="/launch">Create it here with its burn built in</a> -- pump '
         "makes the coin, your wallet signs, and the fee destinations are set "
-        "before anyone has traded it.</p>"
+        "in a second transaction right after it.</p>"
         "</main>"
         f'<p class="meta">generated at {esc(stamp)}</p>'
         f'<p class="meta snapshot-note">{esc(_SNAPSHOT_NOTE)}</p>'
@@ -2903,8 +2903,8 @@ _LANDING_SOON_HEADING = "Launch with Charlie Protocol"
 _LANDING_SOON = (
     "Launching is open at /launch. A coin is created there through pump's "
     "own create instruction, with the wallet that signs as its creator, and "
-    "its fee destinations are set in the next transaction, before anyone has "
-    "traded it: a share to Solana's incinerator, the protocol's share, and "
+    "its fee destinations are set in the next transaction: a share to "
+    "Solana's incinerator, the protocol's share, and "
     "the rest wherever the creator says. pump lets those destinations be "
     "changed exactly once, and launching this way spends that one change at "
     "creation, on purpose. Two wallet approvals; the key never leaves the "
