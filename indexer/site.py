@@ -61,15 +61,18 @@ def _artifact_name(mint: str, suffix: str) -> str:
 # fails the moment the two drift.
 NO_FEE_SPLIT_MARKER = "is not a fee-sharing config"
 
-# What a coin pays the protocol to be enrolled, in the two ways it can be
-# said. TOLL_BPS is the share of the coin's creator fee, which is the part
-# that is fixed; TOLL_HEADLINE_PERCENT is that same share expressed against
-# the trade, which is how every comparable protocol quotes its rate and so
-# how a reader will read ours. Duplicated from `legs` rather than imported,
-# for the reason above, and pinned to it by
-# `TestTheEnrolmentRate.test_the_rate_on_the_page_is_the_rate_in_legs`.
+# What a coin pays the protocol to be enrolled. TOLL_BPS is the value the
+# config actually carries and what `preflight` checks a split against.
+#
+# It is NOT how the rate is stated. On any public surface the fee is
+# "0.25% of each transaction" and nothing else: not as a share of the
+# creator fee, not as a derived per-trade figure, and not paired with
+# either as context. `TOLL_HEADLINE_PERCENT` and `legs.headline_percent()`
+# rendered that older framing and were removed with the copy that used
+# them. Duplicated from `legs` rather than imported, for the reason above,
+# and pinned to it by `TestTheEnrolmentRate`.
 TOLL_BPS = 2500
-TOLL_HEADLINE_PERCENT = "0.24"
+TOLL_RATE_SENTENCE = "0.25% of each transaction"
 # `observe` sets this `error_kind` when the bonding curve's creator is not a
 # fee-sharing config. A structured field beats matching an error message, and
 # the string marker above is kept only so a record written before this field
@@ -2915,19 +2918,13 @@ _LANDING_SOON = (
     "a page like this one, on which no figure renders unless a passing check "
     "backs it.",
     f"Enrollment is open at /enroll. The protocol's share is "
-    f"{TOLL_HEADLINE_PERCENT}% of every trade -- pump pays the coin's creator a fee "
-    f"out of each one, and the protocol takes {TOLL_BPS // 100}% of that fee. A coin "
+    f"{TOLL_RATE_SENTENCE}, fixed. A coin "
     "is enrolled when its pump fee-sharing config pays the protocol's "
     "collection wallet that share. pump enforces the config, paying every "
     "destination from the coin's creator vault, and once the coin's one "
-    f"change is spent no key can alter it. The other {100 - TOLL_BPS // 100}% goes "
-    "wherever the coin's creator sends it. Every coin page and the index say "
+    "change is spent no key can alter it. Every other destination the coin "
+    "names is the creator's to choose. Every coin page and the index say "
     "whether a coin is enrolled, read from its config on the chain.",
-    "The trade figure moves with pump, not with us: the quarter is fixed, "
-    "and pump's creator fee is 95 bps of the trade at the tier a coin lands "
-    "on when it graduates, 30 bps while it is still on its bonding curve, "
-    "and as little as 5 bps above roughly 98,240 SOL of market cap. The "
-    "quoted rate is the graduation tier.",
     "Our program is written and deployed to DEVNET, not to mainnet. It is "
     "four instructions and the vaults it derives, and a reader can check "
     "every line of it in the repository linked below. No mainnet program is "
