@@ -40,20 +40,23 @@ class TestLandingCopyMatchesReality(unittest.TestCase):
         # Enrollment is open, and enrolled means one thing: the coin's pump
         # config pays the protocol's wallet its share, which pump enforces.
         self.assertIn("Enrollment is open at /enroll", self.rendered)
-        self.assertIn(f"{site.TOLL_BPS // 100}% of that fee", self.rendered)
+        self.assertIn(site.TOLL_RATE_SENTENCE, self.rendered)
         self.assertIn("pump enforces the config", self.rendered)
         self.assertIn("read from its config on the chain", self.rendered)
 
-    def test_the_advertised_trade_figure_never_appears_without_its_fee(self):
-        """The rate is quoted as a share of the trade because that is how the
-        space quotes one, and that figure is only true against a creator fee
-        pump sets and changes. Quoting it bare would be the one misleading
-        way to say it, so the fee it is a share of is on the page with it."""
-        self.assertIn(f"{site.TOLL_HEADLINE_PERCENT}% of every trade", self.rendered)
-        self.assertIn("pump pays the coin&#x27;s creator a fee out of each one",
-                      self.rendered)
-        self.assertIn("bps of the trade at the tier a coin lands on when it graduates",
-                      self.rendered)
+    def test_the_rate_is_stated_one_way_and_no_other(self):
+        """The fee is "0.25% of each transaction" on every public surface.
+
+        It used to be quoted two ways at once -- a share of the creator fee,
+        and that share applied to a trade at the graduation tier -- with each
+        figure justifying the other. Both of those framings are now forbidden
+        in public copy, so the page must carry neither, and this pins the
+        absence rather than trusting it not to come back."""
+        self.assertIn("0.25% of each transaction", self.rendered)
+        for banned in ("% of that fee", "% of every trade", "0.24%",
+                       "quarter", "bps of the trade"):
+            self.assertNotIn(banned, self.rendered,
+                             f"landing page states the fee as {banned!r}")
 
     def test_it_does_not_claim_the_spending_is_on_chain(self):
         # The share is collected from pump and spent buying and burning
