@@ -278,7 +278,7 @@ class TestTheToll(unittest.TestCase):
         wrong = [enroll.Share(TOLL, half), enroll.Share(ADMIN, 10_000 - half)]
         with self.assertRaises(enroll.EnrollError) as caught:
             enroll.preflight(_Config(), ADMIN, wrong, curve=_Curve())
-        self.assertIn(f"fixed at {enroll.TOLL_BPS // 100}%", str(caught.exception))
+        self.assertIn("fixed at 0.25% of each transaction", str(caught.exception))
 
     def test_the_toll_at_its_rate_passes(self):
         enroll.preflight(_Config(), ADMIN, _split(), curve=_Curve())
