@@ -414,7 +414,7 @@ def render(*, now=None) -> str:
         "that is what the chain shows. When the program ships it will derive "
         "a burn address per coin, and a share pointed there will be cranked "
         "for you.</p>"
-        f"<p>The protocol&#x27;s {rate_sentence} is collected at the address on the first "
+        f"<p>The protocol&#x27;s share, {rate_sentence}, is collected at the address on the first "
         "row and spent running that same leg on $CHARLIE: buying it and burning "
         "it. No on-chain program "
         "enforces that share yet: this page refuses to build a split without "
