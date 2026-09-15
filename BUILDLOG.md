@@ -133,3 +133,51 @@ events, which does the same for `BURN_SUPPLY`.
 address ever carry a SOL burn total, or whether $CHARLIE's own figure stays
 unpublishable until pump resets the config. The code currently says
 unpublishable, which is the harder answer and probably the right one.
+
+---
+
+## 2026-09-13 — the deploy gate, priced
+
+Phase 5 has been described as "funding-gated and closed" since it was written
+down, on every surface, without once saying how high the gate is. A project
+that refuses unbacked figures from everyone else does not get to publish
+"funding-gated" and leave the amount to the reader's imagination. So here is
+the number, with the method attached.
+
+**0.943958 SOL net. 1.415504 SOL to have in the wallet on the day.**
+
+| | lamports | SOL |
+|---|---|---|
+| ProgramData rent (`2 × size + 45` = 185,437 bytes) | 942,670,200 | 0.942670 |
+| Program account rent (36 bytes) | 833,120 | 0.000833 |
+| Write-chunk fees (91 tx × 5,000) | 455,000 | 0.000455 |
+| **Net cost** | **943,958,320** | **0.943958** |
+| Buffer account, reclaimed after the deploy lands | 471,545,920 | 0.471546 |
+| **Peak balance required** | **1,415,504,240** | **1.415504** |
+
+The buffer is float rather than cost: `solana program deploy` writes the ELF
+into a buffer account first, and closing it returns the rent. It still has to
+be in the wallet before the deploy starts, which is why the peak is what the
+wallet needs and the net is what the deploy consumes. Neither figure includes
+a working balance for the crank, which is a separate ongoing cost.
+
+**Method, so a reader can redo it.** The program was rebuilt from the current
+source with `cargo-build-sbf 4.1.0` / platform-tools v1.54 / cargo 1.97.1,
+producing 92,696 bytes (sha256 `9f778b20c5975c58…`). The rent figures are live
+reads of mainnet's own `getMinimumBalanceForRentExemption` at that size, not a
+constant copied from documentation. The `2 × size + 45` allocation is what the
+upgradeable loader reserves so a later upgrade can grow the program without
+reallocating.
+
+**A note on the build, because it is the interesting part.** The committed
+artifact was stale: built 2026-09-12 07:40, while `src/lib.rs` was last
+modified at 12:02 the same day, after the commit that landed the fee split.
+Pricing a stale binary would have been the same error as publishing an
+unchecked figure. The rebuild produced a byte-identical artifact — 92,696
+bytes, unchanged — so the source change did not alter compiled output and the
+number holds. It was correct by luck before and is correct by verification now.
+The distinction is the whole point of this repository.
+
+**What this does not say.** Nothing here says the gate is open, or names a date
+for it. `/phases` reads phase 5 as GATED and continues to, because being able
+to state a price is not the same as having paid it.

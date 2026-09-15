@@ -36,6 +36,7 @@ from . import (
     coverage,
     dilution_page,
     enroll_page,
+    launch_page,
     flywheel_page,
     phases_page,
     splitter_page,
@@ -313,6 +314,10 @@ def _write_index(out_dir: Path, *, extra_counts: dict | None = None) -> list[Pat
     # advertises a route it has not generated -- /verify was published before
     # its page existed once already.
     written.append(enroll_page.write(out_dir))
+    # The launch door, beside the enrollment page it hands off to: the two
+    # are one mechanism entered from opposite ends, and the site must never
+    # link a route it has not written.
+    written.append(launch_page.write(out_dir))
     # The dilution page. Same rule as the others: generate it here so the site
     # never links a route it has not written.
     written.append(dilution_page.write(out_dir))
@@ -566,13 +571,32 @@ def _distribute(args) -> int:
         payer = args.payer or distribute.STAND_IN_PAYER
         print(f"no key: simulating as {payer}" + ("" if args.payer else " (pump's fee wallet stands in as the payer)"))
     from .buyback import confirm as confirm_signature
-    try:
-        rows = distribute.run(rpc, mints, payer=payer, keypair=keypair,
-                              min_lamports=args.min_lamports,
-                              confirm=confirm_signature if keypair else None)
-    except distribute.DistributeError as exc:
-        print(f"refused: {exc}")
-        return 1
+    every = int(getattr(args, "every", 0) or 0)
+    while True:
+        try:
+            rows = distribute.run(rpc, mints, payer=payer, keypair=keypair,
+                                  min_lamports=args.min_lamports,
+                                  confirm=confirm_signature if keypair else None)
+        except distribute.DistributeError as exc:
+            print(f"refused: {exc}")
+            return 1
+        code = _report_distribution(rows)
+        if every <= 0:
+            return code
+        # The fast lane. A launch coin's first burn is the first payout to the
+        # incinerator, and a dev showing the coin to holders in its first hour
+        # should not wait for the hourly crank. Each cycle is the same
+        # permissionless call, 5,000 lamports, and an idle cycle is a success.
+        import time as _time
+        print(f"-- next cycle in {every}s (Ctrl-C to stop)")
+        try:
+            _time.sleep(every)
+        except KeyboardInterrupt:
+            print("stopped")
+            return code
+
+
+def _report_distribution(rows) -> int:
     failures = 0
     for row in rows:
         outcome = row["outcome"]
@@ -955,6 +979,11 @@ def build_parser() -> argparse.ArgumentParser:
     distribute_cmd.add_argument("--out", default=str(site.DEFAULT_OUTPUT_DIR), help=f"default {site.DEFAULT_OUTPUT_DIR}")
     distribute_cmd.add_argument("--keypair", help="the fee payer's key file; without it, simulate only")
     distribute_cmd.add_argument("--payer", help="the fee payer's address, for a simulation without a key file")
+    distribute_cmd.add_argument("--every", type=int, default=0, metavar="SECONDS",
+                                help="the fast lane: repeat the whole run every SECONDS until stopped, for a "
+                                     "coin launched minutes ago whose first payout should land as soon as "
+                                     "its vault clears pump's minimum rather than at the top of the hour. "
+                                     "Pair with --min-lamports 1 to let pump's own floor decide.")
     distribute_cmd.add_argument("--min-lamports", type=int, default=5_000_000,
                                 help="skip a vault holding less than this (default 5000000)")
     distribute_cmd.set_defaults(handler=_distribute)

@@ -1,0 +1,640 @@
+"""The launch door: create a coin on pump, then set its permanent fee split.
+
+The second of two pages that need JavaScript (the first is `/enroll`), for
+the same reason: signing happens in the dev's wallet, and a wallet is a
+browser extension. Same construction as `enroll_page`: no bundled library, no
+build step, a base58 transaction handed to the wallet's own
+`signAndSendTransaction`, so the page ships no third-party code a reader
+would have to trust to know what they are signing.
+
+Two approvals, a few seconds apart, and the page says so before the first:
+
+1. `create` -- pump makes the coin. Built by `api/launch.py`, signed by the
+   mint (a throwaway key, powerless after this instruction) and by the dev.
+2. the enrollment -- built by `api/enroll.py`, the exact transaction `/enroll`
+   sends for a coin with no config. Creates the fee-sharing config and sets
+   the split in one instruction pair, spending the one-shot on purpose.
+
+The Telegram bot (`tools/launch_bot.py`) never signs anything. It collects
+the same fields this page collects, pins the image, and sends the dev here
+with the fields in the URL: `/launch?name=..&symbol=..&uri=..`. The page
+reads them and skips to step 2.
+"""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+from . import site
+
+LAUNCH_FILENAME = "launch.html"
+
+_SCRIPT = r"""
+var state = {wallet: null, toll: null, open: false, uri: null, built: null, mint: null,
+  createSig: null, splitSig: null, enroll: null, revision: 0, busy: false, locked: false, phase: 'draft'};
+var INCINERATOR = '1nc1nerator11111111111111111111111111111111';
+function $(id) { return document.getElementById(id); }
+function say(id, msg, kind) {
+  var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || '');
+  n.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
+}
+async function request(url, options, timeout) {
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, timeout || 20000);
+  try {
+    var r = await fetch(url, Object.assign({cache: 'no-store'}, options || {}, {signal: controller.signal}));
+    var d = await r.json();
+    if (!r.ok || d.error) { throw Error(d.error || 'The server could not complete this check.'); }
+    return d;
+  } finally { clearTimeout(timer); }
+}
+function provider() {
+  var p = (window.phantom && window.phantom.solana) || window.solana;
+  if (p && p.isPhantom) { return p; }
+  if (window.solflare && window.solflare.isSolflare) { return window.solflare; }
+  return p || null;
+}
+function signButton(show, label) {
+  $('send').hidden = !show; $('send').parentElement.hidden = !show;
+  if (label) { $('sendLabel').textContent = label; }
+}
+function controls() {
+  document.querySelectorAll('[data-edit] input, [data-edit] textarea, [data-edit] button').forEach(function (el) {
+    el.disabled = state.locked || (el.closest('[data-wallet]') && !state.wallet);
+  });
+  $('pin').disabled = state.locked || state.pinning;
+  $('build').disabled = state.locked || state.building || !state.open;
+  $('connect').disabled = state.busy;
+}
+function invalidate(metadata) {
+  if (state.locked) { return; }
+  state.revision++; state.built = null; state.mint = null;
+  signButton(false); $('mintBox').hidden = true;
+  say('buildNote', '');
+  if (metadata) {
+    state.uri = null; $('uriBox').hidden = true;
+    say('metaNote', 'Details changed. Upload them again before checking the launch.');
+  }
+}
+function validAddress(s) {
+  var alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s)) { return false; }
+  var value = 0n;
+  for (var c of s) { value = value * 58n + BigInt(alphabet.indexOf(c)); }
+  var bytes = 0;
+  while (value > 0n) { bytes++; value >>= 8n; }
+  return bytes + (s.match(/^1*/) || [''])[0].length === 32;
+}
+async function describe() {
+  say('splitNote', 'Checking launch availability…');
+  try {
+    var d = await request('/api/launch');
+    state.toll = d.toll || null;
+    state.open = !!(d.open && state.toll && validAddress(state.toll.address) &&
+      Number.isInteger(state.toll.bps) && state.toll.bps > 0 && state.toll.bps < 10000);
+    $('launchStatus').textContent = state.open ? 'OPEN' : 'NOT OPEN YET';
+    $('protocolAddr').textContent = state.toll && state.toll.address || 'Collection address not configured';
+    $('protocolBps').value = state.toll ? state.toll.bps : '';
+    say('splitNote', state.open ? '' : 'Launching is not open yet. You can plan the split, but nothing can be built.', state.open ? '' : 'caution');
+  } catch (e) {
+    state.open = false; $('launchStatus').textContent = 'UNREACHABLE';
+    say('splitNote', 'Could not reach the server. Availability is unknown; reload to try again.', 'bad');
+  }
+  controls();
+}
+function walletChanged(key) {
+  var address = key ? key.toString() : null;
+  if (state.locked) {
+    if (address !== state.wallet) { say('walletNote', 'Reconnect the original creator wallet to continue: ' + state.wallet, 'bad'); }
+    return;
+  }
+  invalidate(false); state.wallet = address;
+  $('walletAddr').textContent = address || '';
+  $('connected').hidden = !address; $('connect').hidden = !!address;
+  $('connect').parentElement.hidden = !!address;
+  document.querySelector('[data-wallet] .share-addr').value = address || '';
+  controls(); total();
+}
+async function connect() {
+  if (state.busy) { return; }
+  var p = provider();
+  if (!p) { say('walletNote', 'No Solana wallet found. Install Phantom or Solflare, then reload.', 'bad'); return; }
+  state.busy = true; controls();
+  try {
+    var r = await p.connect();
+    var key = (r && r.publicKey) || p.publicKey;
+    if (!key || !validAddress(key.toString())) { throw Error('No usable wallet address.'); }
+    walletChanged(key); say('walletNote', '');
+    if (p.on && state.provider !== p) {
+      p.on('accountChanged', walletChanged); p.on('disconnect', function () { walletChanged(null); });
+    }
+    state.provider = p;
+  } catch (e) { say('walletNote', 'Wallet connection was refused or unavailable. Nothing was signed.', 'bad'); }
+  finally { state.busy = false; controls(); }
+}
+function metadataProblem() {
+  var name = $('name').value.trim(), symbol = $('symbol').value.trim();
+  if (!name || new TextEncoder().encode(name).length > 32) { return 'Give the coin a name of 1–32 bytes.'; }
+  if (!symbol || /\s/.test(symbol) || new TextEncoder().encode(symbol).length > 10) { return 'Give the coin a ticker of 1–10 bytes, with no spaces.'; }
+  return '';
+}
+function validUri(uri) { return typeof uri === 'string' && /^(https:\/\/|ipfs:\/\/)/.test(uri) && new TextEncoder().encode(uri).length <= 200; }
+function fromQuery() {
+  var q = new URLSearchParams(window.location.search);
+  if (q.get('name')) { $('name').value = q.get('name'); }
+  if (q.get('symbol')) { $('symbol').value = q.get('symbol'); }
+  if (q.get('uri') && validUri(q.get('uri'))) {
+    state.uri = q.get('uri'); $('uriBox').hidden = false; $('uriShown').textContent = state.uri;
+    say('metaNote', 'Metadata supplied in the link. Check the name, ticker and metadata URI, then choose the split below. Nothing has been created.', 'good');
+  }
+}
+async function pin() {
+  if (state.locked || state.pinning) { return; }
+  invalidate(false);
+  var problem = metadataProblem(), file = $('image').files && $('image').files[0];
+  if (problem) { say('metaNote', problem, 'bad'); return; }
+  if (!file || file.size > 4000000 || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
+    say('metaNote', 'Attach a PNG, JPEG, GIF or WebP image up to 4 MB.', 'bad'); return;
+  }
+  var revision = state.revision, form = new FormData();
+  form.append('file', file);
+  ['name', 'symbol', 'description', 'twitter', 'telegram', 'website'].forEach(function (k) { form.append(k, $(k).value.trim()); });
+  state.pinning = true; controls(); say('metaNote', 'Uploading details to pump…');
+  try {
+    var d = await request('/api/launch', {method: 'POST', body: form}, 60000);
+    if (revision !== state.revision) { return; }
+    if (!validUri(d.metadataUri)) { throw Error('pump returned an unusable metadata URI.'); }
+    state.uri = d.metadataUri; $('uriBox').hidden = false; $('uriShown').textContent = state.uri;
+    say('metaNote', 'Uploaded. Nothing has been created yet.', 'good');
+  } catch (e) { if (revision === state.revision) { say('metaNote', e.message + ' Nothing was created.', 'bad'); } }
+  finally { state.pinning = false; controls(); }
+}
+function editableRows() { return Array.from(document.querySelectorAll('.share-row:not(.locked)')); }
+function percent(value) { return /^(?:\d{1,3})(?:\.\d{1,2})?$/.test(value) ? Math.round(Number(value) * 100) : NaN; }
+function total() {
+  var t = 0, burn = false;
+  editableRows().forEach(function (row) {
+    t += percent(row.querySelector('.share-bps').value);
+    if (row.querySelector('.share-addr').value.trim() === INCINERATOR) { burn = true; }
+  });
+  $('total').textContent = Number.isFinite(t) ? (t / 100).toFixed(2) + '%' : '—';
+  $('total').className = t === 10000 ? 'ok' : 'bad';
+  say('burnNote', burn ? '' : 'No incinerator row: this coin will have no SOL burn.', burn ? '' : 'caution');
+  editableRows().forEach(function (row) {
+    if (row.dataset.burn === 'true' && t === 10000) { row.dataset.lit = 'true'; }
+  });
+  return t;
+}
+function addRow(addr, pct, wallet) {
+  if (state.locked) { return; }
+  var row = document.createElement('div'); row.className = 'share-row'; row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', wallet ? 'Creator wallet share' : 'Fee destination');
+  if (wallet) { row.dataset.wallet = 'true'; }
+  var a = document.createElement('input'); a.className = 'share-addr'; a.value = addr || '';
+  a.placeholder = wallet ? 'Connect your wallet in step 3' : 'Destination address';
+  a.spellcheck = false; a.autocomplete = 'off'; a.setAttribute('aria-label', 'Destination address');
+  var b = document.createElement('input'); b.className = 'share-bps'; b.type = 'number'; b.step = '0.01'; b.min = '0.01'; b.max = '100';
+  b.inputMode = 'decimal'; b.value = pct === undefined ? '' : pct; b.setAttribute('aria-label', 'Percent of the rest');
+  var unit = document.createElement('span'); unit.className = 'share-unit'; unit.textContent = '% of the rest';
+  var badge = document.createElement('span'); badge.className = 'burn-badge'; badge.textContent = 'Sol-Incinerator';
+  var change = document.createElement('button'); change.type = 'button'; change.className = 'rm'; change.textContent = 'Change';
+  change.onclick = function () { invalidate(false); a.readOnly = false; change.hidden = true; a.focus(); a.select(); };
+  function identify() {
+    var burn = a.value.trim() === INCINERATOR; row.dataset.burn = String(burn);
+    badge.hidden = !burn; change.hidden = !burn; a.readOnly = burn || !!wallet;
+  }
+  a.oninput = function () { invalidate(false); identify(); total(); };
+  a.onblur = identify;
+  b.oninput = function () { invalidate(false); total(); };
+  [a, b, unit, badge, change].forEach(function (el) { row.appendChild(el); });
+  if (!wallet) {
+    var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'Remove';
+    rm.onclick = function () { invalidate(false); row.remove(); total(); $('addRow').focus(); };
+    row.appendChild(rm);
+  }
+  var embers = document.createElement('span'); embers.className = 'row-embers'; embers.setAttribute('aria-hidden', 'true');
+  for (var i = 0; i < 3; i++) { embers.appendChild(document.createElement('i')); }
+  row.appendChild(embers); $('shares').appendChild(row); identify(); controls(); total();
+  return row;
+}
+function balance() {
+  if (state.locked) { return; }
+  var rows = editableRows(), wallet = rows.find(function (r) { return r.dataset.wallet; }), used = 0;
+  rows.forEach(function (r) { if (r !== wallet) { used += percent(r.querySelector('.share-bps').value); } });
+  if (!Number.isFinite(used) || used >= 10000) { say('splitNote', 'Other rows must total less than 100% to leave a positive wallet share.', 'bad'); return; }
+  invalidate(false); wallet.querySelector('.share-bps').value = ((10000 - used) / 100).toFixed(2); total();
+  if (state.open) { say('splitNote', 'Wallet share balanced to make 100% of the rest.', 'good'); }
+}
+function shareRows() {
+  var out = [], problems = [], seen = new Set(), rest = state.toll ? 10000 - state.toll.bps : 0;
+  var walletIndex = -1, allocated = 0;
+  if (!state.open) { problems.push('Launch availability must be confirmed before building.'); }
+  if (state.toll && state.toll.address) { seen.add(state.toll.address); }
+  editableRows().forEach(function (row) {
+    var input = row.querySelector('.share-addr'), a = input.value.trim(), b = row.querySelector('.share-bps');
+    var pct = percent(b.value), invalid = !validAddress(a) || seen.has(a);
+    input.setAttribute('aria-invalid', String(invalid));
+    b.setAttribute('aria-invalid', String(!Number.isFinite(pct) || pct <= 0 || pct > 10000));
+    if (!validAddress(a)) { problems.push('Every destination must be a valid Solana address (32 decoded bytes).'); }
+    if (seen.has(a)) { problems.push('Duplicate destination: ' + a); } seen.add(a);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 10000) { problems.push('Every share must be positive, at most 100%, with up to two decimal places.'); }
+    var bps = Math.round(pct * rest / 10000);
+    if (row.dataset.wallet) { walletIndex = out.length; }
+    out.push({address: a, pct: pct / 100, bps: bps}); allocated += bps;
+  });
+  if (out.length > 7) { problems.push('Use at most seven destinations in addition to the protocol row.'); }
+  if (total() !== 10000) { problems.push('The shares of the rest must total exactly 100%.'); }
+  if (walletIndex >= 0) { out[walletIndex].bps += rest - allocated; }
+  if (out.some(function (r) { return !Number.isInteger(r.bps) || r.bps <= 0; })) { problems.push('A share is too small after on-chain rounding. Increase it or remove that destination.'); }
+  var shares = state.toll ? [state.toll.address + ':' + state.toll.bps] : [];
+  out.forEach(function (r) { shares.push(r.address + ':' + r.bps); });
+  return {shares: shares, rows: out, problems: problems};
+}
+async function build() {
+  if (state.locked || state.building) { return; }
+  invalidate(false);
+  var rows = shareRows(), problem = metadataProblem();
+  if (!state.uri) { problem = 'Upload the details first (step 1).'; }
+  if (!state.wallet) { problem = 'Connect a wallet first (step 3).'; }
+  if (problem || rows.problems.length) { say('buildNote', [problem].concat(rows.problems).filter(Boolean).join('\n'), 'bad'); return; }
+  var revision = state.revision;
+  state.building = true; controls(); say('buildNote', 'Dry-running the create transaction and validating the split…');
+  try {
+    var q = new URLSearchParams({authority: state.wallet, name: $('name').value.trim(), symbol: $('symbol').value.trim(), uri: state.uri, shares: rows.shares.join(',')});
+    var d = await request('/api/launch?' + q.toString());
+    if (revision !== state.revision) { return; }
+    if (!d.simulated || !d.signable || !d.split_checked) { throw Error('The server did not confirm both the create simulation and split validation.'); }
+    state.built = d; state.builtAt = Date.now(); state.shares = rows.shares; state.mint = d.mint;
+    $('mintAddr').textContent = d.mint; $('mintBox').hidden = false;
+    var lines = ['0.25% of each transaction   ' + state.toll.address + '   (protocol)'];
+    rows.rows.forEach(function (r) { lines.push(r.pct + '% of the rest   ' + r.address + '   (' + r.bps + ' on-chain bps)'); });
+    say('buildNote', 'Create simulated against mainnet: no error. Split validated; its full simulation happens after the coin confirms.\n\nCoin: ' + d.name + ' (' + d.symbol + ')\n\nRent: about ' + (d.rent_lamports / 1e9).toFixed(4) + ' SOL for the coin, then about 0.0059 SOL for the split record, plus network fees.\n\nThe permanent split:\n' + lines.join('\n') + '\n\nRounding is absorbed by your wallet row. Two wallet approvals. Your key stays in your wallet.', 'good');
+    signButton(true, 'Sign 1 of 2: create the coin');
+  } catch (e) { if (revision === state.revision) { say('buildNote', e.message + ' Nothing was sent.', 'bad'); } }
+  finally { state.building = false; controls(); }
+}
+function timeline(id, status, label, signature) {
+  var el = $(id); el.dataset.state = status; el.textContent = label;
+  if (signature) {
+    var a = document.createElement('a'); a.href = 'https://solscan.io/tx/' + encodeURIComponent(signature);
+    a.textContent = 'View transaction'; a.target = '_blank'; a.rel = 'noopener noreferrer'; el.appendChild(a);
+  }
+}
+function recovery() { return 'The split can still be set later. Keep this mint address: ' + state.mint + '. Enrollment for existing coins is at /enroll.'; }
+function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+async function waitForConfirmation(second) {
+  var end = Date.now() + 120000, signature = second ? state.splitSig : state.createSig;
+  $('approvalRing').dataset.waiting = 'true';
+  try {
+    while (Date.now() < end) {
+      try {
+        var d = await request('/api/launch?status=' + encodeURIComponent(signature) + '&mint=' + encodeURIComponent(state.mint), null, Math.min(10000, end - Date.now()));
+        if (d.failed) { return 'failed'; }
+        // A pre-existing curve is never evidence that approval two landed.
+        if (second ? d.landed : d.ready) { return 'confirmed'; }
+      } catch (e) { /* A failed status read is unknown, not a failed transaction. */ }
+      if (Date.now() < end) { await sleep(Math.min(3000, end - Date.now())); }
+    }
+    return 'unknown';
+  } finally { $('approvalRing').dataset.waiting = 'false'; }
+}
+function signingProvider() {
+  var p = provider();
+  if (!p || !p.request) { throw Error('This wallet cannot sign from this page. Phantom or Solflare can.'); }
+  if (!p.publicKey || p.publicKey.toString() !== state.wallet) { throw Error('Reconnect the original creator wallet: ' + state.wallet); }
+  return p;
+}
+function signatureOf(res) {
+  var sig = res && (res.signature || res);
+  if (typeof sig !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) { throw Error('The wallet returned no usable transaction signature.'); }
+  return sig;
+}
+async function prepareSplit() {
+  state.phase = 'review2'; state.enroll = null; signButton(false);
+  timeline('txWait', 'done', 'Coin confirmed');
+  timeline('tx2', 'active', '2. Checking the permanent split');
+  try {
+    signingProvider();
+    var d = await request('/api/enroll?' + new URLSearchParams({mint: state.mint, authority: state.wallet, shares: state.shares.join(',')}));
+    if (!d.simulated || !d.signable) { throw Error('The split simulation was not confirmed by the server.'); }
+    // Refuse a response for a different split, even if the endpoint reports success.
+    var summary = (d.summary || []).map(function (r) { return r.address + ':' + r.bps; });
+    if (summary.join(',') !== state.shares.join(',')) { throw Error('The checked split does not match the split you reviewed.'); }
+    state.enroll = d; state.enrollAt = Date.now();
+    $('approvalRing').dataset.step = '2';
+    say('sendNote', 'The coin is confirmed. The split simulation passed. pump allows exactly one split change; this next approval spends it permanently. Check the summary above, then sign approval 2.', 'caution');
+    signButton(true, 'Sign 2 of 2: set the permanent split');
+  } catch (e) {
+    say('sendNote', 'The coin exists. ' + e.message + '\n\n' + recovery(), 'bad');
+    $('checkAgain').hidden = false;
+  }
+}
+function done() {
+  state.phase = 'done'; state.busy = false;
+  timeline('tx2', 'done', '2. Permanent split confirmed', state.splitSig);
+  say('sendNote', 'Confirmed. The coin exists and the split is permanently set. No key can change it, including yours.', 'good');
+  $('doneBox').hidden = false;
+  $('pumpLink').href = 'https://pump.fun/coin/' + encodeURIComponent(state.mint);
+  $('verifyLink').href = '/verify/' + encodeURIComponent(state.mint);
+  $('checkAgain').hidden = true; signButton(false); controls();
+}
+async function confirmPending() {
+  var second = state.phase === 'wait2';
+  var outcome = await waitForConfirmation(second);
+  if (outcome === 'confirmed') {
+    if (second) { done(); } else { timeline('tx1', 'done', '1. Coin created', state.createSig); await prepareSplit(); }
+  } else if (outcome === 'failed') {
+    timeline(second ? 'tx2' : 'tx1', 'bad', second ? '2. Split transaction failed' : '1. Create transaction failed', second ? state.splitSig : state.createSig);
+    if (second) {
+      state.phase = 'review2'; state.splitSig = null; $('checkAgain').hidden = false;
+      say('sendNote', 'The split transaction failed on chain. ' + recovery(), 'bad');
+    } else {
+      state.locked = false; state.phase = 'draft'; state.createSig = null; invalidate(false);
+      say('sendNote', 'The create transaction failed on chain. No coin was created; the network fee may still have been charged. Check and build again.', 'bad');
+    }
+  } else {
+    $('checkAgain').hidden = false;
+    timeline(second ? 'tx2' : 'txWait', 'active', second ? '2. Split confirmation unknown' : 'Coin confirmation unknown', signatureForPhase());
+    say('sendNote', 'Confirmation is still unknown after two minutes. Check again; do not submit another launch. Keep this coin address: ' + state.mint, 'caution');
+  }
+}
+function signatureForPhase() { return state.phase === 'wait2' ? state.splitSig : state.createSig; }
+async function checkAgain() {
+  if (state.busy) { return; }
+  state.busy = true; $('checkAgain').hidden = true; controls();
+  try {
+    if (state.phase === 'review2') { await prepareSplit(); }
+    else if (state.phase === 'wait1' || state.phase === 'wait2') { await confirmPending(); }
+  } finally { state.busy = false; controls(); }
+}
+async function send() {
+  if (state.busy || (!state.built && state.phase === 'draft')) { return; }
+  var second = state.phase === 'review2', p;
+  if (state.phase !== 'draft' && !second) { return; }
+  try { p = signingProvider(); } catch (e) { say('sendNote', e.message, 'bad'); return; }
+  if (Date.now() - (second ? state.enrollAt : state.builtAt) > 45000) {
+    if (second) { state.enroll = null; signButton(false); $('checkAgain').hidden = false; }
+    else { invalidate(false); }
+    say('sendNote', 'This check is too old to sign. ' + (second ? 'Check again to refresh the split simulation.' : 'Dry-run the launch again.'), 'caution'); return;
+  }
+  if (second && !state.enroll) { return; }
+  state.busy = true; state.locked = true; controls(); signButton(false); $('txTimeline').hidden = false;
+  state.phase = second ? 'approving2' : 'approving1';
+  timeline(second ? 'tx2' : 'tx1', 'active', second ? '2. Awaiting permanent split approval' : '1. Awaiting coin creation approval');
+  say('sendNote', second ? 'Approval 2 of 2 permanently spends the one split change. Approve in your wallet.' : 'Approval 1 of 2: create the coin. Approve in your wallet.');
+  try {
+    var res = await p.request({method: 'signAndSendTransaction', params: {message: (second ? state.enroll : state.built).signable}});
+    var sig = signatureOf(res);
+    if (second) { state.splitSig = sig; } else { state.createSig = sig; }
+    state.phase = second ? 'wait2' : 'wait1';
+    timeline(second ? 'tx2' : 'tx1', 'active', second ? '2. Split sent; awaiting confirmation' : '1. Coin sent', sig);
+    if (!second) { timeline('txWait', 'active', 'Waiting for the coin to confirm'); }
+    say('sendNote', second ? 'Split sent. Waiting for chain confirmation before declaring success…' : 'Coin sent. Waiting for chain confirmation…');
+    await confirmPending();
+  } catch (e) {
+    var rejected = e && e.code === 4001;
+    if (rejected) {
+      state.phase = second ? 'review2' : 'draft';
+      if (second) { state.enroll = null; $('checkAgain').hidden = false; }
+      else { state.locked = false; invalidate(false); }
+      say('sendNote', second ? 'Split approval cancelled. ' + recovery() : 'Creation approval cancelled. Nothing was signed; dry-run again when ready.', 'caution');
+    } else {
+      state.phase = 'unknown';
+      say('sendNote', 'The wallet did not provide a reliable send result: ' + e.message + '\nCheck your wallet activity before doing anything else. A transaction may have been sent. Keep this coin address: ' + state.mint, 'bad');
+    }
+    timeline(second ? 'tx2' : 'tx1', 'bad', rejected ? 'Approval cancelled' : 'Wallet result unknown');
+  } finally { state.busy = false; controls(); }
+}
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.note').forEach(function (el) { el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); el.setAttribute('aria-atomic', 'true'); });
+  $('connect').onclick = connect; $('pin').onclick = pin;
+  $('addRow').onclick = function () {
+    if (editableRows().length >= 7) { say('splitNote', 'At most seven destinations can be added alongside the protocol.', 'bad'); return; }
+    invalidate(false); var row = addRow('', ''); row.querySelector('.share-addr').focus();
+  };
+  $('balance').onclick = balance; $('build').onclick = build; $('send').onclick = send; $('checkAgain').onclick = checkAgain;
+  $('copyMint').onclick = async function () {
+    try { await navigator.clipboard.writeText(state.mint); say('copyNote', 'Coin address copied.', 'good'); }
+    catch (e) { say('copyNote', 'Copy the coin address shown above.', 'caution'); }
+  };
+  ['name', 'symbol', 'description', 'image', 'twitter', 'telegram', 'website'].forEach(function (id) {
+    $(id).addEventListener('input', function () { invalidate(true); });
+  });
+  addRow(INCINERATOR, 30); addRow(null, 70, true);
+  fromQuery(); signButton(false); describe();
+  var active = document.querySelector('.site-nav .active');
+  if (active) { active.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
+});
+window.addEventListener('beforeunload', function (e) {
+  if (state.locked && state.phase !== 'done') { e.preventDefault(); e.returnValue = ''; }
+});
+"""
+
+_STYLE = """
+[hidden] { display: none !important; }
+.btn-conic-glow:has(> [hidden]), .note:empty { display: none; }
+* { box-sizing: border-box; }
+.launch-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--unchecked); }
+.launch-hero h1 { font-size: clamp(36px, 5vw, 56px); max-width: 16ch; }
+.launch-stepper { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.share-row.locked code { flex: 1 1 100%; overflow-wrap: anywhere; }
+.share-unit { font-size: 13px; }
+#launchEmbers, .row-embers { display: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tx-timeline a { display: block; }
+[data-state=done] { color: var(--pass-glyph); }
+[data-state=bad], [aria-invalid=true] { color: var(--destructive); }
+button { font: inherit; min-height: 44px; white-space: normal; cursor: pointer; }
+.chain-columns code { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .row-actions { flex-direction: column; } .launch-card { padding: 12px; } }
+
+button.primary { padding: var(--sp-sm) var(--sp-lg); font-family: inherit;
+  font-size: 16px; min-height: 44px; border: 1px solid var(--ink);
+  background: var(--ink); color: var(--paper); cursor: pointer; }
+button.primary:hover, button.primary:focus-visible {
+  background: var(--accent); border-color: var(--accent); }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--sp-md); }
+.field input, .field textarea { padding: var(--sp-sm); font-family: inherit; font-size: 16px;
+  border: 1px solid var(--unchecked); background: #fff; max-width: 100%; }
+.field textarea { min-height: 4em; }
+.field label { font-size: 14px; }
+.share-row { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
+  margin-bottom: var(--sp-sm); align-items: center; }
+.share-row .share-addr { flex: 1 1 18em; min-width: 0; padding: var(--sp-sm);
+  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+.share-row .share-bps { flex: 0 0 6em; padding: var(--sp-sm); font-family: inherit;
+  font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+.share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
+  border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
+.share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;
+  color: var(--ink); opacity: 0.8; margin-top: -2px; }
+.share-row.locked .share-addr, .share-row.locked .share-bps { background: var(--panel); color: var(--ink); }
+.share-row.locked .rm { border-style: solid; cursor: default; }
+.share-row .share-fixed { flex: 0 0 auto; padding: var(--sp-sm); font-size: 14px; font-weight: 700; }
+#total.ok { color: var(--pass-glyph); font-weight: 700; }
+#total.bad { color: var(--destructive); font-weight: 700; }
+.note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note.bad { color: var(--destructive); }
+.note.good { color: var(--pass-glyph); }
+.note.caution { color: var(--unchecked); }
+pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; margin: var(--sp-md) 0; }
+.warn { border-left: 4px solid var(--destructive); background: rgba(163,39,31,0.08);
+  padding: var(--sp-md); margin: var(--sp-md) 0; }
+ol.steps li { margin-bottom: var(--sp-sm); }
+"""
+
+
+_BODY = r"""
+<main>
+  <div class="launch-hero">
+    <canvas id="launchEmbers" aria-hidden="true"></canvas>
+    <div class="eyebrow"><span class="telemetry-led"></span><span>THE LAUNCH DOOR</span></div>
+    <h1>Create a pump coin. Set its fee split in the next transaction.</h1>
+    <p><strong>pump allows exactly one fee split change. The split is permanent once set.</strong>
+      The coin is made by pump’s own create instruction, with your wallet as creator. In the transaction right after it is created,
+      you set the split: an optional share to the Sol-Incinerator, <strong>0.25% of each transaction</strong> to the protocol,
+      and the rest to wallets you name. Two approvals. Your key never leaves your wallet.</p>
+  </div>
+
+  <section class="gatekeep-banner cyber-card cyber-card--chamfer" aria-labelledby="permanenceTitle">
+    <span class="gatekeep-badge">ONE CHANGE, EVER</span>
+    <h2 id="permanenceTitle">Choose it once. Keep it forever.</h2>
+    <p>Setting the split spends the coin’s one change. Once the second transaction confirms, no key can change it again, including yours.
+      Trades can land between the two transactions; their fees go where pump sends them by default.</p>
+  </section>
+
+  <section class="launch-checklist step-list" aria-labelledby="checklistTitle">
+    <h2 id="checklistTitle">Before you start</h2>
+    <div class="blueprint-flow-grid">
+      <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">01</span>
+        <div class="blueprint-flow-title">Start with a new coin</div>
+        <p class="blueprint-flow-desc">This page creates it. Already have a coin? Enrollment for existing coins is at /enroll. Coins made here cannot have Trader Cashback, the creation choice that prevents enrollment.</p></div>
+      <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">02</span>
+        <div class="blueprint-flow-title">Have about 0.02 SOL</div>
+        <p class="blueprint-flow-desc">Measured account rent is about 0.0081 SOL for the coin and 0.0059 SOL for its split record, plus two network fees. This flow does not buy tokens.</p></div>
+      <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">03</span>
+        <div class="blueprint-flow-title">Decide the destinations</div>
+        <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. Remove it and there is no SOL burn; other destinations receive their share.</p></div>
+      <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">04</span>
+        <div class="blueprint-flow-title">Bring the coin’s details</div>
+        <p class="blueprint-flow-desc">Name up to 32 bytes, ticker up to 10, image up to 4 MB. Details are pinned through pump’s metadata service. Check them before creation.</p></div>
+      <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">05</span>
+        <div class="blueprint-flow-title">Expect two approvals</div>
+        <p class="blueprint-flow-desc">First the coin, then the permanent split. Each transaction is simulated before its signature. The page waits for the coin to confirm before it can simulate the split.</p></div>
+    </div>
+  </section>
+
+  <nav class="launch-stepper" aria-label="Launch steps">
+    <a href="#detailsBox">1 <span>Describe</span></a><a href="#splitBox">2 <span>Set the split</span></a>
+    <a href="#walletBox">3 <span>Connect</span></a><a href="#reviewBox">4 <span>Check and sign</span></a>
+  </nav>
+
+  <section class="cyber-card cyber-card--chamfer launch-card" id="detailsBox" data-edit aria-labelledby="detailsTitle">
+    <div class="eyebrow">STEP 1 // DETAILS</div><h2 id="detailsTitle">Describe the coin</h2>
+    <p>Upload the image and details to pump’s metadata service. Uploading creates no coin and asks for no wallet signature.</p>
+    <div class="field"><label for="name">Name (up to 32 bytes)</label><input id="name" type="text" maxlength="32" autocomplete="off"></div>
+    <div class="field"><label for="symbol">Ticker (up to 10 bytes, no spaces)</label><input id="symbol" type="text" maxlength="10" autocomplete="off" spellcheck="false"></div>
+    <div class="field"><label for="description">Description</label><textarea id="description" maxlength="1000"></textarea></div>
+    <div class="field"><label for="image">Image (PNG, JPEG, GIF or WebP, up to 4 MB)</label><input id="image" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></div>
+    <div class="field"><label for="twitter">X / Twitter (optional)</label><input id="twitter" type="text" autocomplete="off"></div>
+    <div class="field"><label for="telegram">Telegram (optional)</label><input id="telegram" type="text" autocomplete="off"></div>
+    <div class="field"><label for="website">Website (optional)</label><input id="website" type="text" autocomplete="off"></div>
+    <div class="row-actions"><button type="button" id="pin" class="btn-plain">Upload details to pump (creates nothing)</button></div>
+    <p id="metaNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p id="uriBox" class="note" role="status" aria-live="polite" aria-atomic="true" hidden>Metadata URI: <code id="uriShown"></code></p>
+  </section>
+
+  <section class="cyber-card cyber-card--chamfer launch-card" id="splitBox" data-edit aria-labelledby="splitTitle">
+    <div class="eyebrow">STEP 2 // THE PERMANENT SPLIT</div><h2 id="splitTitle">Set the split</h2>
+    <p><strong>pump allows exactly one split change. This split cannot be changed after it is set.</strong>
+      The protocol receives <strong>0.25% of each transaction</strong>, set aside to buy and burn $CHARLIE.
+      Your rows divide the rest of the creator fees and must total exactly 100% of that rest.
+      The incinerator is optional; SOL paid to it is destroyed. Other wallets receive SOL.</p>
+    <div class="share-row locked" role="group" aria-label="Fixed protocol share">
+      <strong>Charlie Protocol</strong><span class="share-fixed">0.25% of each transaction</span>
+      <code id="protocolAddr">Checking collection address…</code><input id="protocolBps" type="hidden">
+    </div>
+    <div id="shares"></div>
+    <div class="row-actions">
+      <button type="button" id="addRow" class="btn-plain">Add a destination</button>
+      <button type="button" id="balance" class="btn-plain">Balance to 100%</button>
+      <span class="total-line">Total: <span id="total">100.00%</span> of the rest, must be exactly 100%</span>
+    </div>
+    <p id="burnNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p id="splitNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
+  </section>
+
+  <section class="cyber-card cyber-card--chamfer launch-card" id="walletBox" aria-labelledby="walletTitle">
+    <div class="eyebrow">STEP 3 // WALLET</div><h2 id="walletTitle">Connect</h2>
+    <p>Your wallet becomes the coin’s creator and supplies the wallet row above. Connecting signs nothing.</p>
+    <div class="row-actions"><div class="btn-conic-glow"><button type="button" id="connect" class="btn-submit">Connect wallet</button></div>
+      <p id="connected" class="note" role="status" aria-live="polite" aria-atomic="true" hidden>Connected: <code id="walletAddr"></code></p></div>
+    <p id="walletNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
+  </section>
+
+  <section class="cyber-card cyber-card--chamfer launch-card" id="reviewBox" aria-labelledby="reviewTitle">
+    <div class="eyebrow">STEP 4 // REVIEW AND APPROVE</div><h2 id="reviewTitle">Check and sign</h2>
+    <p>Dry-run the coin creation and validate the split. The split’s full simulation runs after the coin confirms, before approval 2.</p>
+    <div class="row-actions"><button type="button" id="build" class="btn-plain" disabled>Dry-run create and check split (nothing signed)</button></div>
+    <pre id="buildNote" class="note" role="status" aria-live="polite" aria-atomic="true"></pre>
+    <div id="mintBox" hidden><p class="note">The coin’s address (CA): <code id="mintAddr"></code></p>
+      <button id="copyMint" type="button" class="btn-plain">Copy coin address</button>
+      <p id="copyNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p></div>
+    <div class="warn"><strong>The second approval is permanent.</strong> It spends the coin’s only split change. Check every destination and share in the summary before signing.</div>
+    <ol id="txTimeline" class="tx-timeline" aria-label="Transaction progress" aria-live="polite" hidden>
+      <li id="tx1" data-state="idle">1. Create the coin</li><li id="txWait" data-state="idle">Wait for confirmation</li><li id="tx2" data-state="idle">2. Set the permanent split</li>
+    </ol>
+    <div class="row-actions"><div class="btn-conic-glow sign-wrap" hidden>
+      <button type="button" id="send" class="btn-submit" hidden>
+        <span id="approvalRing" class="approval-ring" data-step="1" aria-hidden="true"><i></i><i></i><b></b></span>
+        <span id="sendLabel">Sign 1 of 2: create the coin</span>
+      </button></div><button type="button" id="checkAgain" class="btn-plain" hidden>Check again</button></div>
+    <p id="sendNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div id="doneBox" hidden><p>Your coin’s split is confirmed on chain. A bot asks pump to pay out the creator vault—the account holding its creator fees—when pump’s minimum is met. If your split includes the incinerator, its first payout is the first SOL burn.</p>
+      <div class="row-actions"><a id="pumpLink" class="btn-plain">Your coin on pump</a><a id="verifyLink" class="btn-plain">Read the coin’s split from the chain</a></div></div>
+  </section>
+
+  <section class="launch-chain" aria-labelledby="chainTitle">
+    <h2 id="chainTitle">What happens on the chain</h2>
+    <div class="chain-columns">
+      <div><h3>First, pump creates the coin</h3>
+        <p>pump’s original <code>create</code> instruction makes the coin, its metadata and its bonding curve—the account pump uses to price trades—with your wallet as creator.
+          Your wallet signs alongside a throwaway mint keypair generated by the server. That key signs creation once; pump’s mint authority takes over when the instruction runs.</p>
+        <p>Trades may arrive before your split is set. Those fees go where pump sends them by default.</p></div>
+      <div><h3>Then, you set the split permanently</h3>
+        <p><code>create_fee_sharing_config</code> makes the split record. <code>update_fee_shares_v2</code> sets the split and, in that same instruction, gives up the right to change it. pump records this as <code>admin_revoked</code>.</p>
+        <p>pump pays the rows from the creator vault, the account holding the coin’s creator fees. A bot asks pump to pay it out; anyone can also request that payout. It needs no signer.</p></div>
+      <div><h3>Both approvals are checked</h3>
+        <p>Each transaction is simulated against mainnet before you sign. The second is built only after the first confirms. If the coin is created and the split fails, the split can still be set later. Keep the coin’s address. Enrollment for existing coins is at <a href="./enroll.html">/enroll</a>.</p></div>
+      <div><h3>The chain supplies the evidence</h3>
+        <p>The coin’s page reads the split and payouts from the chain. Each payout to the incinerator is a SOL burn anyone can verify. Creating a coin here does not by itself publish a listing or a burn record.</p>
+        <a href="./verify.html" class="btn-plain">Check any coin</a></div>
+    </div>
+  </section>
+</main>
+"""
+
+
+def render(*, now=None) -> str:
+    """The fallback launch page; behavior is shared with the authored site."""
+    stamp = site._stamp(now() if callable(now) else (now if now is not None else time.time()))
+    body = ('<p class="meta">LAUNCH STATUS: <span id="launchStatus">CHECKING</span></p>'
+            + _BODY + f'<p class="meta">generated at {site.esc(stamp)}</p>'
+            + f'<script>{_SCRIPT}</script>')
+    return site._document(
+        "Launch a coin -- Charlie Protocol", body,
+        style=site._INDEX_STYLE + _STYLE,
+        description="Create a pump.fun coin and set its permanent fee split in the next transaction. "
+                    "Two approvals; your key stays in your wallet.",
+    )
+
+
+def write(out_dir=site.DEFAULT_OUTPUT_DIR, *, now=None):
+    path = Path(out_dir) / LAUNCH_FILENAME
+    if path.exists() and site._is_authored(path):
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render(now=now), encoding="utf-8", newline="")
+    return path

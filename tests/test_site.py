@@ -1176,6 +1176,7 @@ class TestVercelJson(unittest.TestCase):
         self.assertEqual(sources, {
             "/coins",
             "/enroll",
+            "/launch",
             "/dilution",
             "/buildlog",
             "/phases",
