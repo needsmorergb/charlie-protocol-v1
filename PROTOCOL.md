@@ -293,7 +293,16 @@ gatekeep what a coin may do; it gatekeeps what may carry its name.
 
 ## 7. Non-goals
 
-- Not a launchpad.
+- Not a launchpad in the custody sense. Amended 2026-09-14: `/launch` creates
+  a coin through pump's own `create` instruction with the dev's wallet as the
+  coin's creator, then sets its fee destinations in the next transaction, the
+  same one `/enroll` sends. At no point does the protocol hold the mint, a
+  mint authority, a signing key, or a balance: the coin is pump's and the
+  dev's from its first block, and the protocol's share is whatever the dev's
+  own config pays it, enforced by pump. What the protocol still will not do
+  is run a curve, hold a raise, take a position in a coin it launches, or
+  rank one. A coin launched through `/launch` appears on this site the way
+  every coin does: by being read.
 - Not a price floor. No mode creates one.
 - Not custody. The protocol never holds a mint, a mint authority, or a
   spendable balance on behalf of an enrolled coin.
