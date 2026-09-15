@@ -18,8 +18,8 @@
     "burn_total": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
-        "status": "UNCHECKED"
+        "detail": "claimed burns do not reconcile against the mint supply",
+        "status": "FAIL"
       },
       {
         "check": "BURN_SPEND",
@@ -37,20 +37,15 @@
     "sol_burn_total": [
       {
         "check": "SOL_BURN_BALANCE",
-        "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+        "detail": "no inflows are recorded for burn111111111111111111111111111111111111111 yet, so no total is stated for it",
         "status": "UNCHECKED"
       }
     ],
     "supply_destroyed": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
-        "status": "UNCHECKED"
-      },
-      {
-        "check": "BURN_ATOMIC",
-        "detail": "no burn recorded yet for this mint -- nothing to check",
-        "status": "UNCHECKED"
+        "detail": "claimed burns do not reconcile against the mint supply",
+        "status": "FAIL"
       }
     ]
   },
@@ -106,7 +101,7 @@
       "backs": [
         "sol_burn_total"
       ],
-      "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+      "detail": "no inflows are recorded for burn111111111111111111111111111111111111111 yet, so no total is stated for it",
       "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
       "expected": null,
       "name": "SOL_BURN_BALANCE",
@@ -118,11 +113,11 @@
         "burn_total",
         "supply_destroyed"
       ],
-      "detail": "burn events are not recorded yet. Live supply is observed and stored, but a supply reading on its own proves a total, not that we know which burns produced it",
+      "detail": "claimed burns do not reconcile against the mint supply",
       "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
-      "expected": null,
+      "expected": "956423419572100",
       "name": "BURN_SUPPLY",
-      "status": "UNCHECKED"
+      "status": "FAIL"
     },
     {
       "actual": "None",
@@ -138,10 +133,8 @@
     },
     {
       "actual": null,
-      "backs": [
-        "supply_destroyed"
-      ],
-      "detail": "no burn recorded yet for this mint -- nothing to check",
+      "backs": [],
+      "detail": "no protocol-attributed burn exists for this mint (D-10) -- PROTOCOL.md sec.4's atomicity requirement is about the protocol's own BURN leg, not third-party burns, so this check does not apply here. It reads not-applicable for every coin until phase 5, because no protocol burns exist yet (D-14) -- the correct answer, not an awkward one",
       "equation": "swap_instruction.transaction == burn_instruction.transaction",
       "expected": null,
       "name": "BURN_ATOMIC",
@@ -187,10 +180,17 @@
   "error": null,
   "error_kind": null,
   "evidence": {
-    "initial_supply": null
+    "initial_supply": {
+      "creation_signature": "gzqXeVGjT3FouJae8w8ytDgxvKXhpEsrfhgdt4GvdGzecEz4QgTmjouXZpVMaTfdFFeyiAAwhxkTZkerYqynTxd",
+      "decimals": 6,
+      "derived_at": 1788123388,
+      "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "raw_supply": 1000000000000000,
+      "unchecked_reason": null
+    }
   },
   "evidence_coverage": {
-    "burn111111111111111111111111111111111111111": 0
+    "burn111111111111111111111111111111111111111": 1
   },
   "graduated": true,
   "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
@@ -201,7 +201,7 @@
     "supply": 956338419723399,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1789434807.6433623,
+  "observed_at": 1789467917.7196074,
   "publishable": [
     "split"
   ],
