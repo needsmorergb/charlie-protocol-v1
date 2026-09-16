@@ -113,6 +113,17 @@ class TestDescribe(_Base):
         self.assertEqual(body["toll"], {"address": TOLL, "bps": enroll.TOLL_BPS})
         self.assertEqual(body["steps"], 2)
         self.assertEqual(body["limits"]["name_bytes"], 32)
+        self.assertEqual(body["mints"], {"pool": False, "suffix": mint_pool.SUFFIX, "size": 0, "left": None})
+
+    def test_the_door_counts_the_pool_when_there_is_one(self):
+        first = launch.new_mint(b"\x21" * 32)
+        second = launch.new_mint(b"\x22" * 32)
+        env = {mint_pool.ENV: f"{encode(first.seed)},{encode(second.seed)}"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(mint_pool, "SUFFIX", ""), \
+                mock.patch.object(api_launch, "RpcClient", return_value=_Rpc(used_mints=[first.address])):
+            status, body = self.server.get("/api/launch")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["mints"], {"pool": True, "suffix": "", "size": 2, "left": 1})
 
     def test_closed_while_the_toll_is_unset(self):
         legs.TOLL_DESTINATION = None
@@ -152,10 +163,10 @@ class TestBuild(_Base):
         self.assertNotEqual(first["mint"], second["mint"])
 
     def test_a_configured_pool_hands_out_its_first_unused_mint(self):
-        first = launch.new_mint(b"" * 32)
-        second = launch.new_mint(b"" * 32)
+        first = launch.new_mint(b"\x11" * 32)
+        second = launch.new_mint(b"\x12" * 32)
         env = {mint_pool.ENV: f"{encode(first.seed)},{encode(second.seed)}"}
-        with mock.patch.dict(os.environ, env):
+        with mock.patch.dict(os.environ, env), mock.patch.object(mint_pool, "SUFFIX", ""):
             status, body = self._build(_Rpc(used_mints=[first.address]))
         self.assertEqual(status, 200, body)
         self.assertEqual(body["mint"], second.address)
@@ -163,8 +174,8 @@ class TestBuild(_Base):
         self.assertTrue(ed25519.verify(second.public, tx[129:], tx[65:129]), "signed by the pool key")
 
     def test_an_exhausted_pool_pauses_launching_instead_of_minting_random(self):
-        only = launch.new_mint(b"" * 32)
-        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(only.seed)}):
+        only = launch.new_mint(b"\x13" * 32)
+        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(only.seed)}), mock.patch.object(mint_pool, "SUFFIX", ""):
             status, body = self._build(_Rpc(used_mints=[only.address]))
         self.assertEqual(status, 503, body)
         self.assertIn("paused", body["error"])
@@ -213,6 +224,15 @@ class TestBuild(_Base):
         self.assertEqual(status, 400)
         self.assertIn("exactly 10000", body["error"])
         self.assertEqual(rpc.calls, [])
+
+
+class TestPage(unittest.TestCase):
+    def test_the_page_names_the_same_mark_the_pool_enforces(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertIn(f"<code>{mint_pool.SUFFIX}</code>", page)
+        self.assertIn("mints.left === 0", page, "the page closes when the pool is dry")
+        self.assertNotIn("throwaway mint keypair", page)
 
 
 class TestStatus(_Base):

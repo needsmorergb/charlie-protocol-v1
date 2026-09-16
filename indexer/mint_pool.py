@@ -30,14 +30,22 @@ from .base58 import decode
 
 ENV = "CHARLIE_MINT_POOL"
 
+# The mark. Every key in the pool must carry it: a pool entry that does not is
+# a paste error, and the door would otherwise launch a coin without the mark
+# while believing it had one.
+SUFFIX = "1nc1n"
+
 
 class PoolError(ValueError):
     """The pool is misconfigured or has no key left."""
 
 
-def parse(text: str) -> list[ed25519.Keypair]:
+def parse(text: str, suffix: str | None = None) -> list[ed25519.Keypair]:
     """Keypairs from the comma-separated env value. Empty text is an empty
-    pool; a malformed entry is an error, never a silently shorter pool."""
+    pool; a malformed entry, a duplicate, or an address without the suffix
+    is an error, never a silently shorter pool."""
+    if suffix is None:
+        suffix = SUFFIX
     pool: list[ed25519.Keypair] = []
     for index, item in enumerate(part.strip() for part in text.split(",")):
         if not item:
@@ -46,6 +54,8 @@ def parse(text: str) -> list[ed25519.Keypair]:
             pool.append(ed25519.Keypair.from_secret_bytes(decode(item)))
         except Exception as exc:  # noqa: BLE001 -- say which entry, never its value
             raise PoolError(f"{ENV} entry {index + 1} is not a keypair: {exc}") from exc
+        if not pool[-1].address.endswith(suffix):
+            raise PoolError(f"{ENV} entry {index + 1} is {pool[-1].address}, which does not end in {suffix}")
     seen = set()
     for pair in pool:
         if pair.address in seen:
@@ -64,16 +74,38 @@ def configured() -> list[ed25519.Keypair] | None:
     return parse(text)
 
 
-def pick(pool: list[ed25519.Keypair], rpc) -> ed25519.Keypair:
-    """The first key whose mint account does not exist yet. One
+def unused(pool: list[ed25519.Keypair], rpc) -> list[ed25519.Keypair]:
+    """The keys whose mint account does not exist yet, in pool order. One
     `getMultipleAccounts` for the whole pool."""
     if not pool:
-        raise PoolError("the mint pool is empty: grind more keys with tools/vanity_mint.py")
+        return []
     accounts = rpc.accounts([pair.address for pair in pool])
-    for pair, account in zip(pool, accounts):
-        if account is None:
-            return pair
-    raise PoolError(f"every one of the {len(pool)} pre-ground mints has been used: grind more with tools/vanity_mint.py")
+    return [pair for pair, account in zip(pool, accounts) if account is None]
 
 
-__all__ = ["ENV", "PoolError", "configured", "parse", "pick"]
+def pick(pool: list[ed25519.Keypair], rpc) -> ed25519.Keypair:
+    """The first unused key, or a PoolError that says how to fix it."""
+    if not pool:
+        raise PoolError("the mint pool is empty: grind more keys with tools/vanity_mint.py")
+    left = unused(pool, rpc)
+    if not left:
+        raise PoolError(f"every one of the {len(pool)} pre-ground mints has been used: grind more with tools/vanity_mint.py")
+    return left[0]
+
+
+def describe(rpc) -> dict:
+    """What the page shows before a wallet connects: whether a pool is
+    configured, how many keys are left, and the mark they carry. `left` is
+    None when the chain could not be asked; the page treats that as unknown,
+    not as zero, and the build itself asks again."""
+    pool = configured()
+    if pool is None:
+        return {"pool": False, "suffix": SUFFIX, "size": 0, "left": None}
+    try:
+        left = len(unused(pool, rpc))
+    except Exception:  # noqa: BLE001 -- availability is advisory here
+        left = None
+    return {"pool": True, "suffix": SUFFIX, "size": len(pool), "left": left}
+
+
+__all__ = ["ENV", "SUFFIX", "PoolError", "configured", "describe", "parse", "pick", "unused"]

@@ -29,9 +29,20 @@ class _Rpc:
 
 
 class TestParse(unittest.TestCase):
+    """The test keys are ordinary; `suffix=""` is the rule switched off, and
+    one test below switches it on."""
+
     def test_seeds_and_full_keypairs_both_load(self):
-        pool = mint_pool.parse(f"{encode(A.seed)}, {encode(B.seed + B.public)},")
+        pool = mint_pool.parse(f"{encode(A.seed)}, {encode(B.seed + B.public)},", suffix="")
         self.assertEqual([p.address for p in pool], [A.address, B.address])
+
+    def test_an_address_without_the_mark_is_refused_by_default(self):
+        with self.assertRaises(mint_pool.PoolError) as caught:
+            mint_pool.parse(encode(A.seed))
+        self.assertIn(mint_pool.SUFFIX, str(caught.exception))
+        self.assertIn(A.address, str(caught.exception), "the address is public; naming it helps")
+        tail = A.address[-len(mint_pool.SUFFIX):]
+        self.assertEqual([p.address for p in mint_pool.parse(encode(A.seed), suffix=tail)], [A.address])
 
     def test_empty_is_an_empty_pool(self):
         self.assertEqual(mint_pool.parse(""), [])
@@ -39,25 +50,45 @@ class TestParse(unittest.TestCase):
 
     def test_a_bad_entry_names_its_position_not_its_value(self):
         with self.assertRaises(mint_pool.PoolError) as caught:
-            mint_pool.parse(f"{encode(A.seed)},notakey")
+            mint_pool.parse(f"{encode(A.seed)},notakey", suffix="")
         self.assertIn("entry 2", str(caught.exception))
         self.assertNotIn("notakey", str(caught.exception))
 
     def test_a_mismatched_keypair_is_refused(self):
         with self.assertRaises(mint_pool.PoolError):
-            mint_pool.parse(encode(A.seed + B.public))
+            mint_pool.parse(encode(A.seed + B.public), suffix="")
 
     def test_a_duplicate_is_refused(self):
         with self.assertRaises(mint_pool.PoolError):
-            mint_pool.parse(f"{encode(A.seed)},{encode(A.seed)}")
+            mint_pool.parse(f"{encode(A.seed)},{encode(A.seed)}", suffix="")
 
     def test_unset_means_no_pool_and_set_means_a_pool(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(mint_pool.configured())
         with mock.patch.dict(os.environ, {mint_pool.ENV: ""}):
             self.assertEqual(mint_pool.configured(), [])
-        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(C.seed)}):
+        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(C.seed)}), mock.patch.object(mint_pool, "SUFFIX", ""):
             self.assertEqual([p.address for p in mint_pool.configured()], [C.address])
+
+
+class TestDescribe(unittest.TestCase):
+    def test_no_pool(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(mint_pool.describe(_Rpc(set())),
+                             {"pool": False, "suffix": mint_pool.SUFFIX, "size": 0, "left": None})
+
+    def test_a_pool_counts_what_is_left(self):
+        env = {mint_pool.ENV: f"{encode(A.seed)},{encode(B.seed)},{encode(C.seed)}"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(mint_pool, "SUFFIX", ""):
+            self.assertEqual(mint_pool.describe(_Rpc({A.address, C.address})),
+                             {"pool": True, "suffix": "", "size": 3, "left": 1})
+
+    def test_an_unreachable_chain_is_unknown_not_zero(self):
+        class Down:
+            def accounts(self, addresses):
+                raise ConnectionError("no")
+        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(A.seed)}), mock.patch.object(mint_pool, "SUFFIX", ""):
+            self.assertIsNone(mint_pool.describe(Down())["left"])
 
 
 class TestPick(unittest.TestCase):
