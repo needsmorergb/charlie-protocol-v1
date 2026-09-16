@@ -93,6 +93,7 @@ SHARED = (
     "indexer/launch_page.py",
     "indexer/legs.py",
     "indexer/message.py",
+    "indexer/mint_pool.py",
     "indexer/observe.py",
     "indexer/phases_page.py",
     "indexer/publish.py",
