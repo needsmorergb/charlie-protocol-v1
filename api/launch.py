@@ -235,6 +235,10 @@ class handler(BaseHTTPRequestHandler):
                        "uri_bytes": launch.MAX_URI_BYTES, "image_bytes": MAX_IMAGE_BYTES},
             "rent_lamports": {"create": CREATE_RENT_LAMPORTS, "config": CONFIG_RENT_LAMPORTS},
             "steps": 2,
+            # The pre-ground addresses: whether there is a pool, the mark its
+            # addresses end in, and how many are left. A configured pool with
+            # none left closes the door on the page before anyone fills the form.
+            "mints": mint_pool.describe(_rpc()),
         })
 
     def _build(self, authority: str, name: str, symbol: str, uri: str, raw_shares: str):
