@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import threading
 import unittest
@@ -22,8 +23,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import ed25519, enroll, launch, legs  # noqa: E402
-from indexer.base58 import decode  # noqa: E402
+from indexer import ed25519, enroll, launch, legs, mint_pool  # noqa: E402
+from indexer.base58 import decode, encode  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("api_launch", ROOT / "api" / "launch.py")
 api_launch = importlib.util.module_from_spec(_spec)
@@ -39,7 +40,8 @@ DEFAULT_SHARES = f"{TOLL}:2500,{DEV}:7500"
 class _Rpc:
     """Answers the four methods the handler calls, from a script."""
 
-    def __init__(self, *, simulate_err=None, status=None, curve=True, logs=()):
+    def __init__(self, *, simulate_err=None, status=None, curve=True, logs=(), used_mints=()):
+        self.used_mints = set(used_mints)
         self.simulate_err = simulate_err
         self.status = status
         self.curve = curve
@@ -56,7 +58,12 @@ class _Rpc:
             return {"value": [self.status]}
         if method == "getAccountInfo":
             return {"value": {"data": ["", "base64"]} if self.curve else None}
+        if method == "getMultipleAccounts":
+            return {"value": [{"data": ["", "base64"]} if a in self.used_mints else None for a in params[0]]}
         raise AssertionError(method)
+
+    def accounts(self, addresses):
+        return list(self.call("getMultipleAccounts", [addresses, {"encoding": "base64"}])["value"])
 
 
 class _Server:
@@ -143,6 +150,25 @@ class TestBuild(_Base):
         _s1, first = self._build(_Rpc())
         _s2, second = self._build(_Rpc())
         self.assertNotEqual(first["mint"], second["mint"])
+
+    def test_a_configured_pool_hands_out_its_first_unused_mint(self):
+        first = launch.new_mint(b"" * 32)
+        second = launch.new_mint(b"" * 32)
+        env = {mint_pool.ENV: f"{encode(first.seed)},{encode(second.seed)}"}
+        with mock.patch.dict(os.environ, env):
+            status, body = self._build(_Rpc(used_mints=[first.address]))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["mint"], second.address)
+        tx = decode(body["signable"])
+        self.assertTrue(ed25519.verify(second.public, tx[129:], tx[65:129]), "signed by the pool key")
+
+    def test_an_exhausted_pool_pauses_launching_instead_of_minting_random(self):
+        only = launch.new_mint(b"" * 32)
+        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(only.seed)}):
+            status, body = self._build(_Rpc(used_mints=[only.address]))
+        self.assertEqual(status, 503, body)
+        self.assertIn("paused", body["error"])
+        self.assertIn("vanity_mint", body["error"])
 
     def test_a_simulation_error_is_never_handed_to_the_wallet(self):
         rpc = _Rpc(simulate_err={"InstructionError": [0, {"Custom": 1}]},

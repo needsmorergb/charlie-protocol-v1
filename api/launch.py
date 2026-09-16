@@ -3,8 +3,9 @@
 The launch door's server half. Three things it does, and one it never does:
 
 * GET with `authority`, `name`, `symbol`, `uri`, `shares`: validates the split,
-  including its transaction size, before generating a fresh mint
-  keypair, builds pump's `create` with the dev as creator, signs it with the
+  including its transaction size, before taking a mint keypair (a
+  pre-ground one from `CHARLIE_MINT_POOL`, whose address ends in the
+  protocol's suffix; random when no pool is configured), builds pump's `create` with the dev as creator, signs it with the
   MINT (a key that is powerless the moment the instruction runs), simulates
   it against mainnet, and returns it for the dev's wallet to sign and send.
 * GET with `status` and `mint`: whether that create transaction has landed
@@ -36,7 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from indexer import enroll, launch, legs  # noqa: E402
+from indexer import enroll, launch, legs, mint_pool  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
 from indexer.message import MessageError  # noqa: E402
 from indexer.rpc import RpcClient, RpcError  # noqa: E402
@@ -166,6 +167,9 @@ class handler(BaseHTTPRequestHandler):
             return self._fail(str(exc))
         except enroll.EnrollError as exc:
             return self._fail(str(exc))
+        except mint_pool.PoolError as exc:
+            # The operator's problem, not the creator's: say so, with 503.
+            return self._fail(f"Launching is paused: {exc}", status=503)
         except MessageError as exc:
             return self._fail(f"This split does not fit a transaction: {exc}")
         except RpcError as exc:
@@ -252,9 +256,14 @@ class handler(BaseHTTPRequestHandler):
         # The account does not exist yet, so a full split simulation must wait.
         # Still reject impossible splits (including oversized messages) BEFORE
         # asking the creator to pay for the coin's accounts.
-        mint = launch.new_mint()
-        enroll.enrollment_message(mint.address, dev, shares, "11111111111111111111111111111111", create=True)
         rpc = _rpc()
+        # A pre-ground mint whose address carries the protocol's suffix when
+        # the pool is configured; a random one when it is not (local runs,
+        # tests). A configured pool with nothing left refuses rather than
+        # quietly launching a coin without the mark.
+        pool = mint_pool.configured()
+        mint = launch.new_mint() if pool is None else mint_pool.pick(pool, rpc)
+        enroll.enrollment_message(mint.address, dev, shares, "11111111111111111111111111111111", create=True)
         blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
         message = launch.create_message(mint.address, dev, meta, blockhash)
         transaction = launch.partially_signed(message, mint)
