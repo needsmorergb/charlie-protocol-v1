@@ -29,6 +29,19 @@ from indexer.rpc import RpcClient  # noqa: E402
 
 BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
+# The gate. The enroll PAGE has been a standby page since before release, but
+# a page is not a gate: this endpoint answered anyone who called it directly,
+# and for a coin's own creator it builds the one transaction that spends the
+# coin's only split change. It is closed unless the deployment says otherwise,
+# so a missing variable fails shut, and opening enrollment is one setting
+# rather than a deploy. The launch door's second approval is built here too,
+# so the door cannot open before this does.
+OPEN_ENV = "CHARLIE_ENROLL_OPEN"
+
+
+def _open() -> bool:
+    return os.environ.get(OPEN_ENV, "").strip() == "1"
+
 
 def _address(value: str) -> str | None:
     from indexer.base58 import decode, encode
@@ -70,6 +83,10 @@ def _shares(raw: str):
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
+        if not _open():
+            # Before anything is parsed and before the chain is read: a closed
+            # door says so and does nothing else.
+            return self._send(403, {"open": False, "error": "Enrollment is not open yet."})
         query = parse_qs(urlparse(self.path).query)
         one = lambda k: (query.get(k) or [""])[0].strip()  # noqa: E731
 
