@@ -23,7 +23,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from indexer import ed25519, enroll, launch, legs, mint_pool  # noqa: E402
+from indexer import ed25519, enroll, launch, launchbuy, legs, mint_pool  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("api_launch", ROOT / "api" / "launch.py")
@@ -180,6 +180,31 @@ class TestBuild(_Base):
         self.assertEqual(status, 503, body)
         self.assertIn("paused", body["error"])
         self.assertIn("vanity_mint", body["error"])
+
+    def test_a_buy_at_launch_is_priced_bundled_and_described(self):
+        from test_launchbuy import FEE_CONFIG, GLOBAL
+        rpc = _Rpc()
+        with mock.patch.object(api_launch.launchbuy, "observe", return_value=(GLOBAL, FEE_CONFIG, True)):
+            status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}&buy=0.5")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["buy"]["sol"], 0.5)
+        self.assertTrue(body["buy"]["before_split"])
+        self.assertGreater(body["buy"]["tokens"], 0)
+        self.assertEqual(launch.signer_addresses(decode(body["signable"])[129:]), [DEV, body["mint"]])
+        simulated = next(p for m, p in rpc.calls if m == "simulateTransaction")
+        self.assertEqual(simulated[0], body["transaction"], "the bundled transaction is what was simulated")
+        self.assertGreater(len(body["transaction"]), 1200, "base64 of a create-plus-buy is longer than create alone")
+
+    def test_no_buy_means_no_buy(self):
+        _s, body = self._build(_Rpc())
+        self.assertIsNone(body["buy"])
+
+    def test_a_bad_buy_amount_is_refused_before_the_chain_is_read(self):
+        rpc = _Rpc()
+        status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}&buy=abc")
+        self.assertEqual(status, 400)
+        self.assertIn("SOL", body["error"])
+        self.assertNotIn("simulateTransaction", [m for m, _ in rpc.calls])
 
     def test_a_simulation_error_is_never_handed_to_the_wallet(self):
         rpc = _Rpc(simulate_err={"InstructionError": [0, {"Custom": 1}]},

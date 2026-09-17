@@ -182,6 +182,12 @@ class Global:
     fee_recipient: str
     fee_bps: int
     creator_fee_bps: int
+    # What every new curve starts with: `create` copies these four onto the
+    # bonding curve, so a buy in the create transaction prices from them.
+    initial_virtual_token: int = 0
+    initial_virtual_sol: int = 0
+    initial_real_token: int = 0
+    total_supply: int = 0
     # The wallets pump's buyback share of the protocol fee may be paid to;
     # `buy_v2` names one. 5000 bps of the protocol fee on 2026-09-05.
     buyback_fee_recipients: tuple = ()
@@ -204,6 +210,10 @@ def decode_global(account: dict | None) -> Global:
         fee_recipient=encode(data[_GLOBAL_FEE_RECIPIENT:_GLOBAL_FEE_RECIPIENT + 32]),
         fee_bps=int.from_bytes(data[_GLOBAL_FEE_BPS:_GLOBAL_FEE_BPS + 8], "little"),
         creator_fee_bps=int.from_bytes(data[_GLOBAL_CREATOR_FEE_BPS:_GLOBAL_CREATOR_FEE_BPS + 8], "little"),
+        initial_virtual_token=int.from_bytes(data[73:81], "little"),
+        initial_virtual_sol=int.from_bytes(data[81:89], "little"),
+        initial_real_token=int.from_bytes(data[89:97], "little"),
+        total_supply=int.from_bytes(data[97:105], "little"),
         buyback_fee_recipients=recipients,
         buyback_bps=buyback_bps,
     )
