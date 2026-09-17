@@ -204,6 +204,32 @@ class TestPreflight(unittest.TestCase):
         finally:
             legs.TOLL_DESTINATION = real
 
+    def test_refuses_without_the_incinerator_row(self):
+        real = legs.TOLL_DESTINATION
+        legs.TOLL_DESTINATION = TOLL
+        try:
+            with self.assertRaises(launch.LaunchError) as c:
+                launch.preflight(DEV, [enroll.Share(TOLL, 2500), enroll.Share(DEV, 7500)], _meta())
+            self.assertIn("incinerator", str(c.exception))
+        finally:
+            legs.TOLL_DESTINATION = real
+
+    def test_the_incinerator_s_floor_is_one_percent_of_the_rest(self):
+        real = legs.TOLL_DESTINATION
+        legs.TOLL_DESTINATION = TOLL
+        try:
+            floor = launch.min_incinerator_bps()
+            self.assertEqual(floor, (10_000 - enroll.TOLL_BPS) // 100)
+            rest = 10_000 - enroll.TOLL_BPS
+            with self.assertRaises(launch.LaunchError) as c:
+                launch.preflight(DEV, [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(BURN, floor - 1),
+                                       enroll.Share(DEV, rest - floor + 1)], _meta())
+            self.assertIn("1%", str(c.exception))
+            launch.preflight(DEV, [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(BURN, floor),
+                                   enroll.Share(DEV, rest - floor)], _meta())
+        finally:
+            legs.TOLL_DESTINATION = real
+
     def test_refuses_while_the_door_is_closed(self):
         real = legs.TOLL_DESTINATION
         legs.TOLL_DESTINATION = None

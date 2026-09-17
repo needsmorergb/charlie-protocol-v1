@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import threading
 import unittest
@@ -21,9 +22,10 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling test modules, however this file is run
 
-from indexer import ed25519, enroll, launch, legs  # noqa: E402
-from indexer.base58 import decode  # noqa: E402
+from indexer import ed25519, enroll, launch, launchbuy, legs, mint_pool  # noqa: E402
+from indexer.base58 import decode, encode  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("api_launch", ROOT / "api" / "launch.py")
 api_launch = importlib.util.module_from_spec(_spec)
@@ -33,13 +35,15 @@ DEV = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
 URI = "https://ipfs.io/ipfs/bafkreibs2xlm4qm4ubh2g4wsnstlgcviephup43gq3yikzsyiltww2xpwq"
 BLOCKHASH = "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi"
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
-DEFAULT_SHARES = f"{TOLL}:2500,{DEV}:7500"
+BURN = "1nc1nerator11111111111111111111111111111111"
+DEFAULT_SHARES = f"{TOLL}:2500,{BURN}:2500,{DEV}:5000"
 
 
 class _Rpc:
     """Answers the four methods the handler calls, from a script."""
 
-    def __init__(self, *, simulate_err=None, status=None, curve=True, logs=()):
+    def __init__(self, *, simulate_err=None, status=None, curve=True, logs=(), used_mints=()):
+        self.used_mints = set(used_mints)
         self.simulate_err = simulate_err
         self.status = status
         self.curve = curve
@@ -56,7 +60,12 @@ class _Rpc:
             return {"value": [self.status]}
         if method == "getAccountInfo":
             return {"value": {"data": ["", "base64"]} if self.curve else None}
+        if method == "getMultipleAccounts":
+            return {"value": [{"data": ["", "base64"]} if a in self.used_mints else None for a in params[0]]}
         raise AssertionError(method)
+
+    def accounts(self, addresses):
+        return list(self.call("getMultipleAccounts", [addresses, {"encoding": "base64"}])["value"])
 
 
 class _Server:
@@ -106,6 +115,17 @@ class TestDescribe(_Base):
         self.assertEqual(body["toll"], {"address": TOLL, "bps": enroll.TOLL_BPS})
         self.assertEqual(body["steps"], 2)
         self.assertEqual(body["limits"]["name_bytes"], 32)
+        self.assertEqual(body["mints"], {"pool": False, "suffix": mint_pool.SUFFIX, "size": 0, "left": None})
+
+    def test_the_door_counts_the_pool_when_there_is_one(self):
+        first = launch.new_mint(b"\x21" * 32)
+        second = launch.new_mint(b"\x22" * 32)
+        env = {mint_pool.ENV: f"{encode(first.seed)},{encode(second.seed)}"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(mint_pool, "SUFFIX", ""), \
+                mock.patch.object(api_launch, "RpcClient", return_value=_Rpc(used_mints=[first.address])):
+            status, body = self.server.get("/api/launch")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["mints"], {"pool": True, "suffix": "", "size": 2, "left": 1})
 
     def test_closed_while_the_toll_is_unset(self):
         legs.TOLL_DESTINATION = None
@@ -143,6 +163,57 @@ class TestBuild(_Base):
         _s1, first = self._build(_Rpc())
         _s2, second = self._build(_Rpc())
         self.assertNotEqual(first["mint"], second["mint"])
+
+    def test_a_configured_pool_hands_out_its_first_unused_mint(self):
+        first = launch.new_mint(b"\x11" * 32)
+        second = launch.new_mint(b"\x12" * 32)
+        env = {mint_pool.ENV: f"{encode(first.seed)},{encode(second.seed)}"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(mint_pool, "SUFFIX", ""):
+            status, body = self._build(_Rpc(used_mints=[first.address]))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["mint"], second.address)
+        tx = decode(body["signable"])
+        self.assertTrue(ed25519.verify(second.public, tx[129:], tx[65:129]), "signed by the pool key")
+
+    def test_an_exhausted_pool_pauses_launching_instead_of_minting_random(self):
+        only = launch.new_mint(b"\x13" * 32)
+        with mock.patch.dict(os.environ, {mint_pool.ENV: encode(only.seed)}), mock.patch.object(mint_pool, "SUFFIX", ""):
+            status, body = self._build(_Rpc(used_mints=[only.address]))
+        self.assertEqual(status, 503, body)
+        self.assertIn("paused", body["error"])
+        self.assertIn("vanity_mint", body["error"])
+
+    def test_a_buy_at_launch_is_priced_bundled_and_described(self):
+        from test_launchbuy import FEE_CONFIG, GLOBAL
+        rpc = _Rpc()
+        with mock.patch.object(api_launch.launchbuy, "observe", return_value=(GLOBAL, FEE_CONFIG, True)):
+            status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}&buy=0.5")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["buy"]["sol"], 0.5)
+        self.assertTrue(body["buy"]["before_split"])
+        self.assertGreater(body["buy"]["tokens"], 0)
+        self.assertEqual(launch.signer_addresses(decode(body["signable"])[129:]), [DEV, body["mint"]])
+        simulated = next(p for m, p in rpc.calls if m == "simulateTransaction")
+        self.assertEqual(simulated[0], body["transaction"], "the bundled transaction is what was simulated")
+        self.assertGreater(len(body["transaction"]), 1200, "base64 of a create-plus-buy is longer than create alone")
+
+    def test_a_split_without_the_incinerator_row_is_refused(self):
+        rpc = _Rpc()
+        status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={TOLL}:2500,{DEV}:7500")
+        self.assertEqual(status, 400, body)
+        self.assertIn("incinerator", body["error"])
+        self.assertNotIn("simulateTransaction", [m for m, _ in rpc.calls])
+
+    def test_no_buy_means_no_buy(self):
+        _s, body = self._build(_Rpc())
+        self.assertIsNone(body["buy"])
+
+    def test_a_bad_buy_amount_is_refused_before_the_chain_is_read(self):
+        rpc = _Rpc()
+        status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={DEFAULT_SHARES}&buy=abc")
+        self.assertEqual(status, 400)
+        self.assertIn("SOL", body["error"])
+        self.assertNotIn("simulateTransaction", [m for m, _ in rpc.calls])
 
     def test_a_simulation_error_is_never_handed_to_the_wallet(self):
         rpc = _Rpc(simulate_err={"InstructionError": [0, {"Custom": 1}]},
@@ -187,6 +258,31 @@ class TestBuild(_Base):
         self.assertEqual(status, 400)
         self.assertIn("exactly 10000", body["error"])
         self.assertEqual(rpc.calls, [])
+
+
+class TestPage(unittest.TestCase):
+    def test_the_page_names_the_same_mark_the_pool_enforces(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertIn(f"<code>{mint_pool.SUFFIX}</code>", page)
+        self.assertIn("mints.left === 0", page, "the page closes when the pool is dry")
+        self.assertNotIn("throwaway mint keypair", page)
+
+    def test_the_incinerator_row_cannot_be_removed_or_readdressed(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertIn("addRow(INCINERATOR, 30, false, true)", page, "the burn row is created as the fixed row")
+        self.assertIn("if (!wallet && !fixedBurn)", page, "no Remove button on it")
+        self.assertNotIn("change.onclick", page, "no Change button anywhere")
+        self.assertNotIn("Remove it and there is no SOL burn", page)
+        self.assertNotIn("incinerator is optional", page)
+        self.assertIn("The incinerator share must be at least 1% of the rest.", page)
+
+    def test_the_protocol_s_collection_address_is_not_on_the_page(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertNotIn("protocolAddr", page)
+        self.assertNotIn("state.toll.address + '   (protocol)'", page)
 
 
 class TestStatus(_Base):
