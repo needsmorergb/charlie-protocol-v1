@@ -22,6 +22,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling test modules, however this file is run
 
 from indexer import ed25519, enroll, launch, launchbuy, legs, mint_pool  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402

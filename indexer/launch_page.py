@@ -96,13 +96,11 @@ async function describe() {
     // The pre-ground addresses. A pool with nothing left closes the door
     // here, before anyone fills the form; an unknown count does not.
     var mints = d.mints || {}, dry = !!(mints.pool && mints.left === 0);
-    var few = !!(mints.pool && typeof mints.left === 'number' && mints.left > 0 && mints.left <= 3);
     if (dry) { state.open = false; }
     $('launchStatus').textContent = state.open ? 'OPEN' : (dry ? 'PAUSED' : 'NOT OPEN YET');
     $('protocolAddr').textContent = state.toll && state.toll.address || 'Collection address not configured';
     $('protocolBps').value = state.toll ? state.toll.bps : '';
-    var note = state.open ? '' : (dry ? 'Launching is paused: every pre-made coin address has been used. You can plan the split, but nothing can be built until more are made.' : 'Launching is not open yet. You can plan the split, but nothing can be built.');
-    if (state.open && few) { note = 'Only ' + mints.left + ' pre-made coin address' + (mints.left === 1 ? ' is' : 'es are') + ' left.'; }
+    var note = state.open ? '' : (dry ? 'Launching is paused right now. You can plan the split, but nothing can be built.' : 'Launching is not open yet. You can plan the split, but nothing can be built.');
     say('splitNote', note, note ? 'caution' : '');
   } catch (e) {
     state.open = false; $('launchStatus').textContent = 'UNREACHABLE';
