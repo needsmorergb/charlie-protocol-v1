@@ -24,7 +24,7 @@ check that can fail" cannot open by overstating itself.
 | | State |
 |---|---|
 | `indexer/` — reads sharing configs, runs the checks | **built** · 893 offline tests |
-| `program/` — `init_charlie_pool`, `init_route`, `set_route`, `distribute` | **written and deployed to devnet** at `GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG` · 13 tests · **not deployed to mainnet**, which is the funding-gated one-way door |
+| `program/` — `init_charlie_pool`, `init_route`, `set_route`, `distribute` | **written and deployed to devnet** at `GFA3nG9geMhpPXaExVLGYBtj6aJX7S125dLzv4EcXGiG` · 13 tests · **not deployed to mainnet**, which is the one-way door, held rather than blocked: its cost is measured in `BUILDLOG.md` |
 | `web/` — `/`, `/coin/<mint>`, `/coins` (the index), `/verify/<mint>`, `/enroll`, `/dilution`, `/buildlog`, `/phases`, `/flywheel` | **built and deployed** |
 
 Deployed at [charlieprotocol.fun](https://charlieprotocol.fun). Intake is
