@@ -529,11 +529,55 @@ class TestProtocolShare(unittest.TestCase):
         self.assertEqual(check.status, invariants.FAIL)
         self.assertIn("below", check.detail)
 
-    def test_no_share_at_all_fails_and_says_so(self):
+    def test_no_share_at_all_is_not_enrolled_and_not_a_failure(self):
+        """PROTOCOL.md sec.6 keeps the accusing verdict for a coin whose claims
+        the chain does not support. Paying the wallet nothing claims nothing."""
         check = invariants.protocol_share(self._split([(WALLET, 10_000)]))
-        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertIn("does not pay", check.detail)
+        self.assertIn("Not enrolled is not a failed check", check.detail)
         self.assertIn(self.TOLL, check.detail)
+        self.assertEqual(check.actual, "0")
+        self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
+
+    def test_the_five_readings(self):
+        toll, wallet = self.TOLL, WALLET
+        paid = invariants.protocol_share(self._split([(toll, legs_module.TOLL_BPS), (wallet, 10_000 - legs_module.TOLL_BPS)]))
+        under = invariants.protocol_share(self._split([(toll, 100), (wallet, 9900)]))
+        none = invariants.protocol_share(self._split([(wallet, 10_000)]))
+        exempt_mint = next(iter(legs_module.ENROLLMENT_EXEMPT))
+        exempt = invariants.protocol_share(self._split([(wallet, 10_000)]), mint=exempt_mint)
+        self.assertEqual(invariants.enrollment_reading(paid), invariants.ENROLLED)
+        self.assertEqual(invariants.enrollment_reading(under), invariants.UNDERPAYING)
+        self.assertEqual(invariants.enrollment_reading(none), invariants.NOT_ENROLLED)
+        self.assertEqual(invariants.enrollment_reading(exempt, exempt_mint), invariants.EXEMPT)
+        self.assertIn(legs_module.ENROLLMENT_EXEMPT[exempt_mint], exempt.detail, "the reason is printed verbatim")
+        self.assertIsNone(invariants.enrollment_reading(None))
+        legs.TOLL_DESTINATION = None
+        closed = invariants.protocol_share(self._split([(wallet, 10_000)]))
+        self.assertEqual(invariants.enrollment_reading(closed), invariants.CLOSED)
+
+    def test_a_record_stored_under_the_old_verdict_still_reads_not_enrolled(self):
+        """Before 2026-09-17 "pays the wallet nothing" was stored as FAIL with
+        actual 0. The index must say the same thing for an old record and a
+        new one, and must not call an old one underpaying."""
+        old = {"name": "PROTOCOL_SHARE", "status": "FAIL", "expected": ">= 2500", "actual": "0"}
+        older = {"name": "PROTOCOL_SHARE", "status": "FAIL"}
+        underpaid = {"name": "PROTOCOL_SHARE", "status": "FAIL", "expected": ">= 2500", "actual": "100"}
+        new = {"name": "PROTOCOL_SHARE", "status": "UNCHECKED", "expected": ">= 2500", "actual": "0"}
+        self.assertEqual(invariants.enrollment_reading(old), invariants.NOT_ENROLLED)
+        self.assertEqual(invariants.enrollment_reading(older), invariants.NOT_ENROLLED)
+        self.assertEqual(invariants.enrollment_reading(new), invariants.NOT_ENROLLED)
+        self.assertEqual(invariants.enrollment_reading(underpaid), invariants.UNDERPAYING)
+
+    def test_the_exemption_list_is_declared_and_short(self):
+        self.assertEqual(list(legs_module.ENROLLMENT_EXEMPT), [CHARLIE])
+        self.assertIn("cannot enroll", legs_module.ENROLLMENT_EXEMPT[CHARLIE])
+
+    def test_the_grandfathered_set_is_derived_from_the_reasoned_one(self):
+        self.assertEqual(GRANDFATHERED_SOL_BURN, frozenset(legs_module.RECOGNISED_SOL_BURN))
+        for address, reason in legs_module.RECOGNISED_SOL_BURN.items():
+            self.assertTrue(reason.strip(), f"{address} carries no reason")
 
     def test_with_no_address_set_nothing_can_be_enrolled(self):
         legs.TOLL_DESTINATION = None
@@ -556,10 +600,13 @@ class TestProtocolShare(unittest.TestCase):
         record = observe(charlie_rpc(), CHARLIE, now=1.0)
         names = [c.name for c in record.checks]
         self.assertIn("PROTOCOL_SHARE", names)
-        # $CHARLIE's own split pays burn111 at 100%: not enrolled, and its
-        # config is admin_revoked, so it cannot be.
+        # $CHARLIE's own split pays burn111 at 100% and its config is
+        # admin_revoked, so no key can enroll it. It is exempt, by name and
+        # with its reason, rather than failed for an action nobody can take.
         check = {c.name: c for c in record.checks}["PROTOCOL_SHARE"]
-        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.status, invariants.UNCHECKED)
+        self.assertIn("does not apply to this coin", check.detail)
+        self.assertEqual(invariants.enrollment_reading(check, CHARLIE), invariants.EXEMPT)
 
 
 # -- the append-only store ------------------------------------------------

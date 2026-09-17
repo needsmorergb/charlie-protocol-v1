@@ -1009,7 +1009,10 @@ class TestSupplyRefusal(unittest.TestCase):
         check = observation.checks[0]
         rendered = site.render_landing(observation, now=2.0)
         self.assertIn(check.name, rendered)
-        self.assertIn(check.detail, rendered)
+        # The detail is prose with an apostrophe in it, so what the page
+        # carries is the escaped form. Comparing the raw string only passed
+        # while the detail happened to contain nothing to escape.
+        self.assertIn(site.esc(check.detail), rendered)
         self.assertIn(site.esc(check.expected), rendered)
         self.assertIn(site.esc(check.actual), rendered)
 
@@ -1367,8 +1370,10 @@ class TestCoinCorrectCopy(unittest.TestCase):
         revoked = self._enrolment_section(site.render(_other_coin_observation(admin_revoked=True), now=2.0))
         open_ = self._enrolment_section(site.render(_other_coin_observation(admin_revoked=False), now=2.0))
         for section in (revoked, open_):
-            self.assertIn("Not enrolled", section)
-            self.assertIn("does not pay the protocol", section)
+            self.assertIn("<strong>Not enrolled.</strong>", section)
+            self.assertIn("does not pay the collection wallet", section)
+            self.assertIn("Not enrolled is not a failed check", section)
+            self.assertNotIn("Enrollment is not open", section)
         self.assertIn("cannot enroll", revoked)
         self.assertIn('href="/enroll"', open_)
         self.assertNotIn("cannot enroll", open_)

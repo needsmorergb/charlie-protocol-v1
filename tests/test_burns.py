@@ -618,13 +618,31 @@ class TestBurnSupply(unittest.TestCase):
             check = invariants.burn_supply(mint_state(900), row, burned=100, walk_complete=True)
             self.assertEqual(check.status, invariants.PASS)
 
-    def test_fail_when_arithmetic_does_not_reconcile(self):
+    def test_more_destroyed_than_recorded_is_an_attribution_gap_not_a_failure(self):
+        """Supply is LOWER than the records imply: the coin claimed less than
+        the chain supports, which contradicts nothing. The figure is withheld
+        exactly as hard as FAIL would withhold it, without the accusation."""
         with tempfile.TemporaryDirectory() as tmp:
             evidence = evidence_db(tmp)
             row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=1_000, decimals=6)
             evidence.close()
             check = invariants.burn_supply(mint_state(900), row, burned=50, walk_complete=True)
+            self.assertEqual(check.status, invariants.UNCHECKED)
+            self.assertIn("50 raw units", check.detail)
+            self.assertIn("Nothing this coin claims is contradicted", check.detail)
+            self.assertEqual((check.expected, check.actual), ("950", "900"))
+
+    def test_more_recorded_than_the_supply_supports_is_the_only_failure(self):
+        """Supply is HIGHER than the records imply: burns were recorded that
+        the mint does not show. The coin claimed more than the chain supports."""
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = evidence_db(tmp)
+            row = evidence.record_initial_supply(mint=CHARLIE, raw_supply=1_000, decimals=6)
+            evidence.close()
+            check = invariants.burn_supply(mint_state(900), row, burned=150, walk_complete=True)
             self.assertEqual(check.status, invariants.FAIL)
+            self.assertIn("exceed", check.detail)
+            self.assertIn("50 raw units", check.detail)
 
     def test_unchecked_carries_the_stored_reason_when_supply_is_underivable(self):
         with tempfile.TemporaryDirectory() as tmp:
