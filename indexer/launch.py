@@ -291,6 +291,14 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
                 "Change the other destinations instead."
             ) from None
         raise LaunchError(str(exc)) from None
+    # Every coin made at this door burns: the incinerator row is fixed, and
+    # only its share is the dev's to choose. The page enforces the same rule,
+    # and this is the copy of it that cannot be bypassed.
+    if not any(s.address == enroll.INCINERATOR and s.bps > 0 for s in validated):
+        raise LaunchError(
+            "Every coin made here keeps the incinerator row. Its address is fixed and its share "
+            "must be above zero. Change the other destinations instead."
+        )
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
         # it is a mistake often enough to be worth one sentence in the log.

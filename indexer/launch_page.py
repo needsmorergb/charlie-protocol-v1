@@ -185,16 +185,15 @@ function total() {
   });
   $('total').textContent = Number.isFinite(t) ? (t / 100).toFixed(2) + '%' : '—';
   $('total').className = t === 10000 ? 'ok' : 'bad';
-  say('burnNote', burn ? '' : 'No incinerator row: this coin will have no SOL burn.', burn ? '' : 'caution');
   editableRows().forEach(function (row) {
     if (row.dataset.burn === 'true' && t === 10000) { row.dataset.lit = 'true'; }
   });
   return t;
 }
-function addRow(addr, pct, wallet) {
+function addRow(addr, pct, wallet, fixedBurn) {
   if (state.locked) { return; }
   var row = document.createElement('div'); row.className = 'share-row'; row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', wallet ? 'Creator wallet share' : 'Fee destination');
+  row.setAttribute('aria-label', fixedBurn ? 'Incinerator share; the address is fixed' : (wallet ? 'Creator wallet share' : 'Fee destination'));
   if (wallet) { row.dataset.wallet = 'true'; }
   var a = document.createElement('input'); a.className = 'share-addr'; a.value = addr || '';
   a.placeholder = wallet ? 'Connect your wallet in step 3' : 'Destination address';
@@ -203,17 +202,18 @@ function addRow(addr, pct, wallet) {
   b.inputMode = 'decimal'; b.value = pct === undefined ? '' : pct; b.setAttribute('aria-label', 'Percent of the rest');
   var unit = document.createElement('span'); unit.className = 'share-unit'; unit.textContent = '% of the rest';
   var badge = document.createElement('span'); badge.className = 'burn-badge'; badge.textContent = 'Sol-Incinerator';
-  var change = document.createElement('button'); change.type = 'button'; change.className = 'rm'; change.textContent = 'Change';
-  change.onclick = function () { invalidate(false); a.readOnly = false; change.hidden = true; a.focus(); a.select(); };
+  // The incinerator row is part of every coin made here: its address is
+  // fixed and it cannot be removed. Only its share is the dev's to set. The
+  // server refuses a split without it, so this is not the only guard.
   function identify() {
-    var burn = a.value.trim() === INCINERATOR; row.dataset.burn = String(burn);
-    badge.hidden = !burn; change.hidden = !burn; a.readOnly = burn || !!wallet;
+    row.dataset.burn = String(!!fixedBurn);
+    badge.hidden = !fixedBurn; a.readOnly = !!fixedBurn || !!wallet;
   }
   a.oninput = function () { invalidate(false); identify(); total(); };
   a.onblur = identify;
   b.oninput = function () { invalidate(false); total(); };
-  [a, b, unit, badge, change].forEach(function (el) { row.appendChild(el); });
-  if (!wallet) {
+  [a, b, unit, badge].forEach(function (el) { row.appendChild(el); });
+  if (!wallet && !fixedBurn) {
     var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'Remove';
     rm.onclick = function () { invalidate(false); row.remove(); total(); $('addRow').focus(); };
     row.appendChild(rm);
@@ -429,7 +429,7 @@ document.addEventListener('DOMContentLoaded', function () {
   ['name', 'symbol', 'description', 'image', 'twitter', 'telegram', 'website'].forEach(function (id) {
     $(id).addEventListener('input', function () { invalidate(true); });
   });
-  addRow(INCINERATOR, 30); addRow(null, 70, true);
+  addRow(INCINERATOR, 30, false, true); addRow(null, 70, true);
   $('buySol').addEventListener('input', function () { invalidate(false); });
   fromQuery(); signButton(false); describe();
   var active = document.querySelector('.site-nav .active');
@@ -525,7 +525,7 @@ _BODY = r"""
         <p class="blueprint-flow-desc">Measured account rent is about 0.0081 SOL for the coin and 0.0059 SOL for its split record, plus two network fees. A buy at launch is optional; it adds what you enter in step 4.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">03</span>
         <div class="blueprint-flow-title">Decide the destinations</div>
-        <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. Remove it and there is no SOL burn; other destinations receive their share.</p></div>
+        <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. That row is fixed: you choose its share, and other destinations receive theirs.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">04</span>
         <div class="blueprint-flow-title">Bring the coin’s details</div>
         <p class="blueprint-flow-desc">Name up to 32 bytes, ticker up to 10, image up to 4 MB. Details are pinned through pump’s metadata service. Check them before creation.</p></div>
@@ -560,7 +560,7 @@ _BODY = r"""
     <p><strong>pump allows exactly one split change. This split cannot be changed after it is set.</strong>
       The protocol receives <strong>0.25% of each transaction</strong>, set aside to buy and burn $CHARLIE.
       Your rows divide the rest of the creator fees and must total exactly 100% of that rest.
-      The incinerator is optional; SOL paid to it is destroyed. Other wallets receive SOL.</p>
+      The incinerator row is fixed and SOL paid to it is destroyed; you choose its share. Other wallets receive SOL.</p>
     <div class="share-row locked" role="group" aria-label="Fixed protocol share">
       <strong>Charlie Protocol</strong><span class="share-fixed">0.25% of each transaction</span>
       <code id="protocolAddr">Checking collection address…</code><input id="protocolBps" type="hidden">

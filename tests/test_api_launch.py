@@ -35,7 +35,8 @@ DEV = "Chx6EJ1QLRnhiyQHfpNNyiEWma8XPazbELPanPff4Nuj"
 URI = "https://ipfs.io/ipfs/bafkreibs2xlm4qm4ubh2g4wsnstlgcviephup43gq3yikzsyiltww2xpwq"
 BLOCKHASH = "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi"
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
-DEFAULT_SHARES = f"{TOLL}:2500,{DEV}:7500"
+BURN = "1nc1nerator11111111111111111111111111111111"
+DEFAULT_SHARES = f"{TOLL}:2500,{BURN}:2500,{DEV}:5000"
 
 
 class _Rpc:
@@ -196,6 +197,13 @@ class TestBuild(_Base):
         self.assertEqual(simulated[0], body["transaction"], "the bundled transaction is what was simulated")
         self.assertGreater(len(body["transaction"]), 1200, "base64 of a create-plus-buy is longer than create alone")
 
+    def test_a_split_without_the_incinerator_row_is_refused(self):
+        rpc = _Rpc()
+        status, body = self._build(rpc, query=f"authority={DEV}&name=Probe%20Coin&symbol=PROBE&uri={URI}&shares={TOLL}:2500,{DEV}:7500")
+        self.assertEqual(status, 400, body)
+        self.assertIn("incinerator", body["error"])
+        self.assertNotIn("simulateTransaction", [m for m, _ in rpc.calls])
+
     def test_no_buy_means_no_buy(self):
         _s, body = self._build(_Rpc())
         self.assertIsNone(body["buy"])
@@ -259,6 +267,15 @@ class TestPage(unittest.TestCase):
         self.assertIn(f"<code>{mint_pool.SUFFIX}</code>", page)
         self.assertIn("mints.left === 0", page, "the page closes when the pool is dry")
         self.assertNotIn("throwaway mint keypair", page)
+
+    def test_the_incinerator_row_cannot_be_removed_or_readdressed(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertIn("addRow(INCINERATOR, 30, false, true)", page, "the burn row is created as the fixed row")
+        self.assertIn("if (!wallet && !fixedBurn)", page, "no Remove button on it")
+        self.assertNotIn("change.onclick", page, "no Change button anywhere")
+        self.assertNotIn("Remove it and there is no SOL burn", page)
+        self.assertNotIn("incinerator is optional", page)
 
 
 class TestStatus(_Base):
