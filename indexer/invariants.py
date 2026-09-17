@@ -129,7 +129,32 @@ def protocol_share(split, mint: str | None = None) -> Check:
     if destination is None:
         return _check("PROTOCOL_SHARE", UNCHECKED, [], equation,
                       "the protocol's collection address is not set, so nothing can be enrolled")
+    # Exempt: a coin no key on the chain can enroll. Named in
+    # `legs.ENROLLMENT_EXEMPT` with its reason, which is printed verbatim
+    # rather than summarised, because an undeclared exemption on a protocol's
+    # own check is worse than no check at all.
+    exempt_reason = legs.ENROLLMENT_EXEMPT.get(mint) if mint else None
+    if exempt_reason:
+        return _check("PROTOCOL_SHARE", UNCHECKED, [], equation,
+                      "the enrollment check does not apply to this coin. "
+                      + exempt_reason)
+
     paid = sum(a.bps for a in split.attributions if a.address == destination)
+
+    # Not enrolled, and claiming nothing. PROTOCOL.md sec.6 keeps the only
+    # accusing verdict for a coin whose CLAIMS the chain does not support, and
+    # a coin that pays this wallet nothing has made no claim to contradict.
+    # FAIL here would grade every coin on the chain against a protocol none of
+    # them joined -- the category error retracted on 2026-09-04, in a new
+    # place. Not-applicable, said in those words, with the split still shown.
+    if paid == 0:
+        return _check("PROTOCOL_SHARE", UNCHECKED, [], equation,
+                      "this coin is not enrolled and claims nothing about the "
+                      "protocol: its split does not pay the collection wallet "
+                      f"{destination}, so there is no enrollment claim to "
+                      "check. Not enrolled is not a failed check",
+                      expected=f">= {rate}", actual="0")
+
     if paid >= rate:
         return _check(
             "PROTOCOL_SHARE", PASS, [], equation,
@@ -137,13 +162,51 @@ def protocol_share(split, mint: str | None = None) -> Check:
             f"{paid} bps, at or above the {rate} bps every enrolled coin carries",
             expected=f">= {rate}", actual=str(paid),
         )
+    # Reachable only when `paid` is above zero and below the rate: the coin
+    # pays the collection wallet, so it is enrolling, and it is underpaying.
+    # That is a claim the chain contradicts, which is what FAIL is for.
     return _check(
         "PROTOCOL_SHARE", FAIL, [], equation,
-        (f"the split pays the protocol's collection wallet {destination} {paid} bps, "
-         f"below the {rate} bps every enrolled coin carries") if paid
-        else f"the split does not pay the protocol's collection wallet {destination} at all",
+        f"the split pays the protocol's collection wallet {destination} {paid} bps, "
+        f"below the {rate} bps every enrolled coin carries",
         expected=f">= {rate}", actual=str(paid),
     )
+
+
+# What a PROTOCOL_SHARE check is saying. UNCHECKED stopped meaning one thing
+# when "not enrolled" stopped being a FAIL: it is now the status of a closed
+# door, of an exempt coin, and of a coin that simply never joined, and a page
+# that reads the status alone tells the third that enrollment is not open.
+# The meaning is decided here, beside the check that produces it, and read by
+# everything that renders it.
+ENROLLED = "enrolled"
+NOT_ENROLLED = "not-enrolled"
+UNDERPAYING = "underpaying"
+EXEMPT = "exempt"
+CLOSED = "closed"
+
+
+def enrollment_reading(check, mint: str | None = None) -> str | None:
+    """One of the five readings above, from a `Check` or from its stored
+    `as_dict()` record. `None` when there is no check to read.
+
+    Records written before 2026-09-17 stored "pays the wallet nothing" as
+    FAIL with `actual` "0"; those still read not-enrolled, so an old record
+    and a new one say the same thing on the index.
+    """
+    if check is None:
+        return None
+    get = check.get if isinstance(check, dict) else (lambda key: getattr(check, key, None))
+    status, actual = get("status"), get("actual")
+    if status == PASS:
+        return ENROLLED
+    if status == FAIL:
+        return NOT_ENROLLED if actual in (None, "0") else UNDERPAYING
+    if mint and mint in legs.ENROLLMENT_EXEMPT:
+        return EXEMPT
+    if actual == "0":
+        return NOT_ENROLLED
+    return CLOSED
 
 
 def sol_burn_unspendable(split) -> Check:
@@ -481,8 +544,25 @@ def burn_supply(mint_state, initial_supply_row=None, burned=None, walk_complete=
        every burn yet, so a reconciliation now would be premature, not wrong;
        never `FAIL` for an unfinished scan.
 
-    Only once a real `raw_supply` exists AND the walk is complete does this
-    compute `PASS`/`FAIL`.
+    Once a real `raw_supply` exists AND the walk is complete, the residual is
+    computed and its DIRECTION decides the verdict. That distinction is the
+    whole of this check and it was collapsed into one FAIL for too long:
+
+    * supply is exactly what the records imply -- `PASS`.
+    * supply is LOWER than the records imply -- more was destroyed than this
+      walk could attribute to a recorded burn. The coin has claimed LESS than
+      the chain supports, which contradicts nothing. It is an attribution gap,
+      and it is `UNCHECKED`: no exact supply-destroyed total can be stated
+      while part of the destruction has no record behind it, and `UNCHECKED`
+      withholds that figure exactly as hard as `FAIL` would.
+    * supply is HIGHER than the records imply -- burns were recorded that the
+      mint's own supply does not support. The coin has claimed MORE than the
+      chain shows. That is `FAIL`, and it is the only direction that is.
+
+    PROTOCOL.md sec.6 keeps the accusing verdict for a coin whose claims the
+    chain does not support. A coin destroying more than it can prove is the
+    opposite of that, and grading it the same way is the category error this
+    project has now made twice and does not intend to make a third time.
     """
     if initial_supply_row is None:
         return _check(
@@ -517,17 +597,39 @@ def burn_supply(mint_state, initial_supply_row=None, burned=None, walk_complete=
         )
     initial_supply = initial_supply_row["raw_supply"]
     burned = burned or 0
-    ok = initial_supply - burned == mint_state.supply
+    implied = initial_supply - burned
+    equation = "initial_supply - sum(burn_amounts) == getMint(mint).supply"
+
+    if implied == mint_state.supply:
+        return _check(
+            "BURN_SUPPLY", PASS, [BURN_TOTAL, SUPPLY_DESTROYED], equation,
+            "every claimed burn is visible in the mint's supply",
+            expected=str(implied), actual=str(mint_state.supply),
+        )
+
+    if implied > mint_state.supply:
+        # Under-attributed. The chain destroyed more than the walk can point
+        # at a record for. Stated as the gap it is, with the number, because
+        # "does not reconcile" reads as an accusation and this is not one.
+        residual = implied - mint_state.supply
+        return _check(
+            "BURN_SUPPLY", UNCHECKED, [BURN_TOTAL, SUPPLY_DESTROYED], equation,
+            f"the mint's supply is lower than the recorded burns account for: "
+            f"{residual} raw units were destroyed beyond what this walk could "
+            f"attribute to a recorded burn. Nothing this coin claims is "
+            f"contradicted -- the chain supports more destruction than is "
+            f"claimed -- but no exact supply-destroyed total is stated while "
+            f"part of the destruction has no record behind it",
+            expected=str(implied), actual=str(mint_state.supply),
+        )
+
+    # Over-claimed. Burns are recorded that the supply does not support.
+    excess = mint_state.supply - implied
     return _check(
-        "BURN_SUPPLY",
-        PASS if ok else FAIL,
-        [BURN_TOTAL, SUPPLY_DESTROYED],
-        "initial_supply - sum(burn_amounts) == getMint(mint).supply",
-        "every claimed burn is visible in the mint's supply"
-        if ok
-        else "claimed burns do not reconcile against the mint supply",
-        expected=str(initial_supply - burned),
-        actual=str(mint_state.supply),
+        "BURN_SUPPLY", FAIL, [BURN_TOTAL, SUPPLY_DESTROYED], equation,
+        f"claimed burns exceed what the mint's supply supports by {excess} raw "
+        f"units: tokens recorded as burned are still in the supply",
+        expected=str(implied), actual=str(mint_state.supply),
     )
 
 
