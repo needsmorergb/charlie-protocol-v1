@@ -199,11 +199,13 @@ def _config_instruction(mint: str, dev: str):
     return (program, metas, data)
 
 
-def create_message(mint: str, dev: str, meta: Metadata, recent_blockhash: str) -> bytes:
-    """Step one: pump's `create` alone. Two signers, the dev (fee payer,
-    first in the signature array because `compile_legacy` puts the payer
-    first) and the mint. 779 bytes with a pump-length URI."""
-    message = compile_legacy(dev, [create_instruction(mint, dev, meta)], recent_blockhash)
+def create_message(mint: str, dev: str, meta: Metadata, recent_blockhash: str, extra=()) -> bytes:
+    """Step one: pump's `create`, then `extra` (the dev's buy at launch,
+    when they asked for one; see `launchbuy`). Two signers, the dev (fee
+    payer, first in the signature array because `compile_legacy` puts the
+    payer first) and the mint. 779 bytes with a pump-length URI and no
+    extra."""
+    message = compile_legacy(dev, [create_instruction(mint, dev, meta), *extra], recent_blockhash)
     if signer_count(message) != 2:
         raise LaunchError("a create message has exactly two signers: the dev and the mint")
     return message

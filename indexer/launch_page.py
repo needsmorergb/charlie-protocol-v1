@@ -269,6 +269,8 @@ async function build() {
   state.building = true; controls(); say('buildNote', 'Dry-running the create transaction and validating the split…');
   try {
     var q = new URLSearchParams({authority: state.wallet, name: $('name').value.trim(), symbol: $('symbol').value.trim(), uri: state.uri, shares: rows.shares.join(',')});
+    var buySol = $('buySol').value.trim();
+    if (buySol) { q.set('buy', buySol); }
     var d = await request('/api/launch?' + q.toString());
     if (revision !== state.revision) { return; }
     if (!d.simulated || !d.signable || !d.split_checked) { throw Error('The server did not confirm both the create simulation and split validation.'); }
@@ -276,7 +278,8 @@ async function build() {
     $('mintAddr').textContent = d.mint; $('mintBox').hidden = false;
     var lines = ['0.25% of each transaction   ' + state.toll.address + '   (protocol)'];
     rows.rows.forEach(function (r) { lines.push(r.pct + '% of the rest   ' + r.address + '   (' + r.bps + ' on-chain bps)'); });
-    say('buildNote', 'Create simulated against mainnet: no error. Split validated; its full simulation happens after the coin confirms.\n\nCoin: ' + d.name + ' (' + d.symbol + ')\n\nRent: about ' + (d.rent_lamports / 1e9).toFixed(4) + ' SOL for the coin, then about 0.0059 SOL for the split record, plus network fees.\n\nThe permanent split:\n' + lines.join('\n') + '\n\nRounding is absorbed by your wallet row. Two wallet approvals. Your key stays in your wallet.', 'good');
+    var buyLine = d.buy ? '\n\nBuy at launch: up to ' + d.buy.sol + ' SOL for about ' + Math.round(d.buy.tokens).toLocaleString('en-US') + ' tokens (' + d.buy.percent_of_supply + '% of supply), in approval 1, before the split is set.' : '';
+    say('buildNote', 'Create simulated against mainnet: no error. Split validated; its full simulation happens after the coin confirms.\n\nCoin: ' + d.name + ' (' + d.symbol + ')\n\nRent: about ' + (d.rent_lamports / 1e9).toFixed(4) + ' SOL for the coin, then about 0.0059 SOL for the split record, plus network fees.\n\nThe permanent split:\n' + lines.join('\n') + '\n\nRounding is absorbed by your wallet row. Two wallet approvals. Your key stays in your wallet.' + buyLine, 'good');
     signButton(true, 'Sign 1 of 2: create the coin');
   } catch (e) { if (revision === state.revision) { say('buildNote', e.message + ' Nothing was sent.', 'bad'); } }
   finally { state.building = false; controls(); }
@@ -429,6 +432,7 @@ document.addEventListener('DOMContentLoaded', function () {
     $(id).addEventListener('input', function () { invalidate(true); });
   });
   addRow(INCINERATOR, 30); addRow(null, 70, true);
+  $('buySol').addEventListener('input', function () { invalidate(false); });
   fromQuery(); signButton(false); describe();
   var active = document.querySelector('.site-nav .active');
   if (active) { active.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
@@ -520,7 +524,7 @@ _BODY = r"""
         <p class="blueprint-flow-desc">This page creates it. Already have a coin? Enrollment for existing coins is at /enroll. Coins made here cannot have Trader Cashback, the creation choice that prevents enrollment.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">02</span>
         <div class="blueprint-flow-title">Have about 0.02 SOL</div>
-        <p class="blueprint-flow-desc">Measured account rent is about 0.0081 SOL for the coin and 0.0059 SOL for its split record, plus two network fees. This flow does not buy tokens.</p></div>
+        <p class="blueprint-flow-desc">Measured account rent is about 0.0081 SOL for the coin and 0.0059 SOL for its split record, plus two network fees. A buy at launch is optional; it adds what you enter in step 4.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">03</span>
         <div class="blueprint-flow-title">Decide the destinations</div>
         <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. Remove it and there is no SOL burn; other destinations receive their share.</p></div>
@@ -584,6 +588,8 @@ _BODY = r"""
   <section class="cyber-card cyber-card--chamfer launch-card" id="reviewBox" aria-labelledby="reviewTitle">
     <div class="eyebrow">STEP 4 // REVIEW AND APPROVE</div><h2 id="reviewTitle">Check and sign</h2>
     <p>Dry-run the coin creation and validate the split. The split’s full simulation runs after the coin confirms, before approval 2.</p>
+    <div class="field"><label for="buySol">Buy at launch (SOL, optional)</label><input id="buySol" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Empty means no buy"></div>
+    <p class="note">The buy lands in approval 1, before the split is set: its creator fee goes where pump sends it by default.</p>
     <div class="row-actions"><button type="button" id="build" class="btn-plain" disabled>Dry-run create and check split (nothing signed)</button></div>
     <pre id="buildNote" class="note" role="status" aria-live="polite" aria-atomic="true"></pre>
     <div id="mintBox" hidden><p class="note">The coin’s address (CA): <code id="mintAddr"></code></p><p class="note">Reserved for this launch. It ends in <code>1nc1n</code>, the mark of a coin made here.</p>

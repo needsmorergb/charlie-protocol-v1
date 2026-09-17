@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from indexer import enroll, launch, legs, mint_pool  # noqa: E402
+from indexer import enroll, launch, launchbuy, legs, mint_pool  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
 from indexer.message import MessageError  # noqa: E402
 from indexer.rpc import RpcClient, RpcError  # noqa: E402
@@ -162,8 +162,10 @@ class handler(BaseHTTPRequestHandler):
                 return self._status(one("status"), one("mint"))
             if not one("authority"):
                 return self._describe()
-            return self._build(one("authority"), one("name"), one("symbol"), one("uri"), one("shares"))
+            return self._build(one("authority"), one("name"), one("symbol"), one("uri"), one("shares"), one("buy"))
         except launch.LaunchError as exc:
+            return self._fail(str(exc))
+        except launchbuy.BuyError as exc:
             return self._fail(str(exc))
         except enroll.EnrollError as exc:
             return self._fail(str(exc))
@@ -241,7 +243,7 @@ class handler(BaseHTTPRequestHandler):
             "mints": mint_pool.describe(_rpc()),
         })
 
-    def _build(self, authority: str, name: str, symbol: str, uri: str, raw_shares: str):
+    def _build(self, authority: str, name: str, symbol: str, uri: str, raw_shares: str, raw_buy: str = ""):
         dev = _address(authority)
         if dev is None:
             return self._fail("That is not a valid wallet address.")
@@ -268,8 +270,20 @@ class handler(BaseHTTPRequestHandler):
         pool = mint_pool.configured()
         mint = launch.new_mint() if pool is None else mint_pool.pick(pool, rpc)
         enroll.enrollment_message(mint.address, dev, shares, "11111111111111111111111111111111", create=True)
+        # The dev's buy at launch, when asked for: priced from pump's global
+        # (a new curve starts at its initial reserves) and bundled after
+        # `create` so nobody trades before the dev holds tokens. Empty means
+        # no buy, which is the page's default.
+        buy = None
+        extra = ()
+        if raw_buy:
+            lamports = launchbuy.parse_sol(raw_buy)
+            global_, fee_config, accumulator_exists = launchbuy.observe(rpc, dev)
+            quoted = launchbuy.quote(lamports, global_, fee_config, mint.address, dev)
+            extra = launchbuy.instructions(mint.address, dev, global_, quoted, accumulator_exists=accumulator_exists)
+            buy = launchbuy.describe(quoted)
         blockhash = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
-        message = launch.create_message(mint.address, dev, meta, blockhash)
+        message = launch.create_message(mint.address, dev, meta, blockhash, extra=extra)
         transaction = launch.partially_signed(message, mint)
         encoded = base64.b64encode(transaction).decode()
 
@@ -294,6 +308,10 @@ class handler(BaseHTTPRequestHandler):
             "blockhash": blockhash,
             "simulated": True,
             "split_checked": True,
+            # None when the dev asked for no buy. Otherwise what the page
+            # shows: SOL in, the bound, tokens, share of supply, fees, and
+            # that it lands before the split is set.
+            "buy": buy,
             "units": value.get("unitsConsumed"),
             "name": meta.name, "symbol": meta.symbol, "uri": meta.uri,
             "rent_lamports": CREATE_RENT_LAMPORTS,
