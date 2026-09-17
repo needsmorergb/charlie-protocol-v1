@@ -276,6 +276,13 @@ class TestPage(unittest.TestCase):
         self.assertNotIn("change.onclick", page, "no Change button anywhere")
         self.assertNotIn("Remove it and there is no SOL burn", page)
         self.assertNotIn("incinerator is optional", page)
+        self.assertIn("The incinerator share must be at least 1% of the rest.", page)
+
+    def test_the_protocol_s_collection_address_is_not_on_the_page(self):
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertNotIn("protocolAddr", page)
+        self.assertNotIn("state.toll.address + '   (protocol)'", page)
 
 
 class TestStatus(_Base):

@@ -271,6 +271,16 @@ def size_of(message: bytes) -> int:
 # -- what a dev is told before a wallet opens -------------------------------------
 
 
+# The incinerator's floor: 1% of what is left after the protocol row, in the
+# on-chain basis points the split is written in. With the protocol at 2,500
+# that is 75, which is also what the page's own rounding gives for 1.00%.
+MIN_INCINERATOR_PERCENT = 1
+
+
+def min_incinerator_bps() -> int:
+    return (10_000 - enroll.TOLL_BPS) * MIN_INCINERATOR_PERCENT // 100
+
+
 def preflight(dev: str, shares, meta: Metadata) -> None:
     """Everything that makes a launch un-sendable, phrased for the dev.
 
@@ -294,10 +304,10 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
     # Every coin made at this door burns: the incinerator row is fixed, and
     # only its share is the dev's to choose. The page enforces the same rule,
     # and this is the copy of it that cannot be bypassed.
-    if not any(s.address == enroll.INCINERATOR and s.bps > 0 for s in validated):
+    if not any(s.address == enroll.INCINERATOR and s.bps >= min_incinerator_bps() for s in validated):
         raise LaunchError(
             "Every coin made here keeps the incinerator row. Its address is fixed and its share "
-            "must be above zero. Change the other destinations instead."
+            f"must be at least {MIN_INCINERATOR_PERCENT}% of the rest. Change the other destinations instead."
         )
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
@@ -309,6 +319,6 @@ __all__ = [
     "CREATE", "LaunchError", "Metadata", "MAX_NAME_BYTES", "MAX_SYMBOL_BYTES",
     "MAX_URI_BYTES", "MPL_TOKEN_METADATA", "create_accounts_for", "create_data",
     "create_instruction", "launch_message", "metadata_address", "new_mint",
-    "partially_signed", "preflight", "signer_addresses", "size_of",
+    "MIN_INCINERATOR_PERCENT", "min_incinerator_bps", "partially_signed", "preflight", "signer_addresses", "size_of",
     "validate_metadata", "MessageError",
 ]

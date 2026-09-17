@@ -177,7 +177,7 @@ ol.steps li { margin-bottom: var(--sp-sm); }
         <p class="blueprint-flow-desc">Measured account rent is about 0.0081 SOL for the coin and 0.0059 SOL for its split record, plus two network fees. A buy at launch is optional; it adds what you enter in step 4.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">03</span>
         <div class="blueprint-flow-title">Decide the destinations</div>
-        <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. That row is fixed: you choose its share, and other destinations receive theirs.</p></div>
+        <p class="blueprint-flow-desc">The protocol receives 0.25% of each transaction. Only the incinerator row destroys SOL. That row is fixed: you choose its share, 1% of the rest or more, and other destinations receive theirs.</p></div>
       <div class="blueprint-flow-item" data-reveal><span class="blueprint-flow-num">04</span>
         <div class="blueprint-flow-title">Bring the coin’s details</div>
         <p class="blueprint-flow-desc">Name up to 32 bytes, ticker up to 10, image up to 4 MB. Details are pinned through pump’s metadata service. Check them before creation.</p></div>
@@ -212,10 +212,10 @@ ol.steps li { margin-bottom: var(--sp-sm); }
     <p><strong>pump allows exactly one split change. This split cannot be changed after it is set.</strong>
       The protocol receives <strong>0.25% of each transaction</strong>, set aside to buy and burn $CHARLIE.
       Your rows divide the rest of the creator fees and must total exactly 100% of that rest.
-      The incinerator row is fixed and SOL paid to it is destroyed; you choose its share. Other wallets receive SOL.</p>
+      The incinerator row is fixed and SOL paid to it is destroyed; you choose its share, 1% of the rest or more. Other wallets receive SOL.</p>
     <div class="share-row locked" role="group" aria-label="Fixed protocol share">
       <strong>Charlie Protocol</strong><span class="share-fixed">0.25% of each transaction</span>
-      <code id="protocolAddr">Checking collection address…</code><input id="protocolBps" type="hidden">
+      <input id="protocolBps" type="hidden">
     </div>
     <div id="shares"></div>
     <div class="row-actions">
@@ -278,7 +278,7 @@ ol.steps li { margin-bottom: var(--sp-sm); }
     </div>
   </section>
 </main>
-<p class="meta">generated at 2026-09-17 13:48:52Z</p><script>
+<p class="meta">generated at 2026-09-17 13:54:57Z</p><script>
 var state = {wallet: null, toll: null, open: false, uri: null, built: null, mint: null,
   createSig: null, splitSig: null, enroll: null, revision: 0, busy: false, locked: false, phase: 'draft'};
 var INCINERATOR = '1nc1nerator11111111111111111111111111111111';
@@ -346,7 +346,6 @@ async function describe() {
     var mints = d.mints || {}, dry = !!(mints.pool && mints.left === 0);
     if (dry) { state.open = false; }
     $('launchStatus').textContent = state.open ? 'OPEN' : (dry ? 'PAUSED' : 'NOT OPEN YET');
-    $('protocolAddr').textContent = state.toll && state.toll.address || 'Collection address not configured';
     $('protocolBps').value = state.toll ? state.toll.bps : '';
     var note = state.open ? '' : (dry ? 'Launching is paused right now. You can plan the split, but nothing can be built.' : 'Launching is not open yet. You can plan the split, but nothing can be built.');
     say('splitNote', note, note ? 'caution' : '');
@@ -453,6 +452,7 @@ function addRow(addr, pct, wallet, fixedBurn) {
   // The incinerator row is part of every coin made here: its address is
   // fixed and it cannot be removed. Only its share is the dev's to set. The
   // server refuses a split without it, so this is not the only guard.
+  if (fixedBurn) { b.min = '1'; }
   function identify() {
     row.dataset.burn = String(!!fixedBurn);
     badge.hidden = !fixedBurn; a.readOnly = !!fixedBurn || !!wallet;
@@ -492,6 +492,7 @@ function shareRows() {
     if (!validAddress(a)) { problems.push('Every destination must be a valid Solana address (32 decoded bytes).'); }
     if (seen.has(a)) { problems.push('Duplicate destination: ' + a); } seen.add(a);
     if (!Number.isFinite(pct) || pct <= 0 || pct > 10000) { problems.push('Every share must be positive, at most 100%, with up to two decimal places.'); }
+    if (row.dataset.burn === 'true' && Number.isFinite(pct) && pct < 100) { problems.push('The incinerator share must be at least 1% of the rest.'); b.setAttribute('aria-invalid', 'true'); }
     var bps = Math.round(pct * rest / 10000);
     if (row.dataset.wallet) { walletIndex = out.length; }
     out.push({address: a, pct: pct / 100, bps: bps}); allocated += bps;
@@ -522,7 +523,7 @@ async function build() {
     if (!d.simulated || !d.signable || !d.split_checked) { throw Error('The server did not confirm both the create simulation and split validation.'); }
     state.built = d; state.builtAt = Date.now(); state.shares = rows.shares; state.mint = d.mint;
     $('mintAddr').textContent = d.mint; $('mintBox').hidden = false;
-    var lines = ['0.25% of each transaction   ' + state.toll.address + '   (protocol)'];
+    var lines = ['0.25% of each transaction   Charlie Protocol, buys and burns $CHARLIE'];
     rows.rows.forEach(function (r) { lines.push(r.pct + '% of the rest   ' + r.address + '   (' + r.bps + ' on-chain bps)'); });
     var buyLine = d.buy ? '\n\nBuy at launch: up to ' + d.buy.sol + ' SOL for about ' + Math.round(d.buy.tokens).toLocaleString('en-US') + ' tokens (' + d.buy.percent_of_supply + '% of supply), in approval 1, before the split is set.' : '';
     say('buildNote', 'Create simulated against mainnet: no error. Split validated; its full simulation happens after the coin confirms.\n\nCoin: ' + d.name + ' (' + d.symbol + ')\n\nRent: about ' + (d.rent_lamports / 1e9).toFixed(4) + ' SOL for the coin, then about 0.0059 SOL for the split record, plus network fees.\n\nThe permanent split:\n' + lines.join('\n') + '\n\nRounding is absorbed by your wallet row. Two wallet approvals. Your key stays in your wallet.' + buyLine, 'good');
