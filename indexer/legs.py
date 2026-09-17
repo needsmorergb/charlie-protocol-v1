@@ -225,16 +225,11 @@ PUMP_CREATOR_FEE_BPS_AT_GRADUATION = 95
 PUMP_CREATOR_FEE_BPS_ON_CURVE = 30
 
 
-def share_of_volume_percent(creator_fee_bps: int = PUMP_CREATOR_FEE_BPS_AT_GRADUATION,
-                            rate_bps: int | None = None) -> float:
-    """The toll as a percentage of trade volume at a given creator-fee tier."""
-    rate = TOLL_BPS if rate_bps is None else rate_bps
-    return creator_fee_bps * rate / 10_000 / 100
-
-
-def headline_percent(digits: int = 2) -> str:
-    """The advertised number: the toll as a share of a trade, at graduation."""
-    return f"{share_of_volume_percent():.{digits}f}"
+# `share_of_volume_percent` and `headline_percent` were removed with the copy
+# that rendered them. They expressed the toll as a share of a trade, which is
+# the one framing the protocol's fee may not be stated in: on any public
+# surface it is "0.25% of each transaction" and nothing else. TOLL_BPS below
+# is the value a config carries, not a way of stating the rate.
 
 
 def required_bps(mint: str | None = None) -> int:

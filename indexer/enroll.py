@@ -256,15 +256,14 @@ def require_toll(shares) -> None:
     toll = [r for r in rows if r.address == destination]
     if not toll:
         raise EnrollError(
-            f"The split does not include the protocol's share: {rate / 100:g}% "
-            f"to {destination}. Every enrolled coin carries it; the rest of "
-            "the split is yours to set."
+            "The split does not include the protocol's share: 0.25% of each "
+            f"transaction, to {destination}. Every enrolled coin carries it; "
+            "the rest of the split is yours to set."
         )
     if toll[0].bps != rate:
         raise EnrollError(
-            f"The protocol's share is fixed at {rate / 100:g}%, and this split "
-            f"sets it to {toll[0].bps / 100:g}%. Change the other destinations "
-            "instead."
+            "The protocol's share is fixed at 0.25% of each transaction. "
+            "Change the other destinations instead."
         )
 
 
