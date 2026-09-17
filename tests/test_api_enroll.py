@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import threading
 import unittest
@@ -70,12 +71,21 @@ REAL_TOLL = api_enroll.enroll.legs.TOLL_DESTINATION
 SPLIT = f"{TOLL}:2500,{BURN}:2000,{ADMIN}:5500"
 
 
+_REAL_OPEN = os.environ.get(api_enroll.OPEN_ENV)
+
+
 def setUpModule():
     api_enroll.enroll.legs.TOLL_DESTINATION = TOLL
+    # Every case below is about an OPEN door; the gate has its own cases.
+    os.environ[api_enroll.OPEN_ENV] = "1"
 
 
 def tearDownModule():
     api_enroll.enroll.legs.TOLL_DESTINATION = REAL_TOLL
+    if _REAL_OPEN is None:
+        os.environ.pop(api_enroll.OPEN_ENV, None)
+    else:
+        os.environ[api_enroll.OPEN_ENV] = _REAL_OPEN
 
 
 class _Config:
@@ -109,6 +119,43 @@ class ApiCase(unittest.TestCase):
                 return response.status, json.loads(response.read().decode())
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode())
+
+
+class TestTheGate(ApiCase):
+    """Closed unless the deployment says open, and closed means nothing runs."""
+
+    def _closed(self, value):
+        env = {} if value is None else {api_enroll.OPEN_ENV: value}
+        patched = mock.patch.dict(os.environ, env)
+        patched.start()
+        self.addCleanup(patched.stop)
+        if value is None:
+            os.environ.pop(api_enroll.OPEN_ENV, None)
+
+    def test_a_missing_setting_fails_shut_before_the_chain_is_read(self):
+        self._closed(None)
+        with mock.patch.object(api_enroll, "RpcClient", side_effect=AssertionError("the chain was read")):
+            status, body = self.get(mint=MINT, authority=ADMIN, shares=SPLIT)
+        self.assertEqual(status, 403)
+        self.assertEqual(body, {"open": False, "error": "Enrollment is not open yet."})
+
+    def test_only_the_exact_value_opens_it(self):
+        for value in ("", "0", "true", "yes", "open", " 2 "):
+            with self.subTest(value=value):
+                self._closed(value)
+                status, body = self.get(mint=MINT, authority=ADMIN)
+                self.assertEqual(status, 403, body)
+
+    def test_a_closed_door_does_not_even_validate_input(self):
+        self._closed(None)
+        status, body = self.get(mint="not-an-address")
+        self.assertEqual(status, 403)
+        self.assertFalse(body["open"])
+
+    def test_open_reaches_the_ordinary_checks(self):
+        status, body = self.get(mint="not-an-address")
+        self.assertEqual(status, 400)
+        self.assertIn("contract address", body["error"])
 
 
 class TestNoSharingConfig(ApiCase):
