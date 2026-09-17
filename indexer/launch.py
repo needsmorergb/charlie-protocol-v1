@@ -199,11 +199,13 @@ def _config_instruction(mint: str, dev: str):
     return (program, metas, data)
 
 
-def create_message(mint: str, dev: str, meta: Metadata, recent_blockhash: str) -> bytes:
-    """Step one: pump's `create` alone. Two signers, the dev (fee payer,
-    first in the signature array because `compile_legacy` puts the payer
-    first) and the mint. 779 bytes with a pump-length URI."""
-    message = compile_legacy(dev, [create_instruction(mint, dev, meta)], recent_blockhash)
+def create_message(mint: str, dev: str, meta: Metadata, recent_blockhash: str, extra=()) -> bytes:
+    """Step one: pump's `create`, then `extra` (the dev's buy at launch,
+    when they asked for one; see `launchbuy`). Two signers, the dev (fee
+    payer, first in the signature array because `compile_legacy` puts the
+    payer first) and the mint. 779 bytes with a pump-length URI and no
+    extra."""
+    message = compile_legacy(dev, [create_instruction(mint, dev, meta), *extra], recent_blockhash)
     if signer_count(message) != 2:
         raise LaunchError("a create message has exactly two signers: the dev and the mint")
     return message
@@ -269,6 +271,16 @@ def size_of(message: bytes) -> int:
 # -- what a dev is told before a wallet opens -------------------------------------
 
 
+# The incinerator's floor: 1% of what is left after the protocol row, in the
+# on-chain basis points the split is written in. With the protocol at 2,500
+# that is 75, which is also what the page's own rounding gives for 1.00%.
+MIN_INCINERATOR_PERCENT = 1
+
+
+def min_incinerator_bps() -> int:
+    return (10_000 - enroll.TOLL_BPS) * MIN_INCINERATOR_PERCENT // 100
+
+
 def preflight(dev: str, shares, meta: Metadata) -> None:
     """Everything that makes a launch un-sendable, phrased for the dev.
 
@@ -289,6 +301,14 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
                 "Change the other destinations instead."
             ) from None
         raise LaunchError(str(exc)) from None
+    # Every coin made at this door burns: the incinerator row is fixed, and
+    # only its share is the dev's to choose. The page enforces the same rule,
+    # and this is the copy of it that cannot be bypassed.
+    if not any(s.address == enroll.INCINERATOR and s.bps >= min_incinerator_bps() for s in validated):
+        raise LaunchError(
+            "Every coin made here keeps the incinerator row. Its address is fixed and its share "
+            f"must be at least {MIN_INCINERATOR_PERCENT}% of the rest. Change the other destinations instead."
+        )
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
         # it is a mistake often enough to be worth one sentence in the log.
@@ -299,6 +319,6 @@ __all__ = [
     "CREATE", "LaunchError", "Metadata", "MAX_NAME_BYTES", "MAX_SYMBOL_BYTES",
     "MAX_URI_BYTES", "MPL_TOKEN_METADATA", "create_accounts_for", "create_data",
     "create_instruction", "launch_message", "metadata_address", "new_mint",
-    "partially_signed", "preflight", "signer_addresses", "size_of",
+    "MIN_INCINERATOR_PERCENT", "min_incinerator_bps", "partially_signed", "preflight", "signer_addresses", "size_of",
     "validate_metadata", "MessageError",
 ]
