@@ -52,9 +52,9 @@ That is a devnet id and nothing else. **Mainnet gets its own keypair**,
 generated once and deployed to after the pipeline has been run in production
 (`BUILD.md` §10 — the deploy order is deliberate).
 
-**Not deployed to mainnet.** That is phase 5, and it is funding-gated and
-closed. The gate is **0.943958 SOL** net, and **1.415504 SOL** in the wallet on
-the day -- the difference is the buffer account, which is reclaimed once the
+**Not deployed to mainnet.** That is phase 5, and it is held rather than
+blocked. The cost is measured: **0.943958 SOL** net, and **1.415504 SOL** in
+the wallet on the day -- the difference is the buffer account, which is reclaimed once the
 deploy lands. `BUILDLOG.md`'s 2026-09-13 entry has the breakdown and the method;
 the figures are live reads of mainnet rent at this program's measured size, not
 constants. The absence-of-code guarantee only holds once the program is

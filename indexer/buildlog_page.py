@@ -1,11 +1,11 @@
-"""`/buildlog` -- dated milestones, and the gate that is still closed.
+"""`/buildlog` -- dated milestones, and the work that is not done yet.
 
 A build log for a protocol that asks strangers to check its figures has one
 obligation the genre usually skips: it has to be as willing to date what is
 NOT done as what is. A log that lists only shipped things reads as progress
-and hides the gate, and the gate is the single most important fact about this
-project's status -- phase 5 is funding-gated and closed, so the mainnet
-program does not exist.
+and hides what is open, and what is open is the single most important fact
+about this project's status -- phase 5 has not happened, so no mainnet
+program exists.
 
 So every entry here carries a status, and the statuses that matter most are
 the open ones. `GATED` is not a milestone waiting to be crossed off; it is a
@@ -23,9 +23,9 @@ has refused to make since 2026-09-03. Every entry that mentions the program
 says which cluster it means.
 
 NO DATES FROM THE FUTURE. Nothing here is a schedule. A build log that lists
-a date for an ungated deliverable is a roadmap with a timestamp, and phase 5
-depends on funding that does not exist. Entries are things that happened,
-plus open items with no date attached.
+a date for something not yet done is a roadmap with a timestamp, and this is
+a log. Entries are things that happened, plus open items with no date
+attached. `/phases` is where anything forward-looking lives.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ BUILDLOG_FILENAME = "buildlog.html"
 #
 # status: "SHIPPED" -- built, committed, and checkable by a reader today
 #         "DEVNET"  -- deployed to devnet only, id given, mainnet is not this
-#         "GATED"   -- not done, and blocked on something named
+#         "GATED"   -- not done, and the entry names what is holding it
 _ENTRIES = [
     {
         "date": "2026-08-29",
@@ -162,8 +162,10 @@ _ENTRIES = [
         "date": None,
         "status": "GATED",
         "title": "Phase 5 -- mainnet deploy, and revoking upgrade authority",
-        "body": "Funding-gated, and the gate is closed. The absence-of-code "
-        "guarantee only means anything once the program is immutable, and "
+        "body": "Held, not blocked. The cost is measured and published in the "
+        "2026-09-13 entry above; what remains is the deploy order, which is "
+        "deliberate. The absence-of-code guarantee only means anything once "
+        "the program is immutable, and "
         "revoking upgrade authority is a one-way door that freezes every bug "
         "permanently. Until this happens there is no mainnet program id, so no "
         "mainnet address derives as a SOL-burn or token-burn vault, and the "
@@ -192,7 +194,7 @@ _STYLE = """
 /* -- the log ----------------------------------------------------------
    A single column of dated entries. No timeline rail: a rail implies even
    spacing between milestones and these are not evenly spaced, and it reads
-   as a schedule running to a finish line that funding has not bought. */
+   as a schedule running to a finish line nobody has committed to. */
 .log { list-style: none; padding: 0; margin: var(--sp-xl) 0 0 0; }
 .log-entry {
   border-top: 1px solid var(--unchecked);
@@ -272,9 +274,10 @@ def render(*, now=None) -> str:
     parts.append(
         '<aside class="gate-note">'
         "<p>No mainnet program is deployed. The devnet id above is a devnet id "
-        "and derives nothing on mainnet. Phase 5 is funding-gated and the gate "
-        "is closed, so there is nothing to sign up for and nothing to buy in "
-        "order to be ready for it.</p>"
+        "and derives nothing on mainnet. Phase 5 is held rather than blocked: "
+        "its cost is measured and published, and what remains is the deploy "
+        "order. There is nothing to sign up for and nothing to buy in order to "
+        "be ready for it.</p>"
         "</aside>"
     )
 

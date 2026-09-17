@@ -850,7 +850,8 @@ RISK_GENERATOR_ANCHOR = "risk-generator-unverified"
 
 _RISKS = (
     "No program is deployed.",
-    "There is no funding, and Phase 5 is gated on SOL that does not exist yet.",
+    "Phase 5 is held, not blocked: the mainnet deploy is sequenced behind a "
+    "production pipeline run rather than waiting on money.",
     "Revoking upgrade authority is a one-way door.",
     "The opening-balance mechanism is dormant on live data (D-07).",
 )
@@ -921,12 +922,18 @@ def _enrolment(observation) -> str:
     check = next((c for c in (observation.checks or ()) if c.name == "PROTOCOL_SHARE"), None)
     config = observation.config
     revoked = bool(config is not None and getattr(config, "admin_revoked", False))
-    if check is None or check.status == "UNCHECKED":
+    reading = invariants.enrollment_reading(check, getattr(observation, "mint", None))
+    if reading is None or reading == invariants.CLOSED:
         body = (
             "<strong>Enrollment is not open.</strong> The protocol's collection "
             "address is not set, so no coin can carry its share yet."
         )
-    elif check.status == "PASS":
+    elif reading == invariants.EXEMPT:
+        # The exemption is declared, not inferred: the check's own detail
+        # carries the reason verbatim from `legs.ENROLLMENT_EXEMPT`.
+        detail = check.detail[:1].upper() + check.detail[1:]
+        body = f"<strong>Not graded on enrollment.</strong> {esc(detail)}"
+    elif reading == invariants.ENROLLED:
         body = (
             f"<strong>Enrolled in Charlie Protocol.</strong> {esc(check.detail)}. "
             "pump pays every shareholder from this coin's creator vault, "
@@ -937,8 +944,9 @@ def _enrolment(observation) -> str:
                "enrolled until then, and permanent after.")
         )
     else:
+        detail = check.detail[:1].upper() + check.detail[1:]
         body = (
-            f"<strong>Not enrolled.</strong> {esc(check.detail)}. "
+            f"<strong>Not enrolled.</strong> {esc(detail)}. "
             + ("The config is <code>admin_revoked</code>, so its split is permanent "
                "and this coin cannot enroll."
                if revoked else
@@ -2239,11 +2247,14 @@ def index_rows(records, known_pages=frozenset()) -> list[str]:
         # Enrolled or not, from the record's own PROTOCOL_SHARE check. Not a
         # figure: it says what the coin's split IS, never how much moved.
         share = next((c for c in (gated.get("checks") or []) if c.get("name") == "PROTOCOL_SHARE"), None)
-        if share and share.get("status") == "PASS":
+        reading = invariants.enrollment_reading(share, mint)
+        if reading == invariants.ENROLLED:
             enrolled_html = '<span class="index-enrolled">enrolled</span>'
-        elif share and share.get("status") == "FAIL":
+        elif reading in (invariants.NOT_ENROLLED, invariants.UNDERPAYING):
             enrolled_html = '<span class="index-not-enrolled">not enrolled</span>'
         else:
+            # A closed door or an exempt coin carries no marker: neither is a
+            # statement about whether the coin joined.
             enrolled_html = ""
 
         rows.append(
@@ -2881,16 +2892,22 @@ def _supply_refusal(observation) -> str:
 
 # Two sentences, adapted from PROJECT.md's own Project section rather than
 # invented marketing copy. The second states the claims rule in the summary
-# and not only in the full spec: a burn claim requires a destination that
-# passes `SOL_BURN_UNSPENDABLE`, and $CHARLIE's does not. Keeping that
-# admission here is what shows the standard is not graded by its author.
+# and not only in the full spec: the word "burned" is permitted only where the
+# destination is provably one SOL does not come back from.
+#
+# It used to end "and $CHARLIE's is not." That was the claim retracted on
+# 2026-09-04, left standing here after the check itself was corrected.
+# `SOL_BURN_UNSPENDABLE` passes for $CHARLIE: `burn111...111` is a recognised
+# burn address and what reaches it is out of circulation. A landing page that
+# contradicts its own check is the failure mode this project exists to catch.
 _LANDING_DESCRIPTION = (
     "Charlie Protocol is a fee-routing and verification standard for pump.fun "
     "coins, naming three destinations for creator fees -- BURN (SOL), BURN (token), OPS -- "
     "and specifying the part nobody else does: what a coin is permitted to "
     "claim about them in public. Both burn: a SOL burn is deflation, SOL sent where no key can "
     "spend it, a BURN destroys token supply. The word is only permitted where "
-    "the destination is provably unspendable -- and $CHARLIE's is not."
+    "the destination is provably one SOL does not come back from, which is "
+    "checked per coin and published either way."
 )
 
 
