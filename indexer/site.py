@@ -78,6 +78,8 @@ TOLL_RATE_SENTENCE = "0.25% of each transaction"
 # the string marker above is kept only so a record written before this field
 # existed still renders as the finding it is.
 NO_SHARING_CONFIG = "no_sharing_config"
+# observe.CREATOR_REPLACED, copied for the same reason as the marker above.
+CREATOR_REPLACED = "creator_replaced"
 
 SITE_ORIGIN = "https://charlieprotocol.fun"
 META_IMAGE_SRC = "/assets/meta-image.png"
@@ -938,17 +940,18 @@ def _enrolment(observation) -> str:
             f"<strong>Enrolled in Charlie Protocol.</strong> {esc(check.detail)}. "
             "pump pays every shareholder from this coin's creator vault, "
             + ("and the config is <code>admin_revoked</code>: its one change is "
-               "spent, so no key can alter this, including the coin's own admin."
+               "spent, so no key the coin's admin or Charlie holds can alter this; "
+               "only pump's admin can, through admin_cto."
                if revoked else
                "and its admin can still change the config once -- so this is "
-               "enrolled until then, and permanent after.")
+               "enrolled until then, and out of its admin's hands after.")
         )
     else:
         detail = check.detail[:1].upper() + check.detail[1:]
         body = (
             f"<strong>Not enrolled.</strong> {esc(detail)}. "
-            + ("The config is <code>admin_revoked</code>, so its split is permanent "
-               "and this coin cannot enroll."
+            + ("The config is <code>admin_revoked</code>, so its admin cannot change "
+               "the split and this coin cannot enroll."
                if revoked else
                'Its admin can enroll it at <a href="/enroll">/enroll</a>: one '
                "signature sets the split, and pump enforces it from then on.")
@@ -2116,6 +2119,23 @@ def render(observation, *, now=None) -> str:
             'pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" required>'
             '<button type="submit">Verify</button>'
             "</form>"
+            + "</section>"
+        )
+        return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
+
+    if getattr(observation, "error_kind", None) == CREATOR_REPLACED:
+        # The chain answered, and the answer is that this coin's routing was
+        # changed from outside: a coin recorded with a split whose bonding
+        # curve now names another creator (observe._creator_replaced).
+        body = (
+            header
+            + '<section class="error-state">'
+            + "<h2>This coin's creator was replaced</h2>"
+            + f"<p>{html.escape(observation.error or '')}</p>"
+            + "<p>Its creator fee now goes to that address, not to the split it "
+            "enrolled with. pump's admin can reset any coin's creator and fee "
+            "sharing through <code>admin_cto</code>; neither the coin's creator "
+            "nor Charlie Protocol can undo it.</p>"
             + "</section>"
         )
         return _document(f"{mint} -- Charlie Protocol", body + f"<script>{_COPY_SCRIPT}</script>")
