@@ -18,8 +18,8 @@
     "burn_total": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "claimed burns do not reconcile against the mint supply",
-        "status": "FAIL"
+        "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
+        "status": "UNCHECKED"
       },
       {
         "check": "BURN_SPEND",
@@ -44,8 +44,8 @@
     "supply_destroyed": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "claimed burns do not reconcile against the mint supply",
-        "status": "FAIL"
+        "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
+        "status": "UNCHECKED"
       }
     ]
   },
@@ -77,13 +77,13 @@
       "status": "PASS"
     },
     {
-      "actual": "0",
+      "actual": null,
       "backs": [],
-      "detail": "the split does not pay the protocol's collection wallet 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 at all",
+      "detail": "the enrollment check does not apply to this coin. $CHARLIE is the protocol's reference implementation and cannot enroll in it. Its pump sharing config is admin_revoked and its one irreversible update is spent, so its split is permanent and only pump can reset it. It routes 100% of its creator fee to a burn address by force rather than by choice, and the protocol is built on top of it rather than run by it.",
       "equation": "bps(TOLL_DESTINATION) >= 2500",
-      "expected": ">= 2500",
+      "expected": null,
       "name": "PROTOCOL_SHARE",
-      "status": "FAIL"
+      "status": "UNCHECKED"
     },
     {
       "actual": "a burn destination",
@@ -108,16 +108,16 @@
       "status": "UNCHECKED"
     },
     {
-      "actual": "956300161205968",
+      "actual": "956271591699956",
       "backs": [
         "burn_total",
         "supply_destroyed"
       ],
-      "detail": "claimed burns do not reconcile against the mint supply",
+      "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
       "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
       "expected": "956423419572100",
       "name": "BURN_SUPPLY",
-      "status": "FAIL"
+      "status": "UNCHECKED"
     },
     {
       "actual": "None",
@@ -198,10 +198,10 @@
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956300161205968,
+    "supply": 956271591699956,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1789640676.4484386,
+  "observed_at": 1789725725.606952,
   "publishable": [
     "split"
   ],
