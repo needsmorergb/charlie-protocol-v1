@@ -561,6 +561,14 @@ NON_FIGURE_EMITTERS = {
         "back off THAT transaction. Receipt data for a transaction the operator just "
         "sent, not a coin-wide total, and none of it a name in invariants.FIGURES"
     ),
+    # The LaunchLab rail keeper (indexer/launchlab_keeper.py, LAUNCHLAB-RAIL.md
+    # sec.8 step 7). Operator tool, like buyback:run_keeper above.
+    "indexer.launchlab_keeper:run": (
+        "prints one line per crank it considered: its name, the route address, the "
+        "simulation's compute units, and either the simulation error, 'simulated', or "
+        "the signature it sent. Receipt data about one transaction the operator built; "
+        "no coin-wide figure and no name in invariants.FIGURES"
+    ),
     "indexer.cli:_print_result": (
         "prints buyback.run()'s result: the plan, the simulation's compute units, "
         "the signature if sent, and the burn instruction decoded from that one "
