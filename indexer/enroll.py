@@ -39,6 +39,23 @@ SYSTEM_PROGRAM = "11111111111111111111111111111111"
 TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 ASSOCIATED_TOKEN_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 WSOL_MINT = "So11111111111111111111111111111111111111112"
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+# USDC-paired coins pay their creator fee in USDC, into each shareholder's
+# USDC token account rather than to the address itself. The transaction for
+# that is built and tested below; whether a dev may SEND it is this switch.
+# Off until the collector's token path exists and has run on devnet
+# (CUSTOM-PAIRS.md sections 4 and 5), because until then the protocol's share of a
+# USDC coin lands in an ordinary wallet as a token nobody has decided how
+# to spend in public.
+NON_SOL_ENROLLMENT_OPEN = False
+
+# The quote mints a split can be built for. USDC is legacy SPL Token with no
+# transfer hook, no permanent delegate and pump's standard fee schedule.
+# Custom Pairs (tokenized stocks, wrapped majors, metals) are refused:
+# CUSTOM-PAIRS.md section 2 has the reasons, the first being that xStocks
+# mints carry a permanent delegate that can move tokens out of any account.
+BUILDABLE_QUOTES = {USDC_MINT: TOKEN_PROGRAM}
 
 # sha256("global:update_fee_shares_v2")[:8], as published in the program's IDL.
 UPDATE_FEE_SHARES_V2 = bytes.fromhex("6ffb31064e4e6a12")
@@ -167,7 +184,8 @@ def canonical_pool_address(mint: str, quote_mint: str = WSOL_MINT) -> str:
     )
 
 
-def create_accounts_for(mint: str, payer: str, *, graduated: bool = False) -> list[tuple[str, bool, bool]]:
+def create_accounts_for(mint: str, payer: str, *, graduated: bool = False,
+                        quote_mint: str = WSOL_MINT) -> list[tuple[str, bool, bool]]:
     """`create_fee_sharing_config`'s accounts, in the IDL's order.
 
     `pool` is the AMM pool of a GRADUATED coin, and for a coin still on its
@@ -180,7 +198,8 @@ def create_accounts_for(mint: str, payer: str, *, graduated: bool = False) -> li
     measured in the deploy repository's `graduated` workflow), so the
     AMM-side fee follows the split from then on.
     """
-    pool = (canonical_pool_address(mint), False, True) if graduated else (FEE_SHARE_PROGRAM, False, True)
+    pool = ((canonical_pool_address(mint, quote_mint), False, True) if graduated
+            else (FEE_SHARE_PROGRAM, False, True))
     return [
         (_pda([b"__event_authority"], FEE_SHARE_PROGRAM), False, False),
         (FEE_SHARE_PROGRAM, False, False),
@@ -304,13 +323,35 @@ def update_instruction(mint: str, authority: str, shares, *, current=(),
     owed before the split changes underneath them, so it needs to touch them.
     """
     metas = accounts_for(mint, authority, quote_mint=quote_mint, token_program=token_program)
-    metas = metas + [(address, False, True) for address in current]
+    metas = metas + remaining_accounts(current, quote_mint=quote_mint, token_program=token_program)
     return (FEE_SHARE_PROGRAM, metas, instruction_data(shares))
 
 
-def create_instruction(mint: str, payer: str, *, graduated: bool = False):
-    """`(program, metas, data)` for `create_fee_sharing_config`. No args."""
-    return (FEE_SHARE_PROGRAM, create_accounts_for(mint, payer, graduated=graduated),
+def remaining_accounts(current, *, quote_mint: str = WSOL_MINT,
+                       token_program: str = TOKEN_PROGRAM) -> list[tuple[str, bool, bool]]:
+    """What `update_fee_shares_v2` forwards to its inner distribute.
+
+    pump's CREATOR_FEE_SHARING.md: for wrapped SOL, the current shareholders
+    and nothing else. For any other quote mint, the current shareholders
+    THEN each one's canonical ATA for that mint, in the same order -- the
+    program pays the pending fee out in tokens before the split changes, and
+    creates a missing ATA on the way (rent from the signer).
+    """
+    wallets = [(address, False, True) for address in current]
+    if quote_mint == WSOL_MINT:
+        return wallets
+    atas = [(associated_token_address(address, quote_mint, token_program), False, True)
+            for address in current]
+    return wallets + atas
+
+
+def create_instruction(mint: str, payer: str, *, graduated: bool = False,
+                       quote_mint: str = WSOL_MINT):
+    """`(program, metas, data)` for `create_fee_sharing_config`. No args.
+    `quote_mint` only matters for a graduated coin: the pool it passes is
+    derived from it."""
+    return (FEE_SHARE_PROGRAM,
+            create_accounts_for(mint, payer, graduated=graduated, quote_mint=quote_mint),
             CREATE_FEE_SHARING_CONFIG)
 
 
@@ -389,7 +430,8 @@ def message(mint: str, authority: str, shares, recent_blockhash: str, *,
 
 
 def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str, *,
-                      create: bool, current=(), graduated: bool = False) -> bytes:
+                      create: bool, current=(), graduated: bool = False,
+                      quote_mint: str = WSOL_MINT, token_program: str = TOKEN_PROGRAM) -> bytes:
     """One signature, whichever state the coin is in.
 
     A coin with a config gets the split set. A coin without one -- the case
@@ -403,13 +445,26 @@ def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str,
     succeeded. `current` is ignored on that path because there is no current
     config to read it from.
     """
+    quote = dict(quote_mint=quote_mint, token_program=token_program)
     if create:
         return encode_message(
-            [create_instruction(mint, authority, graduated=graduated),
-             update_instruction(mint, authority, shares, current=[authority])],
+            [create_instruction(mint, authority, graduated=graduated, quote_mint=quote_mint),
+             update_instruction(mint, authority, shares, current=[authority], **quote)],
             authority, recent_blockhash,
         )
-    return message(mint, authority, shares, recent_blockhash, current=current)
+    return message(mint, authority, shares, recent_blockhash, current=current, **quote)
+
+
+def quote_accounts(curve) -> dict:
+    """`quote_mint` / `token_program` for a coin, for the builders above.
+    Only ever called after `preflight` has passed, so a Custom Pair never
+    reaches it; asking anyway is a bug and says so."""
+    mint = getattr(curve, "quote_mint", None) if curve is not None else None
+    if mint is None:
+        return {"quote_mint": WSOL_MINT, "token_program": TOKEN_PROGRAM}
+    if mint not in BUILDABLE_QUOTES:
+        raise EnrollError(f"no split can be built for a coin quoted in {mint}")
+    return {"quote_mint": mint, "token_program": BUILDABLE_QUOTES[mint]}
 
 
 def owns(config, authority: str) -> bool:
@@ -435,6 +490,7 @@ def preflight(config, authority: str, shares, *, curve=None) -> None:
     `curve` is optional only so the older callers and tests keep working.
     Pass it: it carries the one refusal that cannot be recovered from.
     """
+    refuse_quote(curve, shares)
     if curve is not None and getattr(curve, "cashback", None) is True:
         raise EnrollError(
             "This coin has pump's Trader Cashback on, chosen at launch and "
@@ -472,6 +528,45 @@ def preflight(config, authority: str, shares, *, curve=None) -> None:
             )
     validate(shares)
     require_toll(shares)
+
+
+def refuse_quote(curve, shares) -> None:
+    """What the coin's pairing and fee type rule out, before anything else.
+
+    Ordered by how permanent the reason is: a Holder Rewards coin can never
+    pay a split; a Custom Pair cannot be built for; a USDC coin can, but not
+    with a burn row, and not yet at all.
+    """
+    if curve is None:
+        return
+    if getattr(curve, "holder_reward", False) is True:
+        raise EnrollError(
+            "This is a pump Holder Rewards coin. Its creator fee goes to a pump "
+            "address and out to holders, so there is no creator fee to split, "
+            "and pump does not convert a Holder Rewards coin back."
+        )
+    mint = getattr(curve, "quote_mint", None)
+    if mint is None:
+        return
+    if mint not in BUILDABLE_QUOTES:
+        raise EnrollError(
+            f"This coin is paired against {mint}, not SOL. Its creator fee is paid "
+            "in that token, the runtime only destroys lamports, and Charlie does "
+            "not build splits for custom pairs. Nothing was built and nothing "
+            "was spent."
+        )
+    if any(r.address == INCINERATOR for r in shares):
+        raise EnrollError(
+            "This coin's creator fee is paid in USDC. USDC sent to the "
+            "incinerator is not burned: the runtime destroys lamports, not "
+            "token balances, so that share would be locked forever and "
+            "counted nowhere. Remove the incinerator row."
+        )
+    if not NON_SOL_ENROLLMENT_OPEN:
+        raise EnrollError(
+            "This coin is paired against USDC. USDC splits are built and "
+            "tested but not open yet. Nothing was built and nothing was spent."
+        )
 
 
 def may_create(curve, authority: str) -> bool:

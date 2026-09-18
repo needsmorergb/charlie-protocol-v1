@@ -1185,6 +1185,7 @@ class TestVercelJson(unittest.TestCase):
             "/phases",
             "/flywheel",
             "/charlie-flywheel",
+            "/launchlab",
             "/verify",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
@@ -1385,7 +1386,8 @@ class TestCoinCorrectCopy(unittest.TestCase):
         self.assertIn(site_legs.TOLL_DESTINATION, section)
         self.assertIn("500 bps", section)
         self.assertIn("admin_revoked", section)
-        self.assertIn("no key can alter this", section)
+        self.assertIn("alter this; only pump", section)
+        self.assertIn("admin_cto", section)
 
     def test_the_index_marks_enrolled_and_not_enrolled_rows(self):
         enrolled = publish.durable_record(_enrolled_observation())
@@ -2180,6 +2182,15 @@ class TestFailedReadNeverBecomesAFinding(unittest.TestCase):
         observation.error = "connection reset by peer"
         rendered = site.render(observation, now=2.0)
         self.assertNotIn("connection reset by peer", rendered)
+
+    def test_a_replaced_creator_is_its_own_finding(self):
+        observation = Observation(mint=CHARLIE, observed_at=1.0)
+        observation.error = f"{CHARLIE}: ... pump's admin can move a coin's creator with admin_cto."
+        observation.error_kind = site.CREATOR_REPLACED
+        rendered = site.render(observation, now=2.0)
+        self.assertIn("creator was replaced", rendered)
+        self.assertNotIn("does not split its creator fees", rendered)
+        self.assertNotIn("could not read the chain", rendered.lower())
 
     def test_a_typed_no_sharing_config_is_still_a_finding_not_an_outage(self):
         observation = Observation(mint=CHARLIE, observed_at=1.0)

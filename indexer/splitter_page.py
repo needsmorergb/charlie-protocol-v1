@@ -11,8 +11,8 @@ $CHARLIE specifically**, with no toll and a different shape:
 
 WHY IT IS HYPOTHETICAL, said here and on the page. $CHARLIE's pump sharing
 config is `admin_revoked` and pays `burn111...111` 100%: pump allows one
-irreversible update and it is spent, so nobody -- its deployer included --
-can point its fees anywhere else. This page does not claim otherwise. It
+irreversible update and it is spent, so no key its deployer or Charlie holds
+can point its fees anywhere else (pump's own admin_cto still could). This page does not claim otherwise. It
 answers the question that is still open: **if that destination could be
 changed to a splitter, would the mechanism hold?**
 
@@ -132,8 +132,8 @@ def _banner(splitter: dict) -> str:
         "<p><strong>$CHARLIE cannot actually do this, and that is the point of "
         "the exercise.</strong> Its pump sharing config is <code>admin_revoked</code> "
         "and pays the SOL-burn address 100%: pump allows one irreversible update "
-        "and it is spent, so nobody &mdash; its deployer included &mdash; can "
-        "point its fees anywhere else.</p>"
+        "and it is spent, so no key its deployer or Charlie holds can point its "
+        "fees anywhere else; only pump&#x27;s own admin could, through admin_cto.</p>"
         "<p>So this is the answer to a hypothetical: <em>if that destination "
         "could be changed to a splitter, would the mechanism hold?</em> "
         "The program below is deployed on <strong>devnet</strong> and the "

@@ -384,6 +384,37 @@ class TestObserveErrorKind(unittest.TestCase):
         record = observe(FakeRpc(accounts), CHARLIE, now=1.0)
         self.assertEqual(record.error_kind, "no_sharing_config")
 
+    def test_an_enrolled_coin_whose_creator_moved_names_creator_replaced(self):
+        """pump's admin_cto can move a coin's creator off its sharing config.
+        A coin the evidence store recorded with a config, whose curve now
+        names a wallet, must not read as a coin that never split its fees."""
+        accounts = {
+            CHARLIE_CURVE: curve_account(WALLET),
+            WALLET: account(bytes(64), SYSTEM_PROGRAM),
+        }
+
+        class Prior:
+            def sharing_config_for(self, mint):
+                return {"address": "CJEC7BywJ4fgveTPRpPbF4NxSgAzZxs6Dgo9wk1mV5qL", "mint": mint}
+
+        record = observe(FakeRpc(accounts), CHARLIE, now=1.0, evidence=Prior())
+        self.assertEqual(record.error_kind, "creator_replaced")
+        self.assertIn("admin_cto", record.error)
+        self.assertIn(WALLET, record.error)
+
+    def test_no_recorded_config_keeps_the_ordinary_answer(self):
+        accounts = {
+            CHARLIE_CURVE: curve_account(WALLET),
+            WALLET: account(bytes(64), SYSTEM_PROGRAM),
+        }
+
+        class Nothing:
+            def sharing_config_for(self, mint):
+                return None
+
+        record = observe(FakeRpc(accounts), CHARLIE, now=1.0, evidence=Nothing())
+        self.assertEqual(record.error_kind, "no_sharing_config")
+
     def test_every_endpoint_failing_names_rpc_unavailable(self):
         record = observe(RaisingRpc(RpcUnavailable("all endpoints failed")), CHARLIE, now=1.0)
         self.assertEqual(record.error_kind, "rpc_unavailable")

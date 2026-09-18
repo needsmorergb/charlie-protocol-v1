@@ -105,8 +105,12 @@ REASON_MINT_DECODE_FAILED = "mint_decode_failed"
 REASON_RPC_UNAVAILABLE = "rpc_unavailable"
 REASON_RPC_ERROR = "rpc_error"
 REASON_CONFIG_MISMATCH = "config_mismatch"
+# Terminal and a fact about the coin: it was enrolled (the evidence store
+# recorded its sharing config) and its bonding curve now names a different
+# creator. pump's `admin_cto` does exactly this (IDL e0687ae).
+REASON_CREATOR_REPLACED = "creator_replaced"
 
-TERMINAL = (REASON_NOT_PUMP_COIN, REASON_NO_SHARING_CONFIG)
+TERMINAL = (REASON_NOT_PUMP_COIN, REASON_NO_SHARING_CONFIG, REASON_CREATOR_REPLACED)
 CORRECTABLE = (
     REASON_NOT_BASE58,
     REASON_WRONG_LENGTH,
@@ -541,6 +545,12 @@ _TERMINAL_COMMENT_TEMPLATES = {
         "This coin's creator is an ordinary wallet, not a fee-sharing config -- there is "
         "no split to measure today. This coin could gain a sharing config later; a new "
         "issue will measure it if it does."
+    ),
+    REASON_CREATOR_REPLACED: (
+        "This coin was recorded with a fee-sharing config, and its bonding curve now names "
+        "a different creator, so its creator fee no longer reaches that split. pump's admin "
+        "can move a coin's creator with admin_cto; neither the coin's creator nor this "
+        "protocol can undo it. The coin's page states this."
     ),
 }
 
