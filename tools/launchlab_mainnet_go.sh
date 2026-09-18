@@ -9,8 +9,8 @@
 # before every step that spends SOL.
 set -euo pipefail
 
-PROGRAM=GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e
-BUILD_SHA=f3182985a8fa3b4ee168bd501f650bdc5eec4c8ba4a0a326234e927a4c5851ef
+PROGRAM=ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym
+BUILD_SHA=07a1e59dc03576da8013afb583ca4b27bdf94e68038cdbcdc2be19571e755855
 CPMM_CONFIG=EUZHCdd8H7nueb2wLpxUqyuemdbe8TUxfCWcxVfARvgw   # 0.25% trade / 0.55% creator
 KEYPAIR=${KEYPAIR:-$HOME/.config/solana/id.json}
 URL=https://api.mainnet-beta.solana.com

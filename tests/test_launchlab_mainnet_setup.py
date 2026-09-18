@@ -34,7 +34,7 @@ class Setup(unittest.TestCase):
         self.assertLess(len(message.unsigned_transaction(msg)), 1232)
 
     def test_mainnet_addresses(self):
-        self.assertEqual(setup.PROGRAM, "GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e")
+        self.assertEqual(setup.PROGRAM, "ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym")
         # The global config the rail's launches use, read on mainnet 18 September 2026.
         self.assertIn("6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX", setup.shared_accounts(POOL, setup.DEFAULT_CPMM_CONFIG))
 
