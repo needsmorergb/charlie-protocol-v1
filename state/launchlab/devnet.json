@@ -1,0 +1,62 @@
+{
+  "cluster": "devnet",
+  "program_id": "4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX",
+  "coins": {
+    "CA6NcWcELpoJWBeigPxSuShyGi84L7V5vFJvkYbryBrc": "on the curve",
+    "BuX4dNXZDyhYfLWQyZoHpRDYrHWpHkEVFqxFDpRrgLbV": "graduated to CPMM"
+  },
+  "runs": [
+    {
+      "crank": "crank_curve",
+      "mint": "CA6NcWcELpoJWBeigPxSuShyGi84L7V5vFJvkYbryBrc",
+      "signature": "pkhWM6jq371aiNs8K4fMPoRovSHq8UUYVSFP3dAE7awvMyRrkuG7U3oWw47e8RmJPHSs6LgAKJaKD9RGyUpjukX",
+      "slot": 500448216,
+      "block_time": 1789753030,
+      "compute_units": 131512,
+      "fee": 5000,
+      "incinerator": 400000,
+      "charlie_pool": 0,
+      "ops": 200000,
+      "coins_burned": 366958220004
+    },
+    {
+      "crank": "crank_amm_creator",
+      "mint": "BuX4dNXZDyhYfLWQyZoHpRDYrHWpHkEVFqxFDpRrgLbV",
+      "signature": "CcAeLt5XXRJsg1VpPUbrNathyrxaioCJMZ1mAiZEFp8FkixayoHxFpBwVFVcYjTaiX7FRrHav6ZXxp5gGvDZj9s",
+      "slot": 500502289,
+      "block_time": 1789761981,
+      "compute_units": 131943,
+      "fee": 5000,
+      "incinerator": 300259,
+      "charlie_pool": 0,
+      "ops": 150129,
+      "coins_burned": 1562071801337
+    },
+    {
+      "crank": "crank_lp",
+      "mint": "BuX4dNXZDyhYfLWQyZoHpRDYrHWpHkEVFqxFDpRrgLbV",
+      "signature": "3Js81pDkDQ9pgkzKiQKkQ9VEoHxyS6KuC8XQ664Utjahu1LUdkwzDGzM9nSerhrCyJuzts9mY7Lx5NpHZNZAmdp",
+      "slot": 500502305,
+      "block_time": 1789761983,
+      "compute_units": 258683,
+      "fee": 5000,
+      "incinerator": 61976,
+      "charlie_pool": 51646,
+      "ops": 30988,
+      "coins_burned": 750608893424
+    },
+    {
+      "crank": "crank_platform",
+      "mint": null,
+      "signature": "2kbrzESNQ36kmzVAn8gEjLa9novDofBxuJSPi3qDonWUKhBTL9uLGK5BMLeWqGkr1g99YThEGp27NvggqFyuXUSd",
+      "slot": 500501944,
+      "block_time": 1789761923,
+      "compute_units": 67316,
+      "fee": 5000,
+      "incinerator": 0,
+      "charlie_pool": 1258576,
+      "ops": 0,
+      "coins_burned": 0
+    }
+  ]
+}
