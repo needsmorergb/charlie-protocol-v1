@@ -132,8 +132,8 @@ _ENTRIES = [
         "title": "The $CHARLIE flywheel, run on a chain",
         "body": "A separate splitter program, deployed to devnet, answering a "
         "hypothetical: $CHARLIE's own sharing config is admin_revoked and its "
-        "one irreversible update is spent, so nobody -- its deployer included "
-        "-- can point its fees anywhere. If that destination COULD be changed "
+        "one irreversible update is spent, so no key its deployer or Charlie "
+        "holds can point its fees anywhere (pump's own admin_cto still could). If that destination COULD be changed "
         "to a splitter, would the mechanism hold? Three rounds ran. 2,400,000 "
         "lamports of simulated fee split 1,349,414 to the incinerator, 674,707 "
         "to the buyback vault, 674,707 to ops, and 3 lamports left behind "

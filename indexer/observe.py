@@ -57,6 +57,31 @@ _DECODE_ERROR_KIND_BY_STAGE = {
 }
 
 
+CREATOR_REPLACED = "creator_replaced"
+
+
+def _creator_replaced(evidence, mint: str, creator: str | None) -> str | None:
+    """A coin this indexer once recorded with a sharing config, whose bonding
+    curve now names some other creator, is not "a coin that never split its
+    fees". Its fee stopped reaching the split it enrolled with. pump's
+    `admin_cto` (IDL e0687ae, public since 12 September 2026) moves a coin's
+    creator; nothing Charlie or the coin's creator signs can undo it.
+
+    Needs the evidence store: without one there is no record of the earlier
+    config, and the ordinary no-split answer stands.
+    """
+    if evidence is None or creator is None:
+        return None
+    prior = evidence.sharing_config_for(mint)
+    if not prior or prior.get("address") == creator:
+        return None
+    return (
+        f"{mint}: this coin was recorded with the fee-sharing config {prior['address']}, "
+        f"and its bonding curve now names {creator} as creator. Its creator fee no longer "
+        "reaches that split. pump's admin can move a coin's creator with admin_cto."
+    )
+
+
 @dataclass
 class Observation:
     mint: str
@@ -170,6 +195,9 @@ def observe(
     except DecodeError as exc:
         record.error = str(exc)
         record.error_kind = _DECODE_ERROR_KIND_BY_STAGE.get(stage, "mint_decode_failed")
+        replaced = _creator_replaced(evidence, mint, record.creator) if stage == _STAGE_SHARING_CONFIG else None
+        if replaced:
+            record.error, record.error_kind = replaced, CREATOR_REPLACED
         return record
     except RpcUnavailable as exc:
         record.error = f"{type(exc).__name__}: {exc}"
