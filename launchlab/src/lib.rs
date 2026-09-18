@@ -31,7 +31,7 @@ use solana_program::{declare_id, pubkey, pubkey::Pubkey};
 #[cfg(feature = "devnet")]
 declare_id!("4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX");
 #[cfg(not(feature = "devnet"))]
-declare_id!("GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e");
+declare_id!("ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym");
 
 // -- external programs, read from chain 18 September 2026 --------------------
 // Build with `--features devnet` for Raydium's devnet deployments.
