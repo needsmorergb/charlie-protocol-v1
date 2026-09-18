@@ -150,6 +150,13 @@ class handler(BaseHTTPRequestHandler):
                     # permanent change for nothing.
                     "cashback": curve.cashback,
                     "graduated": bool(curve.graduated),
+                    # The pairing, so the page can refuse before a form is
+                    # filled in: "sol", "usdc" or "custom". A custom pair's
+                    # fee arrives in a token the runtime cannot destroy.
+                    "quote": getattr(curve, "quote", "sol"),
+                    "quote_mint": getattr(curve, "quote_mint", None),
+                    "creator_fee_bps": getattr(curve, "creator_fee_bps", 0),
+                    "holder_reward": getattr(curve, "holder_reward", False),
                 })
 
             shares = _shares(one("shares"))
@@ -164,6 +171,7 @@ class handler(BaseHTTPRequestHandler):
                 create=config is None,
                 current=[a for a, _bps in config.shareholders] if config else (),
                 graduated=bool(curve.graduated),
+                **enroll.quote_accounts(curve),
             )
             unsigned = bytes([1]) + b"\x00" * 64 + message
             encoded = base64.b64encode(unsigned).decode()

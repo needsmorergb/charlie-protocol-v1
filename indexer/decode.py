@@ -36,6 +36,12 @@ from .pump import DecodeError, PUMP_AMM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGR
 DISC_BOOST_BUY_AND_BURN = bytes.fromhex("3f451c16305cc2b9")
 DISC_CREATE_EVENT = bytes.fromhex("1b72a94ddeeb6376")
 DISC_BUY_EVENT = bytes.fromhex("67f4521f2cf57777")  # recognised so it is skipped, not decoded
+# pump's AdminCtoEvent, public IDL since 12 September 2026 (pump-public-docs
+# e0687ae). Emitted by `admin_cto`, which pump's `admin_set_creator_authority`
+# signs: it can change a coin's creator, convert it to Holder Rewards, change
+# a custom pair's creator fee, and reset its sharing config. For an enrolled
+# coin every one of those changes what its split pays.
+DISC_ADMIN_CTO_EVENT = bytes.fromhex("6e7ce262aaff1178")
 
 
 def anchor_discriminator(name: str) -> bytes:
@@ -247,3 +253,61 @@ def decode_create_event(payload_b64: str) -> dict | None:
     _need(raw, cursor, 8, "CreateEvent.token_total_supply")
     token_total_supply = int.from_bytes(raw[cursor : cursor + 8], "little")
     return {"mint": mint, "name": name, "symbol": symbol, "token_total_supply": token_total_supply}
+
+
+# -- AdminCtoEvent -------------------------------------------------------------
+# Layout after the discriminator, from pump's IDL at e0687ae (not yet seen in a
+# live mainnet log; the first one is the check):
+#   timestamp i64 @ 8:16
+#   authority @ 16:48, mint @ 48:80, bonding_curve @ 80:112,
+#   old_creator @ 112:144, new_creator @ 144:176
+#   is_holder_reward bool @ 176, is_cashback_coin bool @ 177
+#   old_creator_fee_bps u64 @ 178:186, new_creator_fee_bps u64 @ 186:194
+#   sharing_config_reset bool @ 194
+#   swept_to_holder_vault u64 @ 195:203
+#   pool_updated bool @ 203
+_ADMIN_CTO_EVENT_LEN = 204
+
+
+def decode_admin_cto_event(payload_b64: str) -> dict | None:
+    """`None` unless the payload is exactly an `AdminCtoEvent`. Raises
+    `DecodeError` on one too short for its struct, like the others here."""
+    raw = base64.b64decode(payload_b64)
+    if raw[:8] != DISC_ADMIN_CTO_EVENT:
+        return None
+    _need(raw, 0, _ADMIN_CTO_EVENT_LEN, "AdminCtoEvent")
+    u64 = lambda a, b: int.from_bytes(raw[a:b], "little")
+    return {
+        "timestamp": int.from_bytes(raw[8:16], "little", signed=True),
+        "authority": encode(raw[16:48]),
+        "mint": encode(raw[48:80]),
+        "bonding_curve": encode(raw[80:112]),
+        "old_creator": encode(raw[112:144]),
+        "new_creator": encode(raw[144:176]),
+        "is_holder_reward": raw[176] == 1,
+        "is_cashback_coin": raw[177] == 1,
+        "old_creator_fee_bps": u64(178, 186),
+        "new_creator_fee_bps": u64(186, 194),
+        "sharing_config_reset": raw[194] == 1,
+        "swept_to_holder_vault": u64(195, 203),
+        "pool_updated": raw[203] == 1,
+    }
+
+
+def find_admin_cto(tx: dict, mints=None) -> list[dict]:
+    """Every AdminCtoEvent in a transaction, optionally only for `mints`.
+
+    What the caller does with one is the point: an enrolled coin that shows
+    one has had its split changed by pump, not by its dev, and its page must
+    say so before it says anything else about that coin.
+    """
+    wanted = set(mints) if mints is not None else None
+    found = []
+    for payload in program_data_lines(tx):
+        try:
+            event = decode_admin_cto_event(payload)
+        except (DecodeError, ValueError):
+            continue
+        if event and (wanted is None or event["mint"] in wanted):
+            found.append(event)
+    return found

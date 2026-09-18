@@ -120,6 +120,29 @@ class BondingCurve:
     # the account predates the field, NOT that cashback is off -- an absent
     # byte is an unknown, and the page must say so rather than assert "no".
     cashback: bool | None = None
+    # The coin's quote asset. `None` means SOL: pump writes Pubkey::default()
+    # for every SOL-paired coin and for every coin created before the field
+    # existed, and a curve too short to carry the field is SOL by the same
+    # rule (pump's docs: read missing trailing fields as default).
+    quote_mint: str | None = None
+    # Custom Pairs only: the coin's own flat creator fee, in bps of a trade.
+    # 0 means pump's standard schedule, which SOL and USDC coins always use.
+    # pump's CTO team can change it after launch, so it is read, never cached.
+    creator_fee_bps: int = 0
+    # pump's Holder Rewards: the creator fee goes to a pump-controlled address
+    # and out to holders. Unlike `cashback`, an account too short to hold the
+    # byte IS a "no": the program cannot set a flag past the end of the
+    # account, so a curve that never grew to 125 bytes was never converted.
+    holder_reward: bool = False
+
+    @property
+    def quote(self) -> str:
+        """`sol`, `usdc`, or `custom` -- the three fee paths pump now has."""
+        if self.quote_mint is None:
+            return "sol"
+        if self.quote_mint == USDC_MINT:
+            return "usdc"
+        return "custom"
 
 
 def read_bonding_curve(rpc, mint: str) -> BondingCurve:
@@ -133,6 +156,9 @@ def read_bonding_curve(rpc, mint: str) -> BondingCurve:
         graduated=bool(data[48]),
         creator=encode(data[49:81]),
         cashback=_cashback_flag(data),
+        quote_mint=_quote_mint(data),
+        creator_fee_bps=_creator_fee_bps(data),
+        holder_reward=_holder_reward_flag(data),
     )
 
 
@@ -151,6 +177,48 @@ def _cashback_flag(data: bytes) -> bool | None:
     if len(data) <= CASHBACK_FLAG_OFFSET:
         return None
     return data[CASHBACK_FLAG_OFFSET] == 1
+
+
+# The fields pump appended for USDC pairs (May 2026), Custom Pairs and Holder
+# Rewards (12 September 2026). Offsets are derived from pump's published IDL,
+# `BondingCurve` in pump-fun/pump-public-docs idl/pump.json at e0687ae, and
+# `tests/test_quote_fields.py` recomputes them from the extract in
+# `idl/pump-public-docs/` so a drift in either fails a test:
+#
+#   ... cashback 82 | quote_mint 83..115 | creator_fee_bps u64 115..123 |
+#   can_edit_creator_fee 123 | is_holder_reward 124
+#
+# NOT YET SAMPLED ON MAINNET. The cashback byte was checked against 200 coins
+# pump labelled itself before anything relied on it; these have only the IDL
+# behind them. CUSTOM-PAIRS.md section 7 is the sample to run; flip this to
+# True with its output committed beside it, as the cashback check was.
+QUOTE_FIELDS_SAMPLED = False
+QUOTE_MINT_OFFSET = 83
+CREATOR_FEE_BPS_OFFSET = 115
+HOLDER_REWARD_OFFSET = 124
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+WSOL_MINT = "So11111111111111111111111111111111111111112"
+_DEFAULT_PUBKEY = bytes(32)
+
+
+def _quote_mint(data: bytes) -> str | None:
+    raw = data[QUOTE_MINT_OFFSET:QUOTE_MINT_OFFSET + 32]
+    if len(raw) < 32 or raw == _DEFAULT_PUBKEY:
+        return None
+    mint = encode(raw)
+    # pump accepts wSOL at creation and stores default; treat either as SOL.
+    return None if mint == WSOL_MINT else mint
+
+
+def _creator_fee_bps(data: bytes) -> int:
+    raw = data[CREATOR_FEE_BPS_OFFSET:CREATOR_FEE_BPS_OFFSET + 8]
+    return int.from_bytes(raw, "little") if len(raw) == 8 else 0
+
+
+def _holder_reward_flag(data: bytes) -> bool:
+    if len(data) <= HOLDER_REWARD_OFFSET:
+        return False
+    return data[HOLDER_REWARD_OFFSET] == 1
 
 
 # The phrase that distinguishes "we could not read the chain" from "we read it
