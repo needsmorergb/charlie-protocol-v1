@@ -8,7 +8,8 @@
     python -m indexer reconcile <mint> [--evidence PATH] [--write]   EVID-10's residual, as of an observation
     python -m indexer site <mint> [--evidence PATH] [--write] [--out]   WEB-02/WEB-03/WEB-06: the HTML page + raw JSON
     python -m indexer intake [--repo OWNER/REPO] [--limit N] [--dry-run]   D-34: read the public issue queue, measure submissions
-    python -m indexer buyback <mint> --keypair id.json [--lot 0.05] [--send] [--every N]   the BURN leg by hand: buy and burn in one tx
+    python -m indexer buyback <mint> --keypair id.json [--lot 0.05] [--send] [--every N]   a launched token's BURN leg: buy and burn in one tx
+    python -m indexer charlie-buyback --keypair id.json [--lot 0.05] [--send] [--every N]  the separate protocol $CHARLIE buy-and-burn leg
     python -m indexer burn <mint> --keypair id.json --amount N [--send]   burn held tokens (no swap)
 
 Exit codes are meant to be usable from a cron line or a CI step:
@@ -766,10 +767,21 @@ def _print_result(result: dict, as_json: bool) -> None:
         print(f"transaction (base64): {result['transaction_base64']}")
 
 
-def _buyback(args) -> int:
+def _buyback(args, *, route: str = "launch") -> int:
     from . import buyback
+    from . import buyback_routes
     rpc = RpcClient(_endpoints(args.rpc))
     wallet, keypair = _keeper_identity(args)
+    try:
+        if route == "charlie":
+            buyback_routes.charlie(wallet)
+            mint = buyback_routes.CHARLIE_MINT
+        else:
+            mint = args.mint
+            buyback_routes.launch(mint, wallet)
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     lot = int(round(args.lot * buyback.LAMPORTS_PER_SOL))
     if args.sweep:
         # The wallet decides the lot. Read the balance once, here, so the
@@ -789,7 +801,7 @@ def _buyback(args) -> int:
                 raise SystemExit("--every runs a keeper: it needs --keypair and --send")
             budget = int(round(args.max_total * buyback.LAMPORTS_PER_SOL)) if args.max_total is not None else None
             summary = buyback.run_keeper(
-                rpc, args.mint, keypair, lot_lamports=lot, slippage_bps=args.slippage_bps,
+                rpc, mint, keypair, lot_lamports=lot, slippage_bps=args.slippage_bps,
                 every_seconds=args.every, max_total_lamports=budget, max_cranks=args.max_cranks,
                 also_burn_ui=args.also_burn, priority_micro_lamports=args.priority_fee,
                 log=lambda line: print(line, flush=True),
@@ -797,7 +809,7 @@ def _buyback(args) -> int:
             print(json.dumps(summary, sort_keys=True))
             return 0 if summary["cranks"] else 1
         plan = buyback.plan_for(
-            rpc, args.mint, wallet, lot_lamports=lot, slippage_bps=args.slippage_bps,
+            rpc, mint, wallet, lot_lamports=lot, slippage_bps=args.slippage_bps,
             also_burn_ui=args.also_burn, priority_micro_lamports=args.priority_fee,
         )
         if not args.json:
@@ -809,6 +821,11 @@ def _buyback(args) -> int:
         return 2
     _print_result(result, args.json)
     return 0 if not result.get("error") else 1
+
+
+def _charlie_buyback(args) -> int:
+    """Run the collection-wallet route that buys and burns $CHARLIE only."""
+    return _buyback(args, route="charlie")
 
 
 def _burn(args) -> int:
@@ -1039,22 +1056,32 @@ def build_parser() -> argparse.ArgumentParser:
     keeper.add_argument("--send", action="store_true", help="sign and send (needs --keypair); without it the transaction is built and simulated only")
     keeper.add_argument("--json", action="store_true", help="one JSON object instead of prose")
 
-    buyback_cmd = sub.add_parser(
-        "buyback", parents=[common, keeper],
-        help="the BURN leg by hand: buy the coin on PumpSwap and burn it in the same transaction, from your own wallet",
-    )
-    buyback_cmd.add_argument("mint")
-    buyback_cmd.add_argument("--lot", type=float, default=0.05, help="SOL per crank, the maximum spend (default 0.05, ARCHITECTURE.md sec.2)")
-    buyback_cmd.add_argument("--sweep", action="store_true",
+    def add_buyback_options(command):
+        command.add_argument("--lot", type=float, default=0.05, help="SOL per crank, the maximum spend (default 0.05, ARCHITECTURE.md sec.2)")
+        command.add_argument("--sweep", action="store_true",
                              help="ignore --lot and spend what the wallet holds, less fee and rent headroom; "
                                   "below the minimum lot it stands down cleanly rather than failing")
-    buyback_cmd.add_argument("--slippage-bps", type=int, default=100, help="how much less than the quote the buy may deliver before it fails whole (default 100)")
-    buyback_cmd.add_argument("--also-burn", type=float, default=0.0, help="tokens you already hold to burn in the same transaction, on top of the ones bought")
-    buyback_cmd.add_argument("--priority-fee", type=int, default=0, help="priority fee in micro-lamports per compute unit (default 0)")
-    buyback_cmd.add_argument("--every", type=float, help="keeper mode: repeat every N seconds (needs --keypair and --send)")
-    buyback_cmd.add_argument("--max-total", type=float, help="keeper mode: stop once this many SOL has been committed")
-    buyback_cmd.add_argument("--max-cranks", type=int, help="keeper mode: stop after this many landed cranks")
+        command.add_argument("--slippage-bps", type=int, default=100, help="how much less than the quote the buy may deliver before it fails whole (default 100)")
+        command.add_argument("--also-burn", type=float, default=0.0, help="tokens you already hold to burn in the same transaction, on top of the ones bought")
+        command.add_argument("--priority-fee", type=int, default=0, help="priority fee in micro-lamports per compute unit (default 0)")
+        command.add_argument("--every", type=float, help="keeper mode: repeat every N seconds (needs --keypair and --send)")
+        command.add_argument("--max-total", type=float, help="keeper mode: stop once this many SOL has been committed")
+        command.add_argument("--max-cranks", type=int, help="keeper mode: stop after this many landed cranks")
+
+    buyback_cmd = sub.add_parser(
+        "buyback", parents=[common, keeper],
+        help="a launched token's BURN leg: buy its mint and burn it in one transaction",
+    )
+    buyback_cmd.add_argument("mint")
+    add_buyback_options(buyback_cmd)
     buyback_cmd.set_defaults(handler=_buyback)
+
+    charlie_buyback_cmd = sub.add_parser(
+        "charlie-buyback", parents=[common, keeper],
+        help="the protocol's separate leg: collection-wallet SOL buys and burns $CHARLIE",
+    )
+    add_buyback_options(charlie_buyback_cmd)
+    charlie_buyback_cmd.set_defaults(handler=_charlie_buyback)
 
     burn_cmd = sub.add_parser(
         "burn", parents=[common, keeper],
