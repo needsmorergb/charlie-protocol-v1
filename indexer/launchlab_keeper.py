@@ -52,7 +52,7 @@ CLUSTERS = {
         "rpc": "https://api.devnet.solana.com",
     },
     "mainnet": {
-        "program": "GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e",
+        "program": "ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym",
         "launchlab": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
         "cpmm": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
         "lock": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE",
