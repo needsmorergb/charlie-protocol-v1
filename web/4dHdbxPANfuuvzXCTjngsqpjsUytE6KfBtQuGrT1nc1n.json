@@ -1,11 +1,25 @@
 {
   "attribution": [
     {
-      "address": "burn111111111111111111111111111111111111111",
-      "bps": 10000,
+      "address": "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
+      "bps": 2500,
       "keyless": false,
+      "leg": "paid",
+      "reason": "the protocol's collection wallet: the share every enrolled coin pays. A spendable wallet, so an OPS destination; what it is spent on is not something the chain shows and not something this page claims"
+    },
+    {
+      "address": "1nc1nerator11111111111111111111111111111111",
+      "bps": 2250,
+      "keyless": true,
       "leg": "sol_burn",
-      "reason": "grandfathered legacy SOL-burn address (PROTOCOL.md sec.3)"
+      "reason": "Solana's incinerator: the runtime removes lamports credited here from the total supply at the end of the block. Not merely unspendable -- destroyed."
+    },
+    {
+      "address": "9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9",
+      "bps": 5250,
+      "keyless": false,
+      "leg": "paid",
+      "reason": "an ordinary account, not program-derived"
     }
   ],
   "backed_by": {
@@ -30,14 +44,14 @@
     "ops_total": [
       {
         "check": "OPS_ROUTED",
-        "detail": "no OPS destination in this split -- nothing to check",
+        "detail": "the walk of 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 is incomplete -- reached no signature yet; the walk of 9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9 is incomplete -- reached no signature yet",
         "status": "UNCHECKED"
       }
     ],
     "sol_burn_total": [
       {
         "check": "SOL_BURN_BALANCE",
-        "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+        "detail": "the walk of 1nc1nerator11111111111111111111111111111111 is incomplete -- reached no signature yet",
         "status": "UNCHECKED"
       }
     ],
@@ -56,7 +70,7 @@
   },
   "checks": [
     {
-      "actual": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "actual": "4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n",
       "backs": [
         "split",
         "sol_burn_total",
@@ -66,7 +80,7 @@
       ],
       "detail": "the sharing config names this coin",
       "equation": "sharing_config.mint == mint",
-      "expected": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+      "expected": "4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n",
       "name": "CONFIG_MINT",
       "status": "PASS"
     },
@@ -82,13 +96,13 @@
       "status": "PASS"
     },
     {
-      "actual": null,
+      "actual": "2500",
       "backs": [],
-      "detail": "the enrollment check does not apply to this coin. $CHARLIE is the protocol's reference implementation and cannot enroll in it. Its pump sharing config is admin_revoked and its one irreversible update is spent, so its split is permanent and only pump can reset it. It routes 100% of its creator fee to a burn address by force rather than by choice, and the protocol is built on top of it rather than run by it.",
+      "detail": "the split pays the protocol's collection wallet 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 2500 bps, at or above the 2500 bps every enrolled coin carries",
       "equation": "bps(TOLL_DESTINATION) >= 2500",
-      "expected": null,
+      "expected": ">= 2500",
       "name": "PROTOCOL_SHARE",
-      "status": "UNCHECKED"
+      "status": "PASS"
     },
     {
       "actual": "a burn destination",
@@ -106,14 +120,14 @@
       "backs": [
         "sol_burn_total"
       ],
-      "detail": "the walk of burn111111111111111111111111111111111111111 is incomplete -- reached no signature yet",
+      "detail": "the walk of 1nc1nerator11111111111111111111111111111111 is incomplete -- reached no signature yet",
       "equation": "per-destination: sum(recorded_inflows) == getBalance(vault) for a derived vault, <= for the grandfathered address",
       "expected": null,
       "name": "SOL_BURN_BALANCE",
       "status": "UNCHECKED"
     },
     {
-      "actual": "956271591699956",
+      "actual": "1000000000000000",
       "backs": [
         "burn_total",
         "supply_destroyed"
@@ -163,7 +177,7 @@
       "backs": [
         "ops_total"
       ],
-      "detail": "no OPS destination in this split -- nothing to check",
+      "detail": "the walk of 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8 is incomplete -- reached no signature yet; the walk of 9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9 is incomplete -- reached no signature yet",
       "equation": "sum(routed_to_OPS) == sum(protocol_inflows(ops_wallet))",
       "expected": null,
       "name": "OPS_ROUTED",
@@ -171,14 +185,22 @@
     }
   ],
   "config": {
-    "address": "8cUvP3q3KqcKMT6rEowN55ZepafYLFLwY2vijETRK3E4",
-    "admin": "2CFywHXDPjDK2iRQsb95vnjgncDUZeQKJ6MceJ4ALpdc",
+    "address": "FCJUMm8HTq6hw5Pp2epccp6LYWyp7xBXcKdJPE695NUs",
+    "admin": "9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9",
     "admin_revoked": true,
-    "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+    "mint": "4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n",
     "shareholders": [
       {
-        "address": "burn111111111111111111111111111111111111111",
-        "bps": 10000
+        "address": "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
+        "bps": 2500
+      },
+      {
+        "address": "1nc1nerator11111111111111111111111111111111",
+        "bps": 2250
+      },
+      {
+        "address": "9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9",
+        "bps": 5250
       }
     ],
     "status": 1,
@@ -190,28 +212,30 @@
     "initial_supply": null
   },
   "evidence_coverage": {
-    "burn111111111111111111111111111111111111111": 0
+    "1nc1nerator11111111111111111111111111111111": 0,
+    "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8": 0,
+    "9XBUCHH9ZDot9UvkBH9zCsvXSHYvUogf12zrNVsZdga9": 0
   },
-  "graduated": true,
-  "mint": "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump",
+  "graduated": false,
+  "mint": "4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n",
   "mint_state": {
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956271591699956,
-    "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    "supply": 1000000000000000,
+    "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
   },
-  "observed_at": 1789769883.9342034,
+  "observed_at": 1789769879.9797454,
   "publishable": [
     "split"
   ],
   "schema": 3,
   "sol_burn_balances": {
-    "burn111111111111111111111111111111111111111": 180691392944
+    "1nc1nerator11111111111111111111111111111111": 0
   },
   "split": {
     "burn": 0,
-    "paid": 0,
-    "sol_burn": 10000
+    "paid": 7750,
+    "sol_burn": 2250
   }
 }

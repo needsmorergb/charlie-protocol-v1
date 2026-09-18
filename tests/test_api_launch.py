@@ -284,6 +284,18 @@ class TestPage(unittest.TestCase):
         self.assertNotIn("protocolAddr", page)
         self.assertNotIn("state.toll.address + '   (protocol)'", page)
 
+    def test_a_dropped_split_is_built_again_not_polled_forever(self):
+        # Seen on mainnet 2026-09-17: the wallet returned a signature for
+        # approval two, the chain never saw it, and "Check again" could only
+        # re-poll the dead signature. The coin sat with no split.
+        from indexer import launch_page
+        page = launch_page.render()
+        self.assertIn("return seen === false ? 'dropped' : 'unknown';", page)
+        self.assertIn("outcome === 'dropped' && second", page)
+        dropped = page.split("outcome === 'dropped' && second", 1)[1].split("} else", 1)[0]
+        self.assertIn("state.splitSig = null;", dropped)
+        self.assertIn("await prepareSplit();", dropped, "the server simulates the split again before any new signature")
+
 
 class TestStatus(_Base):
     def _status(self, rpc, mint=DEV):
