@@ -1,8 +1,8 @@
 # LaunchLab rail: mainnet runbook
 
-Program id **`GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e`**. Build
+Program id **`ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym`**. Build
 `charlie_launchlab_mainnet.so`, SHA-256
-`f3182985a8fa3b4ee168bd501f650bdc5eec4c8ba4a0a326234e927a4c5851ef`, 221,384 bytes.
+`07a1e59dc03576da8013afb583ca4b27bdf94e68038cdbcdc2be19571e755855`, 221,384 bytes.
 
 Your wallet signs everything. It becomes the program's upgrade authority and the
 platform's admin (the only key that can run the cranks).
@@ -44,11 +44,11 @@ platform's admin (the only key that can run the cranks).
 solana program deploy --url mainnet-beta --keypair ~/.config/solana/id.json \
   --program-id charlie_launchlab-program-keypair.json charlie_launchlab_mainnet.so \
   --with-compute-unit-price 50000 --max-sign-attempts 100 --use-rpc
-solana program show GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e --url mainnet-beta
+solana program show ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym --url mainnet-beta
 #    check "Authority" is your wallet
 
 # 2. Verify the deployed bytes are this build
-solana program dump GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e deployed.so --url mainnet-beta
+solana program dump ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym deployed.so --url mainnet-beta
 head -c 221384 deployed.so | sha256sum      # must print f3182985...51ef
 
 # 3. Platform setup: simulate, then send

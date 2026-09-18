@@ -34,7 +34,7 @@ from indexer.curve import find_program_address
 from indexer.ed25519 import Keypair
 from indexer.rpc import RpcClient
 
-PROGRAM = "GM6ET1LceNLkHUWefD79eeeJzFRk8yQwfnR7pdYP5d6e"
+PROGRAM = "ENZrfqk89oSQ2fPHPmi6NSMuRDo7F3txEZhi8ZVbCHym"
 LAUNCHLAB = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj"
 CPMM = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
 LOCK = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE"
