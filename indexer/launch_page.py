@@ -342,7 +342,7 @@ async function prepareSplit() {
 function done() {
   state.phase = 'done'; state.busy = false;
   timeline('tx2', 'done', '2. Permanent split confirmed', state.splitSig);
-  say('sendNote', 'Confirmed. The coin exists and the split is permanently set. No key can change it, including yours.', 'good');
+  say('sendNote', 'Confirmed. The coin exists and its split is set. Neither your key nor Charlie\'s can change it; only pump\'s admin can, through admin_cto.', 'good');
   $('doneBox').hidden = false;
   $('pumpLink').href = 'https://pump.fun/coin/' + encodeURIComponent(state.mint);
   $('verifyLink').href = '/verify/' + encodeURIComponent(state.mint);
@@ -502,7 +502,7 @@ _BODY = r"""
     <canvas id="launchEmbers" aria-hidden="true"></canvas>
     <div class="eyebrow"><span class="telemetry-led"></span><span>THE LAUNCH DOOR</span></div>
     <h1>Create a pump coin. Set its fee split in the next transaction.</h1>
-    <p><strong>pump allows exactly one fee split change. The split is permanent once set.</strong>
+    <p><strong>pump allows exactly one fee split change. Once set, neither you nor Charlie can change the split.</strong>
       The coin is made by pump’s own create instruction, with your wallet as creator. In the transaction right after it is created,
       you set the split: an optional share to the Sol-Incinerator, <strong>0.25% of each transaction</strong> to the protocol,
       and the rest to wallets you name. Two approvals. Your key never leaves your wallet.</p>
@@ -510,8 +510,8 @@ _BODY = r"""
 
   <section class="gatekeep-banner cyber-card cyber-card--chamfer" aria-labelledby="permanenceTitle">
     <span class="gatekeep-badge">ONE CHANGE, EVER</span>
-    <h2 id="permanenceTitle">Choose it once. Keep it forever.</h2>
-    <p>Setting the split spends the coin’s one change. Once the second transaction confirms, no key can change it again, including yours.
+    <h2 id="permanenceTitle">Choose it once. You cannot change it later.</h2>
+    <p>Setting the split spends the coin’s one change. Once the second transaction confirms, neither your key nor Charlie’s can change it again. pump’s admin still can, through admin_cto, and the coin’s page would show it.
       Trades can land between the two transactions; their fees go where pump sends them by default.</p>
   </section>
 

@@ -67,8 +67,8 @@ stays there — the check asks whether SOL can come back, not whether the
 address was derived by a program. An earlier version of it demanded program
 derivation from every coin and printed a red FAIL on this one for not using a
 program that does not exist yet; that was a category error and it is
-retracted. Its config is `admin_revoked`, so its split is permanent whatever
-else changes.
+retracted. Its config is `admin_revoked`, so no key its admin or Charlie holds
+can change the split; only pump's own `admin_cto` could reset it.
 
 A burn to `burn111…111` **is a burn**, counted as the incinerator's are: the
 SOL is out of circulation and no key brings it back. The two destinations

@@ -85,7 +85,7 @@ async function inspect() {
     }
     state.create = false;
     if (d.admin_revoked) {
-      say('coinNote', 'This coin has already used its one change, so the split is permanent. pump allows exactly one update and nothing can alter it now, including us. Current: ' + rows, 'bad');
+      say('coinNote', 'This coin has already used its one change. pump allows exactly one update, so neither its creator nor Charlie can alter the split now; pump\'s own admin still can, through admin_cto. Current: ' + rows, 'bad');
       return;
     }
     if (!d.owns) {
@@ -377,8 +377,10 @@ def render(*, now=None) -> str:
         "coin&#x27;s creator vault along with every other destination in the "
         "split.</p>"
         '<div class="warn"><strong>pump lets a coin&#x27;s split be changed '
-        "once.</strong> After this is sent, no key can change it again, "
-        "including yours. Check every destination before you sign.</div>"
+        "once.</strong> After this is sent, neither your key nor Charlie&#x27;s "
+        "can change it again. pump&#x27;s admin still can, through admin_cto, "
+        "and this coin&#x27;s page would show it. Check every destination "
+        "before you sign.</div>"
         '<div id="shares"></div>'
         '<p><button type="button" id="addRow">Add a destination</button> '
         '&nbsp; Total: <span id="total">100.00%</span> (must be exactly 100%)</p>'

@@ -353,7 +353,8 @@ def render(record: dict | None = None, *, now=None) -> str:
         "<h1>The flywheel, executed</h1>",
         '<p class="lede">A fee arrives. The program splits it four ways: a '
         "quarter to buying and burning $CHARLIE, and the rest to the three "
-        "legs the coin's own dev chose. Nobody can redirect any of it. "
+        "legs the coin's own dev chose. No key the dev or Charlie holds can redirect "
+        "any of it. "
         "Below is that happening on a chain, with signatures.</p>",
         _devnet_banner(),
         "<h2>What ran</h2>",
