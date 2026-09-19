@@ -219,6 +219,10 @@ PROGRAM_ID: str | None = None
 TOLL_BPS = 2500
 TOLL_DESTINATION: str | None = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
 
+# Shared, separately keyed treasury for launch-token buybacks. A launch's
+# creator chooses its allocation; the address itself cannot be substituted.
+LAUNCH_BUYBACK_DESTINATION: str = "5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp"
+
 # Coins the enrollment check does not apply to, and why.
 #
 # This is an exemption list on a protocol's own check, which is the kind of

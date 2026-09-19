@@ -10,6 +10,7 @@
     python -m indexer intake [--repo OWNER/REPO] [--limit N] [--dry-run]   D-34: read the public issue queue, measure submissions
     python -m indexer buyback <mint> --keypair id.json [--lot 0.05] [--send] [--every N]   a launched token's BURN leg: buy and burn in one tx
     python -m indexer charlie-buyback --keypair id.json [--lot 0.05] [--send] [--every N]  the separate protocol $CHARLIE buy-and-burn leg
+    python -m indexer launch-buyback <mint> --keypair id.json --send   spend only that mint's credited shared-treasury balance
     python -m indexer burn <mint> --keypair id.json --amount N [--send]   burn held tokens (no swap)
 
 Exit codes are meant to be usable from a cron line or a CI step:
@@ -49,6 +50,7 @@ from . import (
 from .evidence import DEFAULT_DB_PATH, Evidence
 from .export import DEFAULT_EXPORT_DIR, export_all, import_all
 from .legs import GRANDFATHERED_SOL_BURN, Registry, split_of
+from . import legs
 from .observe import observe
 from .pump import read_bonding_curve, read_mint, read_sharing_config
 from .reconcile import DEFAULT_OUTPUT_PATH, reconcile, record as record_reconciliation, render as render_reconciliation
@@ -828,6 +830,47 @@ def _charlie_buyback(args) -> int:
     return _buyback(args, route="charlie")
 
 
+def _launch_buyback(args) -> int:
+    """Spend one launch mint's auditable credit from the fixed shared treasury."""
+    from . import buyback, launch_buybacks
+    rpc = RpcClient(_endpoints(args.rpc))
+    wallet, keypair = _keeper_identity(args)
+    if wallet != legs.LAUNCH_BUYBACK_DESTINATION:
+        print("refused: launch-buyback must use the fixed shared buyback treasury", file=sys.stderr)
+        return 2
+    path = Path(args.ledger)
+    try:
+        available = launch_buybacks.summary(path).get(args.mint, {}).get("available_lamports", 0)
+        requested = int(round(args.lot * buyback.LAMPORTS_PER_SOL))
+        lot = min(requested, available)
+        if lot < buyback.MIN_LOT_LAMPORTS:
+            print(f"nothing to burn yet: {available} credited lamports for this mint; minimum lot is {buyback.MIN_LOT_LAMPORTS}")
+            return 0
+        result = buyback.crank_once(rpc, args.mint, wallet, keypair, lot_lamports=lot,
+                                    slippage_bps=args.slippage_bps, priority_micro_lamports=args.priority_fee,
+                                    send=args.send)
+        if result.get("sent"):
+            launch_buybacks.record_burn(args.mint, result["plan"]["expected_cost"]["total"],
+                                        result["recorded"]["tokens_burned"], result["signature"], path=path)
+    except (buyback.BuybackError, launch_buybacks.LedgerError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    _print_result(result, args.json)
+    return 0 if not result.get("error") else 1
+
+
+def _launch_credit(args) -> int:
+    from . import buyback, launch_buybacks
+    try:
+        launch_buybacks.credit(args.mint, int(round(args.sol * buyback.LAMPORTS_PER_SOL)), args.signature,
+                               path=Path(args.ledger))
+    except launch_buybacks.LedgerError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(launch_buybacks.summary(Path(args.ledger)).get(args.mint), sort_keys=True))
+    return 0
+
+
 def _burn(args) -> int:
     from . import buyback
     rpc = RpcClient(_endpoints(args.rpc))
@@ -1082,6 +1125,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_buyback_options(charlie_buyback_cmd)
     charlie_buyback_cmd.set_defaults(handler=_charlie_buyback)
+
+    launch_buyback_cmd = sub.add_parser(
+        "launch-buyback", parents=[common, keeper],
+        help="spend a launch mint's credited balance from the shared buyback treasury",
+    )
+    launch_buyback_cmd.add_argument("mint")
+    launch_buyback_cmd.add_argument("--ledger", default="state/launch-buybacks.jsonl",
+                                    help="append-only shared-treasury credit ledger")
+    launch_buyback_cmd.add_argument("--lot", type=float, default=0.05, help="maximum SOL per crank (default 0.05)")
+    launch_buyback_cmd.add_argument("--slippage-bps", type=int, default=100)
+    launch_buyback_cmd.add_argument("--priority-fee", type=int, default=0)
+    launch_buyback_cmd.set_defaults(handler=_launch_buyback)
+
+    launch_credit_cmd = sub.add_parser("launch-credit", parents=[common],
+                                       help="append a verified creator-fee payout to a launch mint's treasury credit")
+    launch_credit_cmd.add_argument("mint")
+    launch_credit_cmd.add_argument("--sol", required=True, type=float)
+    launch_credit_cmd.add_argument("--signature", required=True, help="the payout transaction signature")
+    launch_credit_cmd.add_argument("--ledger", default="state/launch-buybacks.jsonl")
+    launch_credit_cmd.set_defaults(handler=_launch_credit)
 
     burn_cmd = sub.add_parser(
         "burn", parents=[common, keeper],
