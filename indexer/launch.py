@@ -309,6 +309,8 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
             "Every coin made here keeps the incinerator row. Its address is fixed and its share "
             f"must be at least {MIN_INCINERATOR_PERCENT}% of the rest. Change the other destinations instead."
         )
+    if not any(s.address == legs.LAUNCH_BUYBACK_DESTINATION and s.bps > 0 for s in validated):
+        raise LaunchError("Every coin made here includes the shared buyback treasury. Choose its percentage; the address is fixed.")
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
         # it is a mistake often enough to be worth one sentence in the log.

@@ -101,6 +101,7 @@ SHARED = (
     "indexer/publish.py",
     "indexer/pump.py",
     "indexer/reconcile.py",
+    "indexer/relay.py",
     "indexer/report.py",
     "indexer/rpc.py",
     "indexer/scan.py",
