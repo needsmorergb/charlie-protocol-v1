@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from indexer import enroll, launch, launchbuy, legs, mint_pool  # noqa: E402
+from indexer import enroll, launch, launchbuy, legs, mint_pool, relay  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
 from indexer.message import MessageError  # noqa: E402
 from indexer.rpc import RpcClient, RpcError  # noqa: E402
@@ -181,6 +181,8 @@ class handler(BaseHTTPRequestHandler):
             return self._fail("Could not read the chain just now. Nothing was built.", status=502)
 
     def do_POST(self):  # noqa: N802
+        if (parse_qs(urlparse(self.path).query).get("send") or [""])[0]:
+            return self._relay()
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length <= 0 or length > MAX_IMAGE_BYTES + 64_000:
@@ -225,6 +227,33 @@ class handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             return self._fail("The upload could not be read.", status=400)
 
+    def _relay(self):
+        """POST `?send=1` with JSON `{"transaction": base64, "signed": ...}`:
+        send what the dev's wallet signed, and send it again when asked. The
+        wallet's own send was seen to drop a split on mainnet with no way to
+        resend it; see `indexer/relay.py`. `transaction` is what this door
+        built; `signed` is whatever the wallet's `signTransaction` returned,
+        in any of the shapes wallets use. The answer carries the fully signed
+        transaction, so a resend posts that alone. Nothing is signed here."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 16_000:
+                return self._fail("That is not a signed transaction.")
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            built = base64.b64decode(body.get("transaction") or "", validate=True)
+        except Exception:
+            return self._fail("That is not a signed transaction.")
+        try:
+            transaction = relay.assemble(built, body["signed"]) if body.get("signed") else built
+            signature = relay.send(_rpc(), transaction)
+        except relay.RelayError as exc:
+            return self._fail(f"Not sent: {exc}.")
+        except RpcError as exc:
+            # Not a verdict on the transaction: the page asks again.
+            return self._fail(f"The chain did not take it just now: {exc}", status=502)
+        return self._send(200, {"signature": signature, "sent": True,
+                                "transaction": base64.b64encode(transaction).decode()})
+
     # -- the three GETs --
 
     def _describe(self):
@@ -233,6 +262,7 @@ class handler(BaseHTTPRequestHandler):
         return self._send(200, {
             "open": legs.TOLL_DESTINATION is not None,
             "toll": {"address": legs.TOLL_DESTINATION, "bps": enroll.TOLL_BPS},
+            "buyback": {"address": legs.LAUNCH_BUYBACK_DESTINATION},
             "limits": {"name_bytes": launch.MAX_NAME_BYTES, "symbol_bytes": launch.MAX_SYMBOL_BYTES,
                        "uri_bytes": launch.MAX_URI_BYTES, "image_bytes": MAX_IMAGE_BYTES},
             "rent_lamports": {"create": CREATE_RENT_LAMPORTS, "config": CONFIG_RENT_LAMPORTS},
