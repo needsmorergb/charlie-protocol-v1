@@ -34,9 +34,10 @@ from . import site
 LAUNCH_FILENAME = "launch.html"
 
 _SCRIPT = r"""
-var state = {wallet: null, toll: null, open: false, uri: null, built: null, mint: null,
+var state = {wallet: null, toll: null, buyback: null, open: false, uri: null, built: null, mint: null,
   createSig: null, splitSig: null, enroll: null, revision: 0, busy: false, locked: false, phase: 'draft'};
 var INCINERATOR = '1nc1nerator11111111111111111111111111111111';
+var BUYBACK_TREASURY = '5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp';
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) {
   var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || '');
@@ -94,6 +95,7 @@ async function describe() {
   try {
     var d = await request('/api/launch');
     state.toll = d.toll || null;
+    state.buyback = d.buyback || null;
     state.open = !!(d.open && state.toll && validAddress(state.toll.address) &&
       Number.isInteger(state.toll.bps) && state.toll.bps > 0 && state.toll.bps < 10000);
     // The pre-ground addresses. A pool with nothing left closes the door
@@ -192,10 +194,10 @@ function total() {
   });
   return t;
 }
-function addRow(addr, pct, wallet, fixedBurn) {
+function addRow(addr, pct, wallet, fixedBurn, fixedBuyback) {
   if (state.locked) { return; }
   var row = document.createElement('div'); row.className = 'share-row'; row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', fixedBurn ? 'Incinerator share; the address is fixed' : (wallet ? 'Creator wallet share' : 'Fee destination'));
+  row.setAttribute('aria-label', fixedBurn ? 'Incinerator share; the address is fixed' : (fixedBuyback ? 'Shared buyback treasury; the address is fixed' : (wallet ? 'Creator wallet share' : 'Fee destination')));
   if (wallet) { row.dataset.wallet = 'true'; }
   var a = document.createElement('input'); a.className = 'share-addr'; a.value = addr || '';
   a.placeholder = wallet ? 'Connect your wallet in step 3' : 'Destination address';
@@ -203,20 +205,20 @@ function addRow(addr, pct, wallet, fixedBurn) {
   var b = document.createElement('input'); b.className = 'share-bps'; b.type = 'number'; b.step = '0.01'; b.min = '0.01'; b.max = '100';
   b.inputMode = 'decimal'; b.value = pct === undefined ? '' : pct; b.setAttribute('aria-label', 'Percent of the rest');
   var unit = document.createElement('span'); unit.className = 'share-unit'; unit.textContent = '% of the rest';
-  var badge = document.createElement('span'); badge.className = 'burn-badge'; badge.textContent = 'Sol-Incinerator';
+  var badge = document.createElement('span'); badge.className = 'burn-badge'; badge.textContent = fixedBuyback ? 'Token buyback' : 'Sol-Incinerator';
   // The incinerator row is part of every coin made here: its address is
   // fixed and it cannot be removed. Only its share is the dev's to set. The
   // server refuses a split without it, so this is not the only guard.
   if (fixedBurn) { b.min = '1'; }
   function identify() {
     row.dataset.burn = String(!!fixedBurn);
-    badge.hidden = !fixedBurn; a.readOnly = !!fixedBurn || !!wallet;
+    badge.hidden = !(fixedBurn || fixedBuyback); a.readOnly = !!fixedBurn || !!fixedBuyback || !!wallet;
   }
   a.oninput = function () { invalidate(false); identify(); total(); };
   a.onblur = identify;
   b.oninput = function () { invalidate(false); total(); };
   [a, b, unit, badge].forEach(function (el) { row.appendChild(el); });
-  if (!wallet && !fixedBurn) {
+  if (!wallet && !fixedBurn && !fixedBuyback) {
     var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'Remove';
     rm.onclick = function () { invalidate(false); row.remove(); total(); $('addRow').focus(); };
     row.appendChild(rm);
@@ -480,7 +482,7 @@ document.addEventListener('DOMContentLoaded', function () {
   ['name', 'symbol', 'description', 'image', 'twitter', 'telegram', 'website'].forEach(function (id) {
     $(id).addEventListener('input', function () { invalidate(true); });
   });
-  addRow(INCINERATOR, 30, false, true); addRow(null, 70, true);
+  addRow(INCINERATOR, 30, false, true); addRow(BUYBACK_TREASURY, 20, false, false, true); addRow(null, 50, true);
   $('buySol').addEventListener('input', function () { invalidate(false); });
   fromQuery(); signButton(false); describe();
   var active = document.querySelector('.site-nav .active');
@@ -654,7 +656,7 @@ _BODY = r"""
         <span id="sendLabel">Sign 1 of 2: create the coin</span>
       </button></div><button type="button" id="checkAgain" class="btn-plain" hidden>Check again</button></div>
     <p id="sendNote" class="note" role="status" aria-live="polite" aria-atomic="true"></p>
-    <div id="doneBox" hidden><p>Your coin’s split is confirmed on chain. A bot asks pump to pay out the creator vault—the account holding its creator fees—when pump’s minimum is met. If your split includes the incinerator, its first payout is the first SOL burn.</p>
+    <div id="doneBox" hidden><p>Your coin’s split is confirmed on chain. A bot asks pump to pay out the creator vault—the account holding its creator fees—when pump’s minimum is met. The fixed Token buyback row credits this coin’s share to the public treasury ledger, which buys and burns this coin only. You choose its percentage, the incinerator percentage, and OPS; together they divide the remainder after the protocol’s 0.25% of each transaction.</p>
       <div class="row-actions"><a id="pumpLink" class="btn-plain">Your coin on pump</a><a id="verifyLink" class="btn-plain">Read the coin’s split from the chain</a></div></div>
   </section>
 

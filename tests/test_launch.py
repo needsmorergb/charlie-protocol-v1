@@ -29,6 +29,7 @@ BLOCKHASH = "11111111111111111111111111111111"
 URI = "https://ipfs.io/ipfs/bafkreibs2xlm4qm4ubh2g4wsnstlgcviephup43gq3yikzsyiltww2xpwq"
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 BURN = "1nc1nerator11111111111111111111111111111111"
+BUYBACK = legs.LAUNCH_BUYBACK_DESTINATION
 
 
 def _idl():
@@ -200,7 +201,7 @@ class TestPreflight(unittest.TestCase):
         try:
             with self.assertRaises(launch.LaunchError):
                 launch.preflight(DEV, [enroll.Share(BURN, 5000), enroll.Share(DEV, 5000)], _meta())
-            launch.preflight(DEV, [enroll.Share(TOLL, 2500), enroll.Share(BURN, 2000), enroll.Share(DEV, 5500)], _meta())
+            launch.preflight(DEV, [enroll.Share(TOLL, 2500), enroll.Share(BURN, 2000), enroll.Share(BUYBACK, 2000), enroll.Share(DEV, 3500)], _meta())
         finally:
             legs.TOLL_DESTINATION = real
 
@@ -226,7 +227,7 @@ class TestPreflight(unittest.TestCase):
                                        enroll.Share(DEV, rest - floor + 1)], _meta())
             self.assertIn("1%", str(c.exception))
             launch.preflight(DEV, [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(BURN, floor),
-                                   enroll.Share(DEV, rest - floor)], _meta())
+                                   enroll.Share(BUYBACK, 2000), enroll.Share(DEV, rest - floor - 2000)], _meta())
         finally:
             legs.TOLL_DESTINATION = real
 

@@ -262,6 +262,7 @@ class handler(BaseHTTPRequestHandler):
         return self._send(200, {
             "open": legs.TOLL_DESTINATION is not None,
             "toll": {"address": legs.TOLL_DESTINATION, "bps": enroll.TOLL_BPS},
+            "buyback": {"address": legs.LAUNCH_BUYBACK_DESTINATION},
             "limits": {"name_bytes": launch.MAX_NAME_BYTES, "symbol_bytes": launch.MAX_SYMBOL_BYTES,
                        "uri_bytes": launch.MAX_URI_BYTES, "image_bytes": MAX_IMAGE_BYTES},
             "rent_lamports": {"create": CREATE_RENT_LAMPORTS, "config": CONFIG_RENT_LAMPORTS},

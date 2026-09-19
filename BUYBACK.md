@@ -11,6 +11,34 @@ There are two separate routes:
 The commands refuse to substitute one route for the other. The latter's
 landed burns are recorded by `python -m indexer.protocol_burns --out web`.
 
+# Launch-token buyback treasury
+
+Every new launch includes the fixed shared treasury address
+`5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp`. Its allocation is chosen
+by the creator, alongside the incinerator and OPS allocations; those three
+shares divide the remainder after the protocol's 0.25% of each transaction.
+The address cannot be changed or removed, so a launch cannot redirect this
+leg to a creator wallet.
+
+This is a shared wallet rather than a new deployed router. Its public,
+append-only `state/launch-buybacks.jsonl` ledger records each creator-fee
+payout as a mint credit and each landed buy-and-burn as a mint debit. The
+keeper refuses to spend more than a mint's recorded credit.
+
+```bash
+# Record a creator-fee payout after checking its signature on Solana.
+python -m indexer launch-credit <launch-mint> --sol 0.12 --signature <payout-signature>
+
+# Dry run, then send one buy-and-burn. It uses at most 0.05 SOL and never
+# exceeds this mint's credited balance.
+python -m indexer launch-buyback <launch-mint> --wallet 5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp
+python -m indexer launch-buyback <launch-mint> --keypair treasury.json --send
+```
+
+The ledger is the allocation control; the shared wallet is an operator or
+multisig custody arrangement, so its signers must publish the ledger and
+transaction signatures for each payout and burn.
+
 # Running the $CHARLIE leg without being its dev
 
 **The short version.** Charlie Protocol's BURN leg is `SOL -> buy the token ->
