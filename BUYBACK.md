@@ -1,4 +1,45 @@
-# Running the BURN leg on $CHARLIE without being its dev
+# Two buy-and-burn routes
+
+There are two separate routes:
+
+* `python -m indexer buyback <launch-mint>` buys and burns that launched
+  token. Its operator supplies that launch's budget.
+* `python -m indexer charlie-buyback` buys and burns `$CHARLIE` only. It can
+  use only the protocol collection wallet, where the protocol's 0.25% of each
+  transaction accrues.
+
+The commands refuse to substitute one route for the other. The latter's
+landed burns are recorded by `python -m indexer.protocol_burns --out web`.
+
+# Launch-token buyback treasury
+
+Every new launch includes the fixed shared treasury address
+`5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp`. Its allocation is chosen
+by the creator, alongside the incinerator and OPS allocations; those three
+shares divide the remainder after the protocol's 0.25% of each transaction.
+The address cannot be changed or removed, so a launch cannot redirect this
+leg to a creator wallet.
+
+This is a shared wallet rather than a new deployed router. Its public,
+append-only `state/launch-buybacks.jsonl` ledger records each creator-fee
+payout as a mint credit and each landed buy-and-burn as a mint debit. The
+keeper refuses to spend more than a mint's recorded credit.
+
+```bash
+# Record a creator-fee payout after checking its signature on Solana.
+python -m indexer launch-credit <launch-mint> --sol 0.12 --signature <payout-signature>
+
+# Dry run, then send one buy-and-burn. It uses at most 0.05 SOL and never
+# exceeds this mint's credited balance.
+python -m indexer launch-buyback <launch-mint> --wallet 5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp
+python -m indexer launch-buyback <launch-mint> --keypair treasury.json --send
+```
+
+The ledger is the allocation control; the shared wallet is an operator or
+multisig custody arrangement, so its signers must publish the ledger and
+transaction signatures for each payout and burn.
+
+# Running the $CHARLIE leg without being its dev
 
 **The short version.** Charlie Protocol's BURN leg is `SOL -> buy the token ->
 SPL burn`, atomically, in one transaction (PROTOCOL.md sec.1 and sec.4). The
@@ -7,7 +48,7 @@ exist yet, and $CHARLIE's fee split is `admin_revoked` -- nobody can point its
 fees anywhere, its deployer included. But nothing in the leg's definition
 says whose SOL it has to be. A holder can run the exact same leg from their
 own wallet, and the indexer already counts what they burn. That is what
-`python -m indexer buyback` does.
+`python -m indexer charlie-buyback` does.
 
 ## What it does, per crank
 
@@ -66,7 +107,7 @@ accounts, its args and the curve's arithmetic (`amount * virtual_sol /
 up) come from the deployed program's on-chain IDL, resolved by the deploy
 repository's `probe_curve_buy` and accepted by mainnet; its `buyback`
 workflow simulates the keeper's own transaction against a live curve on
-every change. `python -m indexer buyback <mint>` picks the venue itself:
+every change. `python -m indexer charlie-buyback` picks the venue itself:
 the curve while the coin is on it, the pool once it has graduated, and the
 keeper switches over mid-run when graduation happens. A wallet that has
 never traded on pump gets its volume accumulator created in the same
@@ -78,14 +119,14 @@ Python 3.11, standard library only. From the repository root:
 
 ```bash
 # 1. dry run: read the pool, quote one lot, build, simulate. Signs nothing.
-python -m indexer buyback 8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump --wallet <your address>
+python -m indexer charlie-buyback --wallet 8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8
 
 # 2. one real crank, from a Solana CLI keypair file
-python -m indexer buyback 8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump --keypair keeper.json --send
+python -m indexer charlie-buyback --keypair keeper.json --send
 
 # 3. the keeper: 0.05 SOL every hour until 2 SOL is committed,
 #    burning 100,000 held tokens alongside each buy
-python -m indexer buyback 8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump \
+python -m indexer charlie-buyback \
     --keypair keeper.json --send --every 3600 --max-total 2 --also-burn 100000
 
 # burn held tokens outright (no swap, no price effect)
