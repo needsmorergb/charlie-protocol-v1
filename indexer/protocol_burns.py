@@ -15,6 +15,11 @@ The record is append-only and keyed by signature. A node that answers with a
 short history (seen 2026-09-17: the same wallet listed as 6 transactions,
 then 2) can therefore never shrink it; a run only ever adds.
 
+Append-only is not the same as complete, and the difference is published
+rather than assumed. A signature the node will not return, or history past
+the one page the walk asks for, is a burn this record has never seen -- so
+every run states whether its total is `exact` or `at least`, and why.
+
     python -m indexer.protocol_burns --out web
 """
 
@@ -24,6 +29,7 @@ import argparse
 import json
 import os
 import time
+from dataclasses import dataclass
 
 from . import decode, legs
 from .rpc import RpcClient
@@ -31,6 +37,45 @@ from .rpc import RpcClient
 CHARLIE = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 DECIMALS = 6
 FILENAME = "protocol-burns.json"
+
+# What one `getSignaturesForAddress` answers with. The walk asks for a single
+# page, newest first, so hitting this number means there is older history it
+# did not look at.
+SIGNATURE_PAGE = 1000
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """What the walk could not see, so the total can say which it is.
+
+    Append-only storage keeps a row that was once read. It cannot make a
+    claim about rows that were never read -- a signature the node would not
+    return a transaction for this run, or history past the one page the walk
+    asks for. Both understate the total, silently, and a total that can
+    silently understate is exactly the figure this project does not publish
+    without saying so.
+
+    So the walk reports them and the record carries them: complete means the
+    total is exact, and incomplete means it is a floor. The same shape
+    `reconcile` uses when its burn walk has not finished.
+    """
+
+    unread: tuple = ()
+    truncated: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return not self.unread and not self.truncated
+
+    def caption(self) -> str:
+        if self.complete:
+            return "exact: every signature this wallet has was read"
+        why = []
+        if self.unread:
+            why.append(f"{len(self.unread)} signature(s) could not be read this run")
+        if self.truncated:
+            why.append(f"the node answered with a full page of {SIGNATURE_PAGE}, so older history was not walked")
+        return "at least: " + "; and ".join(why)
 
 
 def burns_in(tx: dict, signature: str, wallet: str, mint: str = CHARLIE) -> list[dict]:
@@ -56,7 +101,8 @@ def ui(raw: int) -> str:
     return f"{raw // 10 ** DECIMALS:,}.{raw % 10 ** DECIMALS:0{DECIMALS}d}"
 
 
-def record(rows: list[dict], wallet: str, now: float) -> dict:
+def record(rows: list[dict], wallet: str, now: float, coverage: Coverage | None = None) -> dict:
+    coverage = coverage or Coverage()
     total = sum(r["raw_amount"] for r in rows)
     return {
         "schema": 1,
@@ -65,23 +111,40 @@ def record(rows: list[dict], wallet: str, now: float) -> dict:
         "mint": CHARLIE, "wallet": wallet, "decimals": DECIMALS,
         "rule": "landed; burn authority == wallet; a swap in the same transaction",
         "read_at": int(now), "burns": rows, "raw_total": total, "total": ui(total),
+        # What the total IS, not merely when it was read. A consumer that
+        # ignores every other field here still cannot read an understated
+        # number as an exact one.
+        "complete": coverage.complete,
+        "total_is": "exact" if coverage.complete else "at least",
+        "coverage": coverage.caption(),
+        "unread": list(coverage.unread),
+        "truncated": coverage.truncated,
     }
 
 
-def walk(rpc, wallet: str, known: list[dict]) -> list[dict]:
+def walk(rpc, wallet: str, known: list[dict]) -> tuple[list[dict], Coverage]:
     seen = {r["signature"] for r in known}
     found: list[dict] = []
-    for entry in rpc.call("getSignaturesForAddress", [wallet, {"limit": 1000}]) or []:
+    unread: list[str] = []
+    entries = rpc.call("getSignaturesForAddress", [wallet, {"limit": SIGNATURE_PAGE}]) or []
+    # A full page means the node had more to give. The rows beyond it were
+    # never looked at, so this run cannot call its total exact.
+    truncated = len(entries) >= SIGNATURE_PAGE
+    for entry in entries:
         signature = entry["signature"]
         if signature in seen or entry.get("err") is not None:
             continue
         tx = rpc.call("getTransaction", [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
         if tx is None:
-            # Unread is not "no burn": say so and leave it for the next run.
+            # Unread is not "no burn": say so, count it, and leave it for the
+            # next run. Counting is the half that was missing -- saying it in
+            # a log line nobody reads did not stop the record claiming a total
+            # it could not support.
             print(f"could not read {signature}; it will be tried again next run")
+            unread.append(signature)
             continue
         found += burns_in(tx, signature, wallet)
-    return merge(known, found)
+    return merge(known, found), Coverage(tuple(unread), truncated)
 
 
 def main(argv=None) -> int:
@@ -94,12 +157,14 @@ def main(argv=None) -> int:
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             known = json.load(fh)["burns"]
-    rows = walk(RpcClient(), wallet, known)
-    body = record(rows, wallet, time.time())
+    rows, coverage = walk(RpcClient(), wallet, known)
+    body = record(rows, wallet, time.time(), coverage)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(body, fh, indent=1)
         fh.write("\n")
-    print(f"{len(rows)} burn(s) ({len(rows) - len(known)} new), {body['total']} $CHARLIE -> {path}")
+    print(f"{len(rows)} burn(s) ({len(rows) - len(known)} new), "
+          f"{body['total_is']} {body['total']} $CHARLIE -> {path}")
+    print(f"coverage: {body['coverage']}")
     return 0
 
 
