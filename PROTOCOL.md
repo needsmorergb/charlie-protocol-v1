@@ -319,7 +319,9 @@ enrolled coin is one whose split carries all three:
 
 The rest of the split is the dev's. One rule, `legs.missing_legs`, backs the
 refusal at both doors and the `PROTOCOL_SHARE` check, so a coin that pays the
-protocol but lacks a leg reads as not enrolled. USDC-paired coins are
+protocol but lacks a leg reads as not enrolled: `UNCHECKED`, not `FAIL`,
+because a coin that enrolled before this rule contradicts no claim and
+cannot change its split. USDC-paired coins are
 excluded from the legs, because the incinerator only destroys lamports; that
 enrollment stays parked (CUSTOM-PAIRS.md).
 
