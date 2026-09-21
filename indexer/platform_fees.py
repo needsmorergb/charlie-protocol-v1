@@ -108,6 +108,13 @@ def ix_claim_platform_fee(fee_wallet: str, config: str, recipient: str, quote_mi
     ], DISC_CLAIM_PLATFORM_FEE_FROM_VAULT)
 
 
+def ix_assert_token_balance(account: str, owner: str, amount: int) -> buyback.Instruction:
+    """spl-token `Transfer` of `amount` from `account` to itself: moves
+    nothing, and fails with InsufficientFunds if the account holds less."""
+    return (buyback.TOKEN_PROGRAM, [(account, False, True), (account, False, True), (owner, True, False)],
+            bytes([3]) + struct.pack("<Q", amount))
+
+
 def read_pool(data: bytes) -> dict:
     """Raydium CPMM pool state. Offsets from launchlab/src/raydium.rs."""
     if len(data) < 328:
@@ -202,8 +209,15 @@ def quote_out(amount_in: int, reserve_in: int, reserve_out: int,
 
 
 def plan(rpc, admin: str, quote_mint: str, *, pool_key: str | None = None,
-         slippage_bps: int = DEFAULT_SLIPPAGE_BPS) -> dict:
-    """What one cycle would do for one quote. Builds nothing it cannot price."""
+         slippage_bps: int = DEFAULT_SLIPPAGE_BPS, forward_to: str | None = None) -> dict:
+    """What one cycle would do for one quote. Builds nothing it cannot price.
+
+    `forward_to` appends a transfer of `sol_out` to that wallet, in the same
+    transaction as the claim. The scheduled keeper forwards to the collection
+    wallet, whose existing $CHARLIE burn spends it, so there is still exactly
+    one schedule buying $CHARLIE. On a swap only `min_out` is forwarded: what
+    the pool pays above the bound stays with the fee wallet, which never
+    forwards lamports it cannot prove it received."""
     if quote_mint != WSOL and quote_mint not in SWAPPABLE:
         raise PlatformFeeError(
             f"{quote_mint} is not a quote this module handles. A stock quote needs the transfer-hook, "
@@ -232,6 +246,14 @@ def plan(rpc, admin: str, quote_mint: str, *, pool_key: str | None = None,
     if quote_mint == WSOL:
         # Tier 1. The fee IS wSOL; closing the account unwraps it to the
         # wallet, and no price is consulted anywhere in this path.
+        if forward_to and forward_to != admin:
+            # The forward below is paid in lamports, which the fee wallet has
+            # of its own. If the vault was drained between this read and the
+            # landing, the claim moves nothing and the forward would spend
+            # the operator's SOL. A self-transfer of `held` is an on-chain
+            # assertion: spl-token checks the balance before it returns early
+            # for source == destination, so the transaction fails whole.
+            ixs.append(ix_assert_token_balance(recipient, admin, held))
         ixs.append(buyback.ix_close_account(recipient, admin, admin))
         out["sol_out"] = held
         out["notes"].append("SOL quote: claimed as wSOL and unwrapped, no swap")
@@ -275,6 +297,36 @@ def plan(rpc, admin: str, quote_mint: str, *, pool_key: str | None = None,
             f"{quote_mint} quote: one CPMM hop, {held} in, at least {min_out} wSOL out "
             f"(after the pool's {fee_rate}/1e6 fee, {slippage_bps} bps under its own reserves), then unwrapped")
 
+    if forward_to and forward_to != admin:
+        ixs.append(buyback.ix_system_transfer(admin, forward_to, out["sol_out"]))
+        out["forward_to"] = forward_to
+        out["notes"].append(f"forwards {out['sol_out']} lamports to {forward_to} in the same transaction")
     out["instructions"] = ixs
-    out["notes"].append("ends in SOL. `indexer charlie-buyback --sweep` buys and burns $CHARLIE from here")
+    out["notes"].append("ends in SOL. `indexer charlie-buyback --sweep` buys and burns $CHARLIE from "
+                        + ("there" if out.get("forward_to") else "here"))
     return out
+
+
+def execute(rpc, out: dict, keypair, *, send: bool, sleep=None) -> dict:
+    """build -> simulate -> (sign -> send -> confirm), as buyback._execute.
+    Nothing crosses the simulation with an error."""
+    from .message import compile_legacy, unsigned_transaction
+    msg = compile_legacy(out["admin"], out["instructions"], buyback.latest_blockhash(rpc))
+    sim = buyback.simulate(rpc, msg)
+    result = {"simulation": {"err": sim.get("err"), "units_consumed": sim.get("unitsConsumed"),
+                             "logs_tail": (sim.get("logs") or [])[-8:]},
+              "transaction_base64": base64.b64encode(unsigned_transaction(msg)).decode(),
+              "sent": False}
+    if sim.get("err") is not None:
+        result["error"] = f"the simulation failed ({sim.get('err')}); nothing was sent"
+        return result
+    if not send:
+        return result
+    if keypair is None:
+        result["error"] = "no keypair given: built and simulated, not sent"
+        return result
+    signature = buyback.send_signed(rpc, keypair, msg)
+    result.update(signature=signature, sent=True)
+    kwargs = {"sleep": sleep} if sleep else {}
+    result["confirmation"] = buyback.confirm(rpc, signature, **kwargs).get("confirmationStatus")
+    return result

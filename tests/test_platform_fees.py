@@ -240,5 +240,96 @@ class TestPlan(unittest.TestCase):
         self.assertIn("not built", message)
 
 
+COLLECTION = "11111111111111111111111111111112"
+FEE_WALLET = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+
+
+class TestForwarding(unittest.TestCase):
+    """The scheduled keeper forwards the claim to the collection wallet, whose
+    existing burn spends it: one schedule buys $CHARLIE, not two."""
+
+    def _rpc(self, quote, vault_amount, pool=None, admin=FEE_WALLET):
+        rpc = TestPlan._rpc(TestPlan(), quote, vault_amount, pool)
+        # `TestPlan._rpc` keys the vault on ADMIN's config; re-key it.
+        vault = rpc.table.pop(pf.platform_fee_vault(pf.platform_config(ADMIN), quote))
+        rpc.table[pf.platform_fee_vault(pf.platform_config(admin), quote)] = vault
+        return rpc
+
+    @staticmethod
+    def _transfers(out):
+        return [ix for ix in out["instructions"] if ix[0] == pf.SYSTEM]
+
+    def test_a_sol_claim_forwards_exactly_what_was_claimed(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000), FEE_WALLET, pf.WSOL, forward_to=COLLECTION)
+        (transfer,) = self._transfers(out)
+        self.assertEqual(out["instructions"][-1], transfer, "the transfer comes after the unwrap")
+        self.assertEqual([a[0] for a in transfer[1]], [FEE_WALLET, COLLECTION])
+        self.assertEqual(struct.unpack("<Q", transfer[2][4:12])[0], 2_000_000)
+
+    def test_a_sol_forward_is_asserted_against_the_claimed_balance(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000), FEE_WALLET, pf.WSOL, forward_to=COLLECTION)
+        progs = [ix[0] for ix in out["instructions"]]
+        guard = next(ix for ix in out["instructions"] if ix[0] == pf.buyback.TOKEN_PROGRAM and ix[2][0] == 3)
+        self.assertEqual(guard[1][0][0], guard[1][1][0], "a self-transfer")
+        self.assertEqual(guard[1][0][0], out["recipient"])
+        self.assertEqual(struct.unpack("<Q", guard[2][1:9])[0], 2_000_000)
+        idx = out["instructions"].index(guard)
+        self.assertLess(progs.index(pf.LAUNCHLAB), idx, "after the claim")
+        self.assertEqual(out["instructions"][idx + 1][2], bytes([9]), "before the unwrap")
+
+    def test_no_assertion_without_a_forward(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000), FEE_WALLET, pf.WSOL)
+        self.assertFalse(any(ix[2][:1] == bytes([3]) for ix in out["instructions"]
+                             if ix[0] == pf.buyback.TOKEN_PROGRAM))
+
+    def test_a_swap_forwards_the_bound_not_a_guess(self):
+        rpc = self._rpc(pf.USDC, 5_000_000, pool=_pool_account(pf.USDC, pf.WSOL))
+        out = pf.plan(rpc, FEE_WALLET, pf.USDC, pool_key=POOL, forward_to=COLLECTION)
+        (transfer,) = self._transfers(out)
+        self.assertEqual(struct.unpack("<Q", transfer[2][4:12])[0], out["sol_out"])
+
+    def test_no_transfer_when_the_fee_wallet_is_the_collection_wallet(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000, admin=COLLECTION), COLLECTION, pf.WSOL,
+                      forward_to=COLLECTION)
+        self.assertEqual(self._transfers(out), [])
+        self.assertNotIn("forward_to", out)
+
+    def test_a_stand_down_forwards_nothing(self):
+        out = pf.plan(self._rpc(pf.WSOL, 10), FEE_WALLET, pf.WSOL, forward_to=COLLECTION)
+        self.assertEqual(out["instructions"], [])
+
+    def test_the_largest_cycle_fits_one_legacy_transaction(self):
+        from indexer.message import compile_legacy, unsigned_transaction
+        rpc = self._rpc(pf.USDC, 5_000_000, pool=_pool_account(pf.USDC, pf.WSOL))
+        out = pf.plan(rpc, FEE_WALLET, pf.USDC, pool_key=POOL, forward_to=COLLECTION)
+        msg = compile_legacy(FEE_WALLET, out["instructions"], "11111111111111111111111111111111")
+        self.assertLessEqual(len(unsigned_transaction(msg)), 1232)
+
+    def test_the_cli_has_no_free_destination(self):
+        cli = (ROOT / "tools" / "platform_fee_keeper.py").read_text(encoding="utf-8")
+        self.assertNotRegex(cli, r'add_argument\("--(to|forward|destination|recipient)')
+        self.assertIn("legs.TOLL_DESTINATION", cli)
+
+
+class TestTheSchedule(unittest.TestCase):
+    workflow = (ROOT / ".github" / "workflows" / "platform-fees.yml").read_text(encoding="utf-8")
+
+    def test_the_cron_is_gated_by_a_repo_variable(self):
+        self.assertIn("vars.PLATFORM_FEES_ENABLED == 'true'", self.workflow)
+
+    def test_it_lands_before_the_collection_burn(self):
+        # burn.yml in the deploy repository runs at 41 */6; the claim lands
+        # half an hour ahead so the next burn spends it.
+        self.assertIn('cron: "11 */6 * * *"', self.workflow)
+
+    def test_it_never_writes_to_the_repository(self):
+        self.assertIn("contents: read", self.workflow)
+        self.assertNotIn("git push", self.workflow)
+
+    def test_the_key_is_shredded(self):
+        self.assertIn("umask 077", self.workflow)
+        self.assertIn("shred -u", self.workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
