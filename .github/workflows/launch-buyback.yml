@@ -1,0 +1,146 @@
+# The launch leg: each launched token bought and burned out of the shared
+# treasury, and never past what that mint was credited.
+#
+# NOT the $CHARLIE leg. That one already had a keeper before this file
+# existed -- `burn.yml` in the deploy repository, every six hours, holding
+# the collection wallet's key. This ran as a second copy of it for one
+# commit, which was a mistake: two schedules spending the same wallet would
+# each read a balance the other was about to spend. Deleted, and what is
+# left here is the half that had no keeper anywhere.
+#
+# WHAT IS AND IS NOT TRUSTED. The buy and the SPL burn are instructions in
+# the same transaction, simulated before signing, so a keeper cannot buy
+# without burning. What a keeper can do is not call, or call with a worse
+# lot. The ledger bounds the rest: `launch_buybacks.summary()` refuses to
+# let a mint be bought with lamports another mint was credited, and every
+# row carries the signature that justifies it. That is an allocation
+# control, not the absence guarantee a program would give -- PROTOCOL.md
+# sec.5 calls this the operator keeper, and calls it a fallback.
+#
+# COST. A mint whose credit is below the minimum lot is skipped before a
+# transaction is built, and a run with no credited mints sends nothing, so
+# an idle cycle is free and green. A crank that lands pays 5,000 lamports
+# plus any priority fee.
+name: launch-buyback
+
+on:
+  schedule:
+    # Hourly, offset from keeper.yml (:17), publish.yml (05:41) and the
+    # deploy repository's burn.yml (:41, six-hourly).
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "build and simulate, sign nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: launch-buyback
+  cancel-in-progress: false
+
+# The ledger rows are the published half of the claim, so this job commits
+# them.
+permissions:
+  contents: write
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' || vars.BURN_LAUNCH_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No install step. Standard library only, on purpose.
+
+      # Which mints have credit worth spending. A missing ledger is the
+      # normal state before the first launch credits the treasury, not an
+      # error: no file, no mints, nothing to do, green.
+      - name: Which mints have credit
+        id: mints
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from indexer import buyback, launch_buybacks
+          rows = launch_buybacks.summary()
+          spendable = sorted(
+              mint for mint, entry in rows.items()
+              if entry["available_lamports"] >= buyback.MIN_LOT_LAMPORTS
+          )
+          print("mints=" + " ".join(spendable))
+          PY
+
+      - name: Crank each credited mint
+        if: ${{ !inputs.dry_run && steps.mints.outputs.mints != '' }}
+        env:
+          TREASURY_KEYPAIR: ${{ secrets.LAUNCH_TREASURY_KEYPAIR }}
+          PRIORITY_FEE: ${{ vars.BURN_PRIORITY_FEE || '0' }}
+          MINTS: ${{ steps.mints.outputs.mints }}
+        run: |
+          if [ -z "$TREASURY_KEYPAIR" ]; then
+            echo "::error::LAUNCH_TREASURY_KEYPAIR is not set; nothing to sign with."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$TREASURY_KEYPAIR" > keeper.json
+          trap 'shred -u keeper.json 2>/dev/null || rm -f keeper.json' EXIT
+          # One mint per transaction, and one failure does not skip the
+          # rest: a pool that cannot be quoted right now is this mint's
+          # problem, and the others have credit waiting either way. The
+          # failures are collected and the job ends red so nobody reads a
+          # partial run as a complete one.
+          failed=""
+          for mint in $MINTS; do
+            echo "--- $mint"
+            python -m indexer launch-buyback "$mint" \
+              --keypair keeper.json --send \
+              --priority-fee "$PRIORITY_FEE" || failed="$failed $mint"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::cranks failed for:$failed"
+            exit 1
+          fi
+
+      - name: Simulate each credited mint
+        if: ${{ inputs.dry_run && steps.mints.outputs.mints != '' }}
+        env:
+          MINTS: ${{ steps.mints.outputs.mints }}
+        run: |
+          treasury="$(python -c 'from indexer import legs; print(legs.LAUNCH_BUYBACK_DESTINATION)')"
+          for mint in $MINTS; do
+            echo "--- $mint"
+            python -m indexer launch-buyback "$mint" --wallet "$treasury"
+          done
+
+      # `always()`: a run that spent on three mints and failed on the fourth
+      # has three ledger rows on disk that are true. Losing them because the
+      # job is red would leave the treasury spent with no record of what it
+      # was spent on, which is the one failure this ledger exists to prevent.
+      - name: Commit the ledger
+        if: ${{ always() && !inputs.dry_run }}
+        run: |
+          git config user.name  "charlie-publish"
+          git config user.email "needsmorergb@users.noreply.github.com"
+          # The ledger is created by the first burn row, so before any launch
+          # has credited the treasury there is no file to stage. `git add` on
+          # a path that does not exist is a fatal error, not a no-op, which
+          # would turn every idle cycle red.
+          if [ ! -f state/launch-buybacks.jsonl ]; then
+            echo "no ledger yet: nothing has credited the treasury, so nothing was spent"
+            exit 0
+          fi
+          git add state/launch-buybacks.jsonl
+          if git diff --cached --quiet; then
+            echo "no new burn rows"
+            exit 0
+          fi
+          git commit -m "burn: record launch-treasury buy-and-burns"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "$GITHUB_REF_NAME" && git push && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "::error::ledger rows were written but not pushed -- the treasury is spent and unrecorded"
+          exit 1

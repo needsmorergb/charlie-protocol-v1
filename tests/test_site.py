@@ -1185,7 +1185,11 @@ class TestVercelJson(unittest.TestCase):
             "/phases",
             "/flywheel",
             "/charlie-flywheel",
-            "/launchlab",
+            # No "/launchlab". The page is generated here but the LaunchLab
+            # rail is shelved, and the deploy repository has no
+            # launchlab.html -- so the rewrite pointed at a file that does
+            # not exist there, which is the one thing this project's routing
+            # rule forbids: never link a route that has not been written.
             "/verify",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
