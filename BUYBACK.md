@@ -14,7 +14,7 @@ landed burns are recorded by `python -m indexer.protocol_burns --out web`.
 # Launch-token buyback treasury
 
 Every new launch includes the fixed shared treasury address
-`5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp`. Its allocation is chosen
+`6BHusg5vZoagPDMe5xZzPhLSvkHiKcWwELYzwbMG7Bjo`. Its allocation is chosen
 by the creator, alongside the incinerator and OPS allocations; those three
 shares divide the remainder after the protocol's 0.25% of each transaction.
 The address cannot be changed or removed, so a launch cannot redirect this
@@ -31,7 +31,7 @@ python -m indexer launch-credit <launch-mint> --sol 0.12 --signature <payout-sig
 
 # Dry run, then send one buy-and-burn. It uses at most 0.05 SOL and never
 # exceeds this mint's credited balance.
-python -m indexer launch-buyback <launch-mint> --wallet 5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp
+python -m indexer launch-buyback <launch-mint> --wallet 6BHusg5vZoagPDMe5xZzPhLSvkHiKcWwELYzwbMG7Bjo
 python -m indexer launch-buyback <launch-mint> --keypair treasury.json --send
 ```
 
