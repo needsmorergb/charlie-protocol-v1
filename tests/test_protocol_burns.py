@@ -56,5 +56,51 @@ class TestRecord(unittest.TestCase):
         self.assertEqual(pb.ui(1), "0.000001")
 
 
+class TestCoverage(unittest.TestCase):
+    """A total that could silently understate has to say so. Append-only
+    keeps what was read; it claims nothing about what never was."""
+
+    def _rpc(self, entries, txs):
+        class Rpc:
+            def call(self, method, params):
+                if method == "getSignaturesForAddress":
+                    return entries
+                return txs.get(params[0])
+        return Rpc()
+
+    def test_a_clean_walk_is_exact(self):
+        rows, coverage = pb.walk(self._rpc([{"signature": "a"}], {"a": _tx([SWAP, _burn(WALLET)])}), WALLET, [])
+        self.assertTrue(coverage.complete)
+        body = pb.record(rows, WALLET, 0, coverage)
+        self.assertEqual(body["total_is"], "exact")
+        self.assertEqual(body["unread"], [])
+
+    def test_an_unread_signature_makes_the_total_a_floor(self):
+        rows, coverage = pb.walk(self._rpc([{"signature": "a"}, {"signature": "b"}],
+                                           {"a": _tx([SWAP, _burn(WALLET)]), "b": None}), WALLET, [])
+        self.assertFalse(coverage.complete)
+        self.assertEqual(coverage.unread, ("b",))
+        body = pb.record(rows, WALLET, 0, coverage)
+        self.assertEqual(body["total_is"], "at least")
+        self.assertFalse(body["complete"])
+        self.assertIn("could not be read", body["coverage"])
+        # The rows it DID read are still counted -- incomplete, not withheld.
+        self.assertEqual(body["raw_total"], 28569506012)
+
+    def test_a_full_page_means_older_history_was_not_walked(self):
+        entries = [{"signature": f"s{n}"} for n in range(pb.SIGNATURE_PAGE)]
+        rows, coverage = pb.walk(self._rpc(entries, {}), WALLET, [])
+        self.assertTrue(coverage.truncated)
+        self.assertFalse(coverage.complete)
+        self.assertIn("older history", pb.record(rows, WALLET, 0, coverage)["coverage"])
+
+    def test_a_record_written_without_coverage_does_not_claim_exactness_it_cannot(self):
+        # The default is the honest one for a caller that says nothing: no
+        # unread signatures were reported, so the total is exact.
+        body = pb.record([], WALLET, 0)
+        self.assertEqual(body["total_is"], "exact")
+        self.assertTrue(body["complete"])
+
+
 if __name__ == "__main__":
     unittest.main()

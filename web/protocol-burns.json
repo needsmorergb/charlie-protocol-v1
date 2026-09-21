@@ -6,7 +6,7 @@
  "wallet": "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
  "decimals": 6,
  "rule": "landed; burn authority == wallet; a swap in the same transaction",
- "read_at": 1789682156,
+ "read_at": 1789959851,
  "burns": [
   {
    "signature": "TgeWbcbbzTbJ3W9jH57iUtd4MGJzRYe6Bei29yQ4kA3n21JicLQaTP39VRZupzviBhvdQffgRmnuyN1m8bb4UtQ",
@@ -17,5 +17,10 @@
   }
  ],
  "raw_total": 28569506012,
- "total": "28,569.506012"
+ "total": "28,569.506012",
+ "complete": true,
+ "total_is": "exact",
+ "coverage": "exact: every signature this wallet has was read",
+ "unread": [],
+ "truncated": false
 }
