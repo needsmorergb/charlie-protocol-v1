@@ -1,0 +1,95 @@
+# The LaunchLab rail's Charlie leg: claim the Raydium platform fee, end in
+# SOL, and forward it to the collection wallet in the same transaction.
+#
+# NOT A SECOND $CHARLIE BUYER. The collection wallet already has one --
+# `burn.yml` in the deploy repository, every six hours at :41, holding its
+# key. This job only ADDS SOL to that wallet and never buys, so the two
+# schedules cannot race for the same balance (the mistake launch-buyback.yml
+# records). It runs at :11, half an hour ahead, so the next burn spends it.
+#
+# WHAT IS TRUSTED. The fee wallet signs, so this is the operator keeper of
+# PROTOCOL.md sec.5. The destination is not an input: `tools/platform_fee_keeper.py`
+# forwards only to `legs.TOLL_DESTINATION`. A SOL quote consults no price; a
+# USDC quote prices one CPMM hop off the pool's own reserves and puts the
+# bound in the transaction. Everything is simulated before it is signed.
+#
+# COST. An empty vault, a vault below the 0.001 SOL floor, or a platform
+# that does not exist yet builds nothing and sends nothing: an idle cycle is
+# free and green. A cycle that lands pays 5,000 lamports.
+name: platform-fees
+
+on:
+  schedule:
+    - cron: "11 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "build and simulate, sign nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: platform-fees
+  cancel-in-progress: false
+
+# Nothing is committed: the claim and the transfer are on chain.
+permissions:
+  contents: read
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch' || vars.PLATFORM_FEES_ENABLED == 'true'
+    env:
+      CHARLIE_RPC_URLS: ${{ secrets.CHARLIE_RPC_URLS }}
+      # Tier 2 runs only once a pool is named. Unset, only the SOL quote is
+      # claimed.
+      USDC_POOL: ${{ vars.PLATFORM_FEE_USDC_POOL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No install step. Standard library only, on purpose.
+
+      - name: Claim and forward
+        if: ${{ !inputs.dry_run }}
+        env:
+          FEE_KEYPAIR: ${{ secrets.PLATFORM_FEE_KEYPAIR }}
+        run: |
+          if [ -z "$FEE_KEYPAIR" ]; then
+            echo "::error::PLATFORM_FEE_KEYPAIR is not set; nothing to sign with."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$FEE_KEYPAIR" > fee-wallet.json
+          trap 'shred -u fee-wallet.json 2>/dev/null || rm -f fee-wallet.json' EXIT
+          # One quote per transaction, and one failure does not skip the
+          # other; the job still ends red so a partial run is not read as a
+          # complete one.
+          failed=""
+          python -m tools.platform_fee_keeper --quote sol --keypair fee-wallet.json --send || failed="$failed sol"
+          if [ -n "$USDC_POOL" ]; then
+            python -m tools.platform_fee_keeper --quote usdc --pool "$USDC_POOL" \
+              --keypair fee-wallet.json --send || failed="$failed usdc"
+          fi
+          if [ -n "$failed" ]; then
+            echo "::error::claims failed for:$failed"
+            exit 1
+          fi
+
+      - name: Simulate
+        if: ${{ inputs.dry_run }}
+        env:
+          FEE_WALLET: ${{ vars.PLATFORM_FEE_WALLET }}
+        run: |
+          if [ -z "$FEE_WALLET" ]; then
+            echo "::error::set the PLATFORM_FEE_WALLET variable (an address, not a key) to simulate."
+            exit 1
+          fi
+          python -m tools.platform_fee_keeper --quote sol --wallet "$FEE_WALLET"
+          if [ -n "$USDC_POOL" ]; then
+            python -m tools.platform_fee_keeper --quote usdc --pool "$USDC_POOL" --wallet "$FEE_WALLET"
+          fi
