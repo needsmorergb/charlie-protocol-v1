@@ -159,6 +159,20 @@ _ENTRIES = [
         "recorded the interesting runs would not be evidence of a schedule.",
     },
     {
+        "date": "2026-09-18",
+        "status": "SHIPPED",
+        "title": "Mainnet operations: the launch and enrolment consoles",
+        "body": "/launch and /enroll went live and enrolment opened. A coin "
+        "enrols by spending pump's one sharing-config change on the protocol's "
+        "destinations, so the SOL burn leg pays Solana's incinerator directly "
+        "and the protocol's share reaches its collection wallet -- both without "
+        "a program of ours, which is why this entry is not phase 5. The BURN "
+        "leg runs from that wallet: one transaction that buys $CHARLIE and "
+        "burns it, with the swap and the burn in the same transaction, "
+        "recorded in protocol-burns.json with the signature behind every unit "
+        "and a statement of whether the total is exact or a floor.",
+    },
+    {
         "date": None,
         "status": "GATED",
         "title": "Phase 5 -- mainnet deploy, and revoking upgrade authority",
