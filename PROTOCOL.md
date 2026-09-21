@@ -254,12 +254,34 @@ Only the BURN leg needs a cranker. the SOL burn and OPS are pure routing.
 
 1. **Permissionless, gas-reimbursed.** Anyone may crank. Atomicity means a
    caller cannot profit by misbehaving. Removes the operator from the trust
-   equation entirely. *Preferred.*
+   equation entirely. *The end state, and not what runs today:* it needs
+   `crank_burn` and `crank_charlie_burn`, which are instructions of a program
+   that is not deployed to mainnet.
 2. **Pump's boost vault.** Fund it and pump's own authority does the buying and
    burning. Zero key on our side, but depends on pump agreeing to crank on a
    cadence — currently an open question.
 3. **Operator keeper.** Full cadence control, requires a hot key for gas, puts
-   the operator back in the trust equation. Fallback only.
+   the operator back in the trust equation. **This is what runs.** A scheduled
+   job holds the collection wallet's key, sweeps whatever has arrived, and
+   sends one transaction that buys $CHARLIE and burns it.
+
+**What the keeper does and does not cost you.** The buy and the SPL burn are
+instructions in the same transaction, built from pump's published IDL and
+simulated before signing, so a keeper cannot buy without burning — that is the
+transaction's own shape, not a promise. What a keeper *can* do is not call, or
+call with a worse lot. Both are visible afterwards: every landed burn is walked
+out of the wallet's own history into `protocol-burns.json`, keyed by signature,
+with the record stating whether its total is exact or a floor.
+
+So the leg is **auditable, not unredirectable**. A reader can check every unit
+that was burned; they cannot check that nothing was skipped, beyond the wallet's
+own transaction history being public. Option 1 is what closes that gap, and it
+is a deploy away rather than a redesign — nothing in the leg's definition says
+whose SOL it has to be.
+
+**What needs no cranker at all.** The SOL burn leg. pump pays the incinerator
+directly from a coin's sharing config and the runtime destroys it at the end of
+the block; 419 mainnet configs already do this. No program, no key, no schedule.
 
 ---
 
