@@ -74,9 +74,8 @@ _enrollable.json
 # and the wallet it names pays for every crank run.
 #
 # The glob, not just the literal name. `HANDOFF.md` alone missed
-# HANDOFF-2026-09-13.md, which names the same crank fee payer
-# on its line 41 and sat untracked-but-addable in a public
-# repository until it was noticed by hand. A dated successor is the normal
+# HANDOFF-2026-09-13.md, which names the same crank fee payer and sat
+# untracked-but-addable in a public repository until it was noticed by hand. A dated successor is the normal
 # way this file gets written, so the pattern has to cover the family rather
 # than the one name that existed when the rule was added.
 HANDOFF.md
