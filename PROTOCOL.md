@@ -261,17 +261,34 @@ Only the BURN leg needs a cranker. the SOL burn and OPS are pure routing.
    burning. Zero key on our side, but depends on pump agreeing to crank on a
    cadence — currently an open question.
 3. **Operator keeper.** Full cadence control, requires a hot key for gas, puts
-   the operator back in the trust equation. **This is what runs.** A scheduled
-   job holds the collection wallet's key, sweeps whatever has arrived, and
-   sends one transaction that buys $CHARLIE and burns it.
+   the operator back in the trust equation. **This is what runs — as two
+   separate keepers, against two different wallets, and they are not
+   interchangeable.**
+
+   * **A coin's own BURN leg is the dev's.** `/enroll`'s second row is a wallet
+     the dev holds; `indexer buyback <mint>` spends it on that coin and burns
+     what it bought. Charlie holds no key for it and cannot run it. The coin's
+     page records those burns as burned by hand and counts them toward supply
+     destroyed, naming the wallet an ordinary wallet rather than a protocol
+     burn, because that is what the chain shows.
+   * **The protocol's $CHARLIE leg is ours.** The collection wallet is
+     `TOLL_DESTINATION`, it receives the toll, and `indexer charlie-buyback`
+     spends it on $CHARLIE and burns it on a schedule. `buyback_routes` refuses
+     to let either command stand in for the other. **Only these burns are in
+     `protocol-burns.json`** — that record is the protocol's own spending, not
+     a measure of any enrolled coin's BURN leg.
 
 **What the keeper does and does not cost you.** The buy and the SPL burn are
 instructions in the same transaction, built from pump's published IDL and
 simulated before signing, so a keeper cannot buy without burning — that is the
-transaction's own shape, not a promise. What a keeper *can* do is not call, or
-call with a worse lot. Both are visible afterwards: every landed burn is walked
-out of the wallet's own history into `protocol-burns.json`, keyed by signature,
-with the record stating whether its total is exact or a floor.
+transaction's own shape, not a promise, and it holds for both keepers above.
+What a keeper *can* do is not call, or call with a worse lot. For the protocol's
+own leg that is visible afterwards: every landed burn is walked out of the
+collection wallet's history into `protocol-burns.json`, keyed by signature, with
+the record stating whether its total is exact or a floor. For a coin's own leg
+the evidence is the same shape but nobody publishes it for the dev — the burns
+appear on the coin's page because the burn walk records every burn against the
+mint, by anyone.
 
 So the leg is **auditable, not unredirectable**. A reader can check every unit
 that was burned; they cannot check that nothing was skipped, beyond the wallet's

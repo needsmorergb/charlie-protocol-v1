@@ -1,4 +1,49 @@
-# The LaunchLab rail: stock-paired launches with all four legs
+# The LaunchLab rail: stock-paired launches
+
+> **DECIDED 20 September 2026: the rail ships as a platform, with no program
+> of ours, and pays creators nothing.**
+>
+> Everything below section 1 was written for a different shape — a
+> `charlie-launchlab` program owning every fee stream and routing it through
+> four legs on chain. That program is not being built. It cost about 1.58 SOL
+> fitted (3.3 as the runbook prices it) and its whole job was to route the
+> creator's 0.50% to a PDA instead of a wallet.
+>
+> With the creator share at zero there is nothing of anyone else's to route.
+> Charlie is the platform, the platform fee lands in a vault Charlie's keys
+> own, and the burn legs run off chain from it exactly as they already do on
+> the pump rail — claim, swap the quote to SOL when a route exists, buy
+> $CHARLIE and burn it in one transaction. That is the shape StonkFun runs,
+> and its on-chain cost is the platform config account: about 0.03 SOL.
+>
+> What this gives up is the same thing it gives up everywhere else: the legs
+> are auditable rather than unredirectable (PROTOCOL.md sec.5). What it gives
+> up specifically here is paying creators, which is the price of not
+> custodying money owed to other people.
+>
+> Sections 2 onward are kept as the design that was costed and rejected, and
+> as the measured Raydium facts behind it, which remain true.
+>
+> **Two things this decision requires that do not exist yet, so nothing here
+> is shippable by following the runbook as written:**
+>
+> 1. **A platform-only setup path.** `tools/launchlab_mainnet_setup.py` deploys
+>    the abandoned program and calls its `create_raydium_platform`, which takes
+>    its rate from `CREATOR_FEE_RATE = 5_000` in `launchlab/src/lib.rs` — the
+>    old 0.50%. Run today it would create a platform charging 1.00% in total and
+>    route the creator share to program-owned accounts, contradicting the table
+>    below. The platform config has to be created directly against Raydium with
+>    a zero creator rate before the 0.50% figure describes anything real.
+> 2. **A platform-vault keeper.** Nothing shipped claims a Raydium platform fee
+>    and burns it. `launch-buyback.yml` spends the pump launch treasury against
+>    its ledger; `indexer/launchlab_keeper.py` claims fees only through the
+>    program that is not being deployed. The platform leg needs its own path:
+>    claim, swap the quote to SOL when a route exists, then buy $CHARLIE and
+>    burn it in one transaction. Until that exists the platform fee accrues in
+>    its vault and burns nothing.
+>
+> So the fee table below is the **target shape of this decision, not the
+> current behaviour of the tooling.**
 
 Branch `claude/custom-pairs`. Written 18 September 2026. Phase 3 in the
 order set in CUSTOM-PAIRS.md section 4: the pump SOL rail ships first, then
@@ -26,12 +71,22 @@ to protocol 0.250% + platform 1.000% = 1.250% of the quote amount.
 |---|---|---|---|---|
 | Raydium protocol | 0.25% (`tradeFeeRate` 2500 on the SPYx, NVDAx and SOL configs) | quote | Raydium | -- |
 | platform | **0.25%** | quote | Charlie platform fee vault | the Charlie leg |
-| creator | **0.50%** | quote | `creator_fee_vault[ll_collect(mint), quote]` | the dev's legs |
+| creator | **0%** (was 0.50%) | -- | -- | nothing: see the decision above |
 | referral ("share") | 0% possible | -- | -- | `maxShareFeeRate` is 0 on stock configs |
 
-Trader pays **1.00%**. StonkFun charges 1.25% and pays creators nothing.
+Trader pays **0.50%**: Raydium's 0.25% and the platform's 0.25%. StonkFun
+charges 1.25% and also pays creators nothing, so the comparison is a trader
+paying 0.50% here against 1.25% there for the same thing.
+
 On this rail the Charlie leg is exactly 0.25% of every curve trade, which is
-the house line stated literally.
+the house line stated literally -- and with the creator share at zero it is
+the only fee this project takes, so every lamport of it funds buying $CHARLIE
+and burning it.
+
+**What a dev gets for launching here, since it is no longer fee income:** a
+quote asset pump cannot pair against without the fee arriving in a Token-2022
+mint with a permanent delegate (CUSTOM-PAIRS.md sec.2), and a platform fee
+that burns rather than accrues to an operator.
 
 **After graduation** (Raydium CPMM, 0.25% tier, `cpswap_config` chosen at
 platform creation):
