@@ -536,28 +536,28 @@ class TestProtocolShare(unittest.TestCase):
         check = invariants.protocol_share(self._split(rows))
         self.assertEqual(check.status, invariants.PASS)
 
-    def test_paying_the_rate_without_the_incinerator_row_fails_and_names_it(self):
+    def test_paying_the_rate_without_the_incinerator_row_is_not_enrolled_and_names_it(self):
         rate = legs_module.TOLL_BPS
         buyback = dict(self._complete_legs(rate))[legs_module.LAUNCH_BUYBACK_DESTINATION]
         rows = [(self.TOLL, rate), (legs_module.LAUNCH_BUYBACK_DESTINATION, buyback)]
         rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
         check = invariants.protocol_share(self._split(rows))
-        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertEqual(check.actual, str(rate))
         self.assertIn("incinerator row", check.detail)
         self.assertIn(str(legs_module.min_incinerator_bps(rate)), check.detail)
-        self.assertEqual(invariants.enrollment_reading(check), invariants.UNDERPAYING)
+        self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
 
-    def test_paying_the_rate_without_the_buyback_row_fails_and_names_it(self):
+    def test_paying_the_rate_without_the_buyback_row_is_not_enrolled_and_names_it(self):
         rate = legs_module.TOLL_BPS
         incinerator = dict(self._complete_legs(rate))[legs_module.SOL_BURN_INCINERATOR]
         rows = [(self.TOLL, rate), (legs_module.SOL_BURN_INCINERATOR, incinerator)]
         rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
         check = invariants.protocol_share(self._split(rows))
-        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.status, invariants.UNCHECKED)
         self.assertEqual(check.actual, str(rate))
         self.assertIn(legs_module.LAUNCH_BUYBACK_DESTINATION, check.detail)
-        self.assertEqual(invariants.enrollment_reading(check), invariants.UNDERPAYING)
+        self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
 
     def test_a_complete_split_passes(self):
         rate = legs_module.TOLL_BPS

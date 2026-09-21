@@ -156,9 +156,11 @@ def protocol_share(split, mint: str | None = None) -> Check:
                       "check. Not enrolled is not a failed check",
                       expected=f">= {rate}", actual="0")
 
-    # It pays the protocol, so it is enrolling, and an enrolled coin carries
-    # the same legs as one made at /launch. Without them the coin claims an
-    # enrollment the chain does not support.
+    # It pays the protocol, but an enrolled coin carries the same legs as one
+    # made at /launch, and without them this coin is not enrolled. Not
+    # applicable rather than FAIL: a coin that enrolled before the legs rule
+    # followed the rules of its day and cannot change a permanent split, so
+    # it contradicts no claim. Its numeric `actual` reads not-enrolled.
     missing = legs.missing_legs(((a.address, a.bps) for a in split.attributions), rate) if paid >= rate else []
     if missing:
         lacks = {
@@ -166,9 +168,9 @@ def protocol_share(split, mint: str | None = None) -> Check:
             legs.BUYBACK_LEG: f"the shared buyback treasury row ({legs.LAUNCH_BUYBACK_DESTINATION})",
         }
         return _check(
-            "PROTOCOL_SHARE", FAIL, [], equation,
-            f"the split pays the protocol's collection wallet {destination} {paid} bps "
-            "but lacks what every enrolled coin carries: "
+            "PROTOCOL_SHARE", UNCHECKED, [], equation,
+            f"this coin is not enrolled: the split pays the protocol's collection wallet "
+            f"{destination} {paid} bps but lacks what every enrolled coin carries: "
             + " and ".join(lacks[leg] for leg in missing),
             expected=f">= {rate}, plus the incinerator and buyback treasury rows", actual=str(paid),
         )
@@ -221,7 +223,9 @@ def enrollment_reading(check, mint: str | None = None) -> str | None:
         return NOT_ENROLLED if actual in (None, "0") else UNDERPAYING
     if mint and mint in legs.ENROLLMENT_EXEMPT:
         return EXEMPT
-    if actual == "0":
+    # "0" pays nothing; any other number pays but lacks a leg. A closed door
+    # and an exempt coin carry no `actual`.
+    if actual is not None:
         return NOT_ENROLLED
     return CLOSED
 
