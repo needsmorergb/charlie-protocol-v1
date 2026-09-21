@@ -569,6 +569,47 @@ NON_FIGURE_EMITTERS = {
         "the signature it sent. Receipt data about one transaction the operator built; "
         "no coin-wide figure and no name in invariants.FIGURES"
     ),
+    # The two separated buy-and-burn routes (indexer/buyback_routes.py,
+    # BUYBACK.md) and the records that keep them honest. Same standing as
+    # buyback:run_keeper above -- an operator keeper, PROTOCOL.md sec.5
+    # option 3 -- with one addition: because the wallets are shared rather
+    # than PDAs, each route publishes a record so the spending is auditable
+    # without trusting a wallet balance. Those records are sums over
+    # individually opened transactions, not any of the five FIGURES.
+    "indexer.cli:_launch_buyback": (
+        "dispatches to buyback.crank_once() and prints through _print_result "
+        "(classified below), plus one stand-down line naming the lamports this "
+        "mint has been credited in state/launch-buybacks.jsonl. Ledger "
+        "bookkeeping for a shared treasury and per-transaction receipt data; "
+        "no coin-wide figure and no name in invariants.FIGURES"
+    ),
+    "indexer.cli:_launch_credit": (
+        "prints the creator-fee payout just appended to the treasury ledger -- "
+        "lamports and the payout's own signature, both checked on chain by the "
+        "operator before the row is written. An accounting entry about one "
+        "transfer, not a measurement of a coin"
+    ),
+    "indexer.launch_buybacks:_append": (
+        "serialises one ledger row to the append-only JSONL. The rows are "
+        "credits and debits against the shared treasury, each carrying the "
+        "signature that justifies it; the invariant they enforce is that a mint "
+        "cannot be bought with lamports another mint was credited, which is an "
+        "allocation control rather than a published figure"
+    ),
+    "indexer.protocol_burns:walk": (
+        "prints one line when a signature cannot be read, saying it will be "
+        "retried next run -- a note about a node's short history, no figure in it"
+    ),
+    "indexer.protocol_burns:main": (
+        "prints how many landed burns the wallet's own history yielded, how many "
+        "are new, and their total, then writes the same to web/protocol-burns.json. "
+        "The total is a sum over an append-only record keyed by signature, every "
+        "unit of it one transaction a reader can open -- and it is deliberately "
+        "NOT $CHARLIE's supply destroyed, which the record withholds because "
+        "BURN_SUPPLY gates it. It is one wallet's own spending on a mint that "
+        "cannot enroll, so it is not that coin's BURN_TOTAL either; no name in "
+        "invariants.FIGURES passes through it"
+    ),
     "indexer.cli:_print_result": (
         "prints buyback.run()'s result: the plan, the simulation's compute units, "
         "the signature if sent, and the burn instruction decoded from that one "
