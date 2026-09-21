@@ -226,6 +226,16 @@ jobs:
         run: |
           git config user.name  "charlie-publish"
           git config user.email "needsmorergb@users.noreply.github.com"
+          # The ledger is created by the first burn row, so before any launch
+          # has credited the treasury there is no file to stage. `git add` on
+          # a path that does not exist is a fatal error, not a no-op, which
+          # would turn every idle cycle red -- the hourly noise this file's
+          # header says to avoid, and it would land on the job whose red is
+          # supposed to mean "the treasury was spent and not recorded".
+          if [ ! -f state/launch-buybacks.jsonl ]; then
+            echo "no ledger yet: nothing has credited the treasury, so nothing was spent"
+            exit 0
+          fi
           git add state/launch-buybacks.jsonl
           if git diff --cached --quiet; then
             echo "no new burn rows"
