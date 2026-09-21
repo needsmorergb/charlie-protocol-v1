@@ -22,8 +22,8 @@ which was the program deploy.
 WHAT THIS DOES NOT DO. It does not make the platform fee burn. Fees accrue
 in `platform_fee_vault(platform_config, quote)` and stay there until
 something claims them, swaps the quote to SOL and buys and burns $CHARLIE.
-That keeper does not exist yet; this script prints the vault address it will
-need.
+The claim-to-SOL step is `indexer/platform_fees.py`, a library that no CLI
+or schedule calls yet; this script prints the vault address it reads.
 
     python -m tools.launchlab_platform --wallet <address>            # simulate
     python -m tools.launchlab_platform --keypair id.json --send      # send
