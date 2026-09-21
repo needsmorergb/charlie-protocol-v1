@@ -122,7 +122,15 @@ def read_pool(data: bytes) -> dict:
             "mint0": k(168), "mint1": k(200), "prog0": k(232), "prog1": k(264), "observation": k(296),
             "fees0": q(341) + q(357) + (q(397) if creator else 0),
             "fees1": q(349) + q(365) + (q(405) if creator else 0),
-            "enable_creator_fee": bool(data[390]) if creator else False}
+            "enable_creator_fee": bool(data[390]) if creator else False,
+            # 0 = both tokens, 1 = token0 only, 2 = token1 only.
+            "creator_fee_on": data[389] if creator else 0}
+
+
+def creator_fee_on_input(pool: dict, in_is_0: bool) -> bool:
+    """Whether the program takes the creator fee from the input or the output."""
+    on = pool["creator_fee_on"]
+    return on == 0 or (on == 1) == in_is_0
 
 
 def read_amm_config(data: bytes) -> dict:
@@ -160,8 +168,13 @@ def ix_swap_base_input(payer: str, pool_key: str, pool: dict, in_is_0: bool, use
 
 
 def quote_out(amount_in: int, reserve_in: int, reserve_out: int,
-              slippage_bps: int = DEFAULT_SLIPPAGE_BPS, *, fee_rate: int) -> int:
-    """The pool's fee off the input, constant product, then reduced by slippage.
+              slippage_bps: int = DEFAULT_SLIPPAGE_BPS, *, fee_rate: int,
+              creator_fee_rate: int = 0, creator_fee_on_input: bool = True) -> int:
+    """The pool's fees, constant product, then reduced by slippage.
+
+    The trade fee comes off the input. A creator fee comes off whichever side
+    the pool names. Each fee is rounded up on its own, so the bound is never
+    above what the program pays out.
 
     No oracle. The four-leg design needed one because a permissionless caller
     picked the route and had to be stopped from picking a bad price; here the
@@ -173,11 +186,18 @@ def quote_out(amount_in: int, reserve_in: int, reserve_out: int,
     """
     if amount_in <= 0 or reserve_in <= 0 or reserve_out <= 0:
         raise PlatformFeeError("a swap needs a positive amount and a pool with both sides funded")
-    if not 0 <= fee_rate < FEE_RATE_DENOMINATOR:
-        raise PlatformFeeError(f"fee rate {fee_rate} is not a CPMM fee rate")
-    fee = -(-amount_in * fee_rate // FEE_RATE_DENOMINATOR)  # rounded up, as the program does
-    net = amount_in - fee
+    for rate in (fee_rate, creator_fee_rate):
+        if not 0 <= rate < FEE_RATE_DENOMINATOR:
+            raise PlatformFeeError(f"fee rate {rate} is not a CPMM fee rate")
+    ceil_fee = lambda amount, rate: -(-amount * rate // FEE_RATE_DENOMINATOR)  # noqa: E731
+    net = amount_in - ceil_fee(amount_in, fee_rate)
+    if creator_fee_on_input:
+        net -= ceil_fee(amount_in, creator_fee_rate)
+    if net <= 0:
+        raise PlatformFeeError(f"{amount_in} does not cover the pool's fees")
     out = reserve_out * net // (reserve_in + net)
+    if not creator_fee_on_input:
+        out -= ceil_fee(out, creator_fee_rate)
     return out * (10_000 - slippage_bps) // 10_000
 
 
@@ -233,10 +253,11 @@ def plan(rpc, admin: str, quote_mint: str, *, pool_key: str | None = None,
         if infos[2] is None:
             raise PlatformFeeError(f"amm config {pool['amm_config']} does not exist")
         amm = read_amm_config(base64.b64decode(infos[2]["data"][0]))
-        # A creator fee may come off either side depending on the pool; taking
-        # it off the input is within a rounding step of either, and never high.
-        fee_rate = amm["trade_fee_rate"] + (amm["creator_fee_rate"] if pool["enable_creator_fee"] else 0)
-        min_out = quote_out(held, reserve_in, reserve_out, slippage_bps, fee_rate=fee_rate)
+        fee_rate = amm["trade_fee_rate"]
+        creator_rate = amm["creator_fee_rate"] if pool["enable_creator_fee"] else 0
+        min_out = quote_out(held, reserve_in, reserve_out, slippage_bps, fee_rate=fee_rate,
+                            creator_fee_rate=creator_rate,
+                            creator_fee_on_input=creator_fee_on_input(pool, in_is_0))
         if min_out < MIN_CLAIM_LAMPORTS:
             out["notes"].append(
                 f"nothing to claim: {held} {quote_mint} would end as {min_out} lamports, "

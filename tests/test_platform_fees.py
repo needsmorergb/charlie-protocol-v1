@@ -130,6 +130,30 @@ class TestTheSwap(unittest.TestCase):
         with self.assertRaises(TypeError):
             pf.quote_out(1_000, 1_000_000, 5_000)  # noqa
 
+    def test_each_fee_is_rounded_up_on_its_own(self):
+        # 1,000,001 at 2500 and at 500: 2500.0025 -> 2501 and 500.0005 -> 501.
+        # Rounding the 3000 sum once would give 3001, one unit short.
+        net = 1_000_001 - 2_501 - 501
+        exact = 5_000_000_000 * net // (1_000_000_000_000 + net)
+        self.assertEqual(pf.quote_out(1_000_001, 1_000_000_000_000, 5_000_000_000, 0,
+                                      fee_rate=2_500, creator_fee_rate=500), exact)
+
+    def test_a_creator_fee_on_the_output_comes_off_the_sol(self):
+        net = 1_000_000 - 2_500
+        gross = 5_000_000_000 * net // (1_000_000_000_000 + net)
+        exact = gross - (-(-gross * 500 // 1_000_000))
+        self.assertEqual(pf.quote_out(1_000_000, 1_000_000_000_000, 5_000_000_000, 0, fee_rate=2_500,
+                                      creator_fee_rate=500, creator_fee_on_input=False), exact)
+
+    def test_the_creator_fee_side_follows_the_pool(self):
+        both, only0, only1 = ({"creator_fee_on": n} for n in (0, 1, 2))
+        self.assertTrue(pf.creator_fee_on_input(both, True))
+        self.assertTrue(pf.creator_fee_on_input(both, False))
+        self.assertTrue(pf.creator_fee_on_input(only0, True))
+        self.assertFalse(pf.creator_fee_on_input(only0, False))
+        self.assertFalse(pf.creator_fee_on_input(only1, True))
+        self.assertTrue(pf.creator_fee_on_input(only1, False))
+
     def test_the_amm_config_fee_is_read_from_offset_12(self):
         amm = pf.read_amm_config(base64.b64decode(_amm_config(3_000, 500)["data"][0]))
         self.assertEqual(amm, {"trade_fee_rate": 3_000, "creator_fee_rate": 500})
