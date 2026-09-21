@@ -68,7 +68,7 @@ class _Curve:
 TOLL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 REAL_TOLL = api_enroll.enroll.legs.TOLL_DESTINATION
 # A split that carries the protocol's share, as every enrolled one must.
-SPLIT = f"{TOLL}:2500,{BURN}:2000,{ADMIN}:5500"
+SPLIT = f"{TOLL}:2500,{BURN}:2000,{legs.LAUNCH_BUYBACK_DESTINATION}:500,{ADMIN}:5000"
 
 
 _REAL_OPEN = os.environ.get(api_enroll.OPEN_ENV)

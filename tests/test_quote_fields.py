@@ -130,7 +130,9 @@ class _Curve:
 def _split(burn=True):
     rows = [enroll.Share(TOLL, enroll.TOLL_BPS)]
     if burn:
-        rows += [enroll.Share(BURN, 2000), enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS - 2000)]
+        rows += [enroll.Share(BURN, 2000),
+                 enroll.Share(enroll.legs.LAUNCH_BUYBACK_DESTINATION, 500),
+                 enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS - 2000 - 500)]
     else:
         rows += [enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS)]
     return rows
@@ -169,6 +171,18 @@ class TestPreflightRefusals(unittest.TestCase):
     def test_usdc_passes_when_open(self):
         enroll.NON_SOL_ENROLLMENT_OPEN = True
         enroll.preflight(None, ADMIN, _split(burn=False), curve=_Curve(quote_mint=enroll.USDC_MINT))
+
+    def test_a_usdc_paired_curve_is_not_held_to_the_sol_legs(self):
+        # `require_legs` only applies when `curve.quote_mint` is None (a
+        # SOL-paired coin, or no curve at all). A USDC pair has nowhere to
+        # carry a SOL-burn incinerator row, and the shared buyback treasury
+        # is SOL-only too, so a split that a SOL-paired coin would be refused
+        # for lacking both still has to pass here -- only the toll matters.
+        enroll.NON_SOL_ENROLLMENT_OPEN = True
+        rows = [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS)]
+        self.assertEqual(enroll.legs.missing_legs((r.address, r.bps) for r in rows),
+                         [enroll.legs.INCINERATOR_LEG, enroll.legs.BUYBACK_LEG])
+        enroll.preflight(None, ADMIN, rows, curve=_Curve(quote_mint=enroll.USDC_MINT))
 
     def test_quote_accounts(self):
         self.assertEqual(enroll.quote_accounts(_Curve())["quote_mint"], enroll.WSOL_MINT)

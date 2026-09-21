@@ -46,7 +46,8 @@ class _Config:
 
 def _split():
     return [enroll.Share(TOLL, enroll.TOLL_BPS), enroll.Share(BURN, 2000),
-            enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS - 2000)]
+            enroll.Share(enroll.legs.LAUNCH_BUYBACK_DESTINATION, 500),
+            enroll.Share(ADMIN, 10000 - enroll.TOLL_BPS - 2000 - 500)]
 
 
 def setUpModule():
@@ -315,6 +316,48 @@ class TestTheToll(unittest.TestCase):
         self.assertEqual(enroll.legs.required_bps(legacy), 500)
         self.assertEqual(enroll.legs.required_bps("some-other-coin"), 2500)
         self.assertEqual(enroll.legs.lowest_required_bps(), 500)
+
+
+class TestTheOtherLegs(unittest.TestCase):
+    """Every enrolled split carries the incinerator row and the shared
+    buyback treasury row, on top of the protocol's own share. `preflight`
+    refuses a SOL-paired split missing either."""
+
+    _UNSET = object()
+
+    def _rows(self, incinerator=_UNSET, buyback=_UNSET):
+        incinerator = enroll.legs.min_incinerator_bps() if incinerator is self._UNSET else incinerator
+        buyback = 500 if buyback is self._UNSET else buyback
+        rows = [enroll.Share(TOLL, enroll.TOLL_BPS)]
+        if incinerator is not None:
+            rows.append(enroll.Share(BURN, incinerator))
+        if buyback is not None:
+            rows.append(enroll.Share(enroll.legs.LAUNCH_BUYBACK_DESTINATION, buyback))
+        spent = sum(share.bps for share in rows)
+        rows.append(enroll.Share(ADMIN, 10_000 - spent))
+        return rows
+
+    def test_refuses_a_split_with_no_incinerator_row(self):
+        with self.assertRaises(enroll.EnrollError) as caught:
+            enroll.preflight(_Config(), ADMIN, self._rows(incinerator=None), curve=_Curve())
+        self.assertIn("incinerator", str(caught.exception))
+
+    def test_refuses_one_below_the_floor(self):
+        with self.assertRaises(enroll.EnrollError) as caught:
+            enroll.preflight(_Config(), ADMIN,
+                             self._rows(incinerator=enroll.legs.min_incinerator_bps() - 1),
+                             curve=_Curve())
+        self.assertIn("incinerator", str(caught.exception))
+
+    def test_refuses_one_with_no_buyback_treasury_row(self):
+        with self.assertRaises(enroll.EnrollError) as caught:
+            enroll.preflight(_Config(), ADMIN, self._rows(buyback=None), curve=_Curve())
+        self.assertIn("buyback", str(caught.exception))
+
+    def test_accepts_one_with_exactly_the_floor(self):
+        enroll.preflight(_Config(), ADMIN,
+                         self._rows(incinerator=enroll.legs.min_incinerator_bps()),
+                         curve=_Curve())
 
 
 class TestCreatingTheConfig(unittest.TestCase):

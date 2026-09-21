@@ -307,6 +307,22 @@ the block; 419 mainnet configs already do this. No program, no key, no schedule.
 Permissionless. A coin enrolls by pointing fee shares at protocol
 destinations; nothing is granted, approved, or gatekept.
 
+**Both doors set the same legs.** Amended 2026-09-21: a split that `/enroll`
+builds carries the same fixed rows as one that `/launch` builds, and an
+enrolled coin is one whose split carries all three:
+
+1. the protocol row, 0.25% of each transaction, to `TOLL_DESTINATION`;
+2. Solana's incinerator, at no less than 1% of what is left after the
+   protocol row (`legs.min_incinerator_bps`);
+3. the shared launch buyback treasury, `LAUNCH_BUYBACK_DESTINATION`, at a
+   share the dev chooses.
+
+The rest of the split is the dev's. One rule, `legs.missing_legs`, backs the
+refusal at both doors and the `PROTOCOL_SHARE` check, so a coin that pays the
+protocol but lacks a leg reads as not enrolled. USDC-paired coins are
+excluded from the legs, because the incinerator only destroys lamports; that
+enrollment stays parked (CUSTOM-PAIRS.md).
+
 Every coin — enrolled or not — is measured from public chain data alone, and
 the report separates **the fact** from **the judgment**:
 

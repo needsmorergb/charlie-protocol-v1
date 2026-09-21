@@ -501,9 +501,18 @@ class TestProtocolShare(unittest.TestCase):
     def _split(self, holders):
         return split_of(type("Cfg", (), {"mint": CHARLIE, "shareholders": tuple(holders)})(), Registry())
 
+    def _complete_legs(self, rate):
+        """The incinerator and buyback rows every enrolled split carries,
+        sized against `rate` so the incinerator clears its floor."""
+        floor = legs_module.min_incinerator_bps(rate)
+        return [(legs_module.SOL_BURN_INCINERATOR, floor + 25),
+                (legs_module.LAUNCH_BUYBACK_DESTINATION, 100)]
+
     def test_a_split_paying_the_share_passes_and_names_the_wallet(self):
         rate = legs_module.TOLL_BPS
-        check = invariants.protocol_share(self._split([(self.TOLL, rate), (WALLET, 10000 - rate)]))
+        rows = [(self.TOLL, rate), *self._complete_legs(rate)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
         self.assertEqual(check.status, invariants.PASS)
         self.assertIn(self.TOLL, check.detail)
         self.assertEqual(check.actual, str(rate))
@@ -512,17 +521,69 @@ class TestProtocolShare(unittest.TestCase):
         """Its split is permanent, so it could not pay a newer rate."""
         legacy = next(iter(legs_module.ENROLLED_AT))
         old = legs_module.ENROLLED_AT[legacy]
+        rows = [(self.TOLL, old), *self._complete_legs(old)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
         split = split_of(type("Cfg", (), {"mint": legacy,
-                                          "shareholders": ((self.TOLL, old), (WALLET, 10000 - old))})(),
+                                          "shareholders": tuple(rows)})(),
                          Registry())
         self.assertEqual(invariants.protocol_share(split, legacy).status, invariants.PASS)
         self.assertEqual(invariants.protocol_share(split, "another-coin").status, invariants.FAIL)
 
     def test_more_than_the_rate_still_passes(self):
-        check = invariants.protocol_share(
-            self._split([(self.TOLL, legs_module.TOLL_BPS + 1000),
-                         (WALLET, 9000 - legs_module.TOLL_BPS)]))
+        paid = legs_module.TOLL_BPS + 1000
+        rows = [(self.TOLL, paid), *self._complete_legs(legs_module.TOLL_BPS)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
         self.assertEqual(check.status, invariants.PASS)
+
+    def test_paying_the_rate_without_the_incinerator_row_fails_and_names_it(self):
+        rate = legs_module.TOLL_BPS
+        buyback = dict(self._complete_legs(rate))[legs_module.LAUNCH_BUYBACK_DESTINATION]
+        rows = [(self.TOLL, rate), (legs_module.LAUNCH_BUYBACK_DESTINATION, buyback)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.actual, str(rate))
+        self.assertIn("incinerator row", check.detail)
+        self.assertIn(str(legs_module.min_incinerator_bps(rate)), check.detail)
+        self.assertEqual(invariants.enrollment_reading(check), invariants.UNDERPAYING)
+
+    def test_paying_the_rate_without_the_buyback_row_fails_and_names_it(self):
+        rate = legs_module.TOLL_BPS
+        incinerator = dict(self._complete_legs(rate))[legs_module.SOL_BURN_INCINERATOR]
+        rows = [(self.TOLL, rate), (legs_module.SOL_BURN_INCINERATOR, incinerator)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(check.status, invariants.FAIL)
+        self.assertEqual(check.actual, str(rate))
+        self.assertIn(legs_module.LAUNCH_BUYBACK_DESTINATION, check.detail)
+        self.assertEqual(invariants.enrollment_reading(check), invariants.UNDERPAYING)
+
+    def test_a_complete_split_passes(self):
+        rate = legs_module.TOLL_BPS
+        rows = [(self.TOLL, rate), *self._complete_legs(rate)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(check.status, invariants.PASS)
+        self.assertEqual(invariants.enrollment_reading(check), invariants.ENROLLED)
+
+    def test_the_grandfathered_coin_s_floor_uses_its_own_rate(self):
+        """The incinerator's floor is 1% of what is LEFT after the protocol
+        row, so a coin grandfathered at a lower rate has a different floor
+        than one paying today's rate -- and it is its own, not today's."""
+        legacy = next(iter(legs_module.ENROLLED_AT))
+        old = legs_module.ENROLLED_AT[legacy]
+        legacy_floor = legs_module.min_incinerator_bps(old)
+        current_floor = legs_module.min_incinerator_bps(legs_module.TOLL_BPS)
+        self.assertNotEqual(legacy_floor, current_floor)
+        # Exactly the legacy floor, which is below today's: passes for the
+        # legacy coin at its own rate.
+        rows = [(self.TOLL, old), (legs_module.SOL_BURN_INCINERATOR, legacy_floor),
+                (legs_module.LAUNCH_BUYBACK_DESTINATION, 100)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        split = split_of(type("Cfg", (), {"mint": legacy, "shareholders": tuple(rows)})(),
+                         Registry())
+        self.assertEqual(invariants.protocol_share(split, legacy).status, invariants.PASS)
 
     def test_less_than_the_rate_fails(self):
         check = invariants.protocol_share(self._split([(self.TOLL, 100), (WALLET, 9900)]))
@@ -542,7 +603,9 @@ class TestProtocolShare(unittest.TestCase):
 
     def test_the_five_readings(self):
         toll, wallet = self.TOLL, WALLET
-        paid = invariants.protocol_share(self._split([(toll, legs_module.TOLL_BPS), (wallet, 10_000 - legs_module.TOLL_BPS)]))
+        rows = [(toll, legs_module.TOLL_BPS), *self._complete_legs(legs_module.TOLL_BPS)]
+        rows.append((wallet, 10_000 - sum(bps for _addr, bps in rows)))
+        paid = invariants.protocol_share(self._split(rows))
         under = invariants.protocol_share(self._split([(toll, 100), (wallet, 9900)]))
         none = invariants.protocol_share(self._split([(wallet, 10_000)]))
         exempt_mint = next(iter(legs_module.ENROLLMENT_EXEMPT))
