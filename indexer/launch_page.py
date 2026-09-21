@@ -37,7 +37,7 @@ _SCRIPT = r"""
 var state = {wallet: null, toll: null, buyback: null, open: false, uri: null, built: null, mint: null,
   createSig: null, splitSig: null, enroll: null, revision: 0, busy: false, locked: false, phase: 'draft'};
 var INCINERATOR = '1nc1nerator11111111111111111111111111111111';
-var BUYBACK_TREASURY = '5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp';
+var BUYBACK_TREASURY = '6BHusg5vZoagPDMe5xZzPhLSvkHiKcWwELYzwbMG7Bjo';
 function $(id) { return document.getElementById(id); }
 function say(id, msg, kind) {
   var n = $(id); n.textContent = msg; n.className = 'note ' + (kind || '');
