@@ -1,0 +1,240 @@
+# The burn cranks: the two legs that need somebody to call them.
+#
+# PROTOCOL.md sec.5 lists three crankers and prefers the permissionless one.
+# That one needs an on-chain crank spending a PDA, and no such instruction
+# exists (`crank_burn` and `crank_charlie_burn` are named in FEE-ROUTING.md
+# and written nowhere). So this is option 3, the operator keeper, which the
+# spec calls a fallback and states the cost of plainly: a hot key decides
+# whether the burn happens, and the operator is back in the trust equation.
+#
+# What that buys is that both legs run at all. `indexer/protocol_burns.py`
+# already refers to this file by name -- "burn.yml spends that on $CHARLIE
+# and burns it in the same transaction" -- so the record half of the loop was
+# written against a crank that had not been.
+#
+# WHAT IS AND IS NOT TRUSTED HERE. The buy and the SPL burn are instructions
+# in the same transaction, built from pump's published IDL and simulated
+# before signing, so a keeper cannot buy without burning: that much is the
+# transaction's own shape and not a promise. What a keeper CAN do is not
+# call, or call with a worse lot. Both are visible after the fact -- the
+# $CHARLIE leg's landed burns are walked out of the wallet's own history by
+# `indexer.protocol_burns`, and the launch leg's are bounded by an
+# append-only ledger this job commits. Neither is the absence guarantee the
+# program would have given. It is the weaker claim, published.
+#
+# COST. A crank that finds nothing to spend builds no transaction and sends
+# nothing, so an idle cycle is free and a green run: `--sweep` reads the
+# balance, sees it is below the minimum lot, prints why and exits 0. A crank
+# that does land pays 5,000 lamports plus whatever priority fee is set. That
+# is the whole running cost of both burn legs.
+#
+# MAINNET. Unlike `keeper.yml`, which is devnet-only, these secrets are
+# mainnet keys holding fee income. They are written to the runner, used, and
+# deleted in the same job. Never generate or commit one here; the owner
+# rotates a key by replacing the secret. `.gitignore` covers `keeper.json`
+# and `*keypair*.json` so a key that lands in the workspace cannot be
+# committed by a later step in this file.
+name: burn
+
+on:
+  schedule:
+    # Hourly, offset from keeper.yml (:17) and publish.yml (05:41) so the
+    # three do not contend. GitHub's scheduler is best-effort on a busy
+    # hour and has been observed running this repository's crons every
+    # five to six hours rather than every one. That is tolerable precisely
+    # because an idle cycle costs nothing: the leg is "burn what has
+    # arrived", not "burn on the hour".
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "build and simulate, sign nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two cranks at once would both read the same balance and the second
+  # would spend against a lot that is already gone. The ledger would catch
+  # it on the launch leg; nothing would catch it on the $CHARLIE leg.
+  group: burn
+  cancel-in-progress: false
+
+# The launch leg commits its ledger row and the $CHARLIE leg commits the
+# regenerated public record. Both are the published half of the claim.
+permissions:
+  contents: write
+
+jobs:
+  # ----------------------------------------------------------------------
+  # The protocol's own leg: the collection wallet's SOL buys $CHARLIE and
+  # burns it. Swept rather than fixed-lot, because this wallet fills itself
+  # from every enrolled coin's creator fee and arrives as dust -- a fixed
+  # 0.05 lot would stand down forever on a wallet holding 0.049.
+  # ----------------------------------------------------------------------
+  charlie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch' || vars.BURN_CHARLIE_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No install step. Standard library only, on purpose.
+
+      # A dry run needs no key: the plan is built and simulated against the
+      # wallet's real balance, and nothing is signed. The address is not a
+      # secret -- it is compiled into `legs.TOLL_DESTINATION` and printed on
+      # the site -- so it is read from the source rather than configured,
+      # which also means this step cannot simulate against the wrong wallet.
+      - name: Simulate one crank
+        if: ${{ inputs.dry_run }}
+        run: |
+          python -m indexer charlie-buyback --sweep \
+            --wallet "$(python -c 'from indexer import legs; print(legs.TOLL_DESTINATION)')"
+
+      - name: Run one crank
+        id: crank
+        if: ${{ !inputs.dry_run }}
+        env:
+          BURN_KEYPAIR: ${{ secrets.CHARLIE_BURN_KEYPAIR }}
+          PRIORITY_FEE: ${{ vars.BURN_PRIORITY_FEE || '0' }}
+        run: |
+          if [ -z "$BURN_KEYPAIR" ]; then
+            echo "::error::CHARLIE_BURN_KEYPAIR is not set; nothing to sign with."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$BURN_KEYPAIR" > keeper.json
+          trap 'shred -u keeper.json 2>/dev/null || rm -f keeper.json' EXIT
+          python -m indexer charlie-buyback --sweep \
+            --keypair keeper.json --send \
+            --priority-fee "$PRIORITY_FEE"
+
+      # The record is walked out of the wallet's own transaction history
+      # rather than written from what this job thinks it did, so a crank
+      # that landed after a timeout is still counted and a crank that
+      # reverted is not. Append-only and keyed by signature: a short RPC
+      # history can never shrink it.
+      - name: Update the public burn record
+        if: ${{ !inputs.dry_run && success() }}
+        run: python -m indexer.protocol_burns --out web
+
+      - name: Commit the record
+        if: ${{ !inputs.dry_run && success() }}
+        run: |
+          git config user.name  "charlie-publish"
+          git config user.email "needsmorergb@users.noreply.github.com"
+          # The one path, named. Never `git add -A` in this repository:
+          # the runner's workspace holds a keypair file for the length of
+          # the job above, and the handoffs are ignored rather than absent.
+          git add web/protocol-burns.json
+          if git diff --cached --quiet; then
+            echo "no new landed burn to record"
+            exit 0
+          fi
+          git commit -m "burn: record the \$CHARLIE buy-and-burn"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "$GITHUB_REF_NAME" && git push && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "::error::the burn record was not pushed"
+          exit 1
+
+  # ----------------------------------------------------------------------
+  # The launch leg: each launched token bought and burned out of the shared
+  # treasury, and never past what that mint was credited. The ledger is the
+  # allocation control (BUYBACK.md), so a run that cannot commit its row
+  # has to be treated as a run that should not have spent.
+  # ----------------------------------------------------------------------
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' || vars.BURN_LAUNCH_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Which mints have credit worth spending. A missing ledger is the
+      # normal state before the first launch credits the treasury, not an
+      # error: no file, no mints, nothing to do, green.
+      - name: Which mints have credit
+        id: mints
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from indexer import buyback, launch_buybacks
+          rows = launch_buybacks.summary()
+          spendable = sorted(
+              mint for mint, entry in rows.items()
+              if entry["available_lamports"] >= buyback.MIN_LOT_LAMPORTS
+          )
+          print("mints=" + " ".join(spendable))
+          PY
+
+      - name: Crank each credited mint
+        if: ${{ !inputs.dry_run && steps.mints.outputs.mints != '' }}
+        env:
+          TREASURY_KEYPAIR: ${{ secrets.LAUNCH_TREASURY_KEYPAIR }}
+          PRIORITY_FEE: ${{ vars.BURN_PRIORITY_FEE || '0' }}
+          MINTS: ${{ steps.mints.outputs.mints }}
+        run: |
+          if [ -z "$TREASURY_KEYPAIR" ]; then
+            echo "::error::LAUNCH_TREASURY_KEYPAIR is not set; nothing to sign with."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$TREASURY_KEYPAIR" > keeper.json
+          trap 'shred -u keeper.json 2>/dev/null || rm -f keeper.json' EXIT
+          # One mint per transaction, and one failure does not skip the
+          # rest: a pool that cannot be quoted right now is this mint's
+          # problem, and the others have credit waiting either way. The
+          # failures are collected and the job ends red so nobody reads a
+          # partial run as a complete one.
+          failed=""
+          for mint in $MINTS; do
+            echo "--- $mint"
+            python -m indexer launch-buyback "$mint" \
+              --keypair keeper.json --send \
+              --priority-fee "$PRIORITY_FEE" || failed="$failed $mint"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::cranks failed for:$failed"
+            exit 1
+          fi
+
+      - name: Simulate each credited mint
+        if: ${{ inputs.dry_run && steps.mints.outputs.mints != '' }}
+        env:
+          MINTS: ${{ steps.mints.outputs.mints }}
+        run: |
+          treasury="$(python -c 'from indexer import legs; print(legs.LAUNCH_BUYBACK_DESTINATION)')"
+          for mint in $MINTS; do
+            echo "--- $mint"
+            python -m indexer launch-buyback "$mint" --wallet "$treasury"
+          done
+
+      # `always()`: a run that spent on three mints and failed on the fourth
+      # has three ledger rows on disk that are true. Losing them because the
+      # job is red would leave the treasury spent with no record of what it
+      # was spent on, which is the one failure this ledger exists to prevent.
+      - name: Commit the ledger
+        if: ${{ !inputs.dry_run && always() }}
+        run: |
+          git config user.name  "charlie-publish"
+          git config user.email "needsmorergb@users.noreply.github.com"
+          git add state/launch-buybacks.jsonl
+          if git diff --cached --quiet; then
+            echo "no new burn rows"
+            exit 0
+          fi
+          git commit -m "burn: record launch-treasury buy-and-burns"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "$GITHUB_REF_NAME" && git push && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "::error::ledger rows were written but not pushed -- the treasury is spent and unrecorded"
+          exit 1
