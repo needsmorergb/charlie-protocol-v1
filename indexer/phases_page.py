@@ -195,7 +195,15 @@ _PHASES = (
         "n": 5,
         "title": "Mainnet deploy, and revoking upgrade authority",
         "landed": None,
-        "what": "The absence-of-code guarantee only means anything once the "
+        "what": "Mainnet operations began on 2026-09-18: /launch and /enroll "
+        "are live, coins enrol by spending pump's one sharing-config change on "
+        "the protocol's destinations, and the BURN leg has bought and burned "
+        "$CHARLIE in a landed transaction. None of that is this phase. "
+        "Enrolment routes fees through pump's own config and needs no program "
+        "of ours -- the SOL burn leg pays Solana's incinerator directly, as 419 "
+        "sharing configs on mainnet already do. This phase is the protocol "
+        "program itself on mainnet, and then the door that makes its absences "
+        "permanent. The absence-of-code guarantee only means anything once the "
         "program is immutable, and revoking upgrade authority is a one-way "
         "door that freezes every bug permanently. So the order is: deploy "
         "upgradeable, run the whole pipeline in production against one live "
@@ -208,18 +216,19 @@ _PHASES = (
         "gates": ("BURN_SPEND", "BURN_ATOMIC"),
         "stated": "GATED",
         # TARGETS ARE COMMITMENTS. Set these yourself; nothing generates them.
-        # `target` is when the criterion above is expected to be met, which is
-        # NOT the deploy date -- deploying is not the criterion, the two checks
-        # returning a verdict is, and they cannot settle until a coin has been
-        # through the pipeline on mainnet. `depends_on` is what a reader should
-        # watch to judge whether the target is realistic.
-        "target": "2026-09-25",
-        "target_set": "2026-09-13",
-        "depends_on": "the mainnet deploy, then one live coin through the "
-        "whole pipeline. The deploy is targeted for 2026-09-18 and is tracked "
-        "in the build log, not here, because a deploy is an event and this "
-        "page grades criteria.",
-        "blocked_by": None,
+        #
+        # There is no target here any more, and its absence is the honest
+        # state rather than an omission. The 2026-09-25 target set on
+        # 2026-09-13 rested on a deploy expected on the 18th; the deploy is
+        # priced and unfunded, and a date on an unfunded deliverable is a
+        # schedule this project cannot keep. It would also have aged into
+        # SLIPPED, which this page colours as a failure -- correctly, and for
+        # a reason that was never about the engineering.
+        "blocked_by": "funding. The deploy is priced in the build log and has "
+        "not been paid for. The final figure will be lower than the one "
+        "published there -- the allocation can be fitted to the program rather "
+        "than doubled -- but it is not known yet, because it depends on the "
+        "compiled size and crank_burn and crank_charlie_burn are not written.",
     },
 )
 
