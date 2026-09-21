@@ -221,7 +221,7 @@ TOLL_DESTINATION: str | None = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
 
 # Shared, separately keyed treasury for launch-token buybacks. A launch's
 # creator chooses its allocation; the address itself cannot be substituted.
-LAUNCH_BUYBACK_DESTINATION: str = "5F5XohccZT7ZSJ1cEn8pXh5kFL7rEoaAzDqWBuwJCwUp"
+LAUNCH_BUYBACK_DESTINATION: str = "6BHusg5vZoagPDMe5xZzPhLSvkHiKcWwELYzwbMG7Bjo"
 
 # Coins the enrollment check does not apply to, and why.
 #
