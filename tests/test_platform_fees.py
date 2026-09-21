@@ -22,6 +22,10 @@ POOL = "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
 SPYX = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
 VAULT0 = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
 VAULT1 = "8HoQnePLqPj4M7PUDzfw8e3Ymdwgc7NLGnaTUapubyvu"
+AMM_CONFIG = "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2"
+# 1M USDC against 5,000 SOL: about $200 a SOL.
+RESERVE_USDC = 1_000_000_000_000
+RESERVE_SOL = 5_000_000_000_000
 
 
 def _token_account(mint: str, amount: int) -> dict:
@@ -32,11 +36,11 @@ def _token_account(mint: str, amount: int) -> dict:
     return {"owner": TOKEN, "data": [base64.b64encode(bytes(data)).decode(), "base64"]}
 
 
-def _pool_account(mint0: str, mint1: str) -> dict:
-    data = bytearray(400)
+def _pool_account(mint0: str, mint1: str, fees0: int = 0, fees1: int = 0) -> dict:
+    data = bytearray(637)
     def put(off, key):
         data[off:off + 32] = pubkey_bytes(key)
-    put(8, "11111111111111111111111111111111")   # amm_config
+    put(8, AMM_CONFIG)
     put(72, VAULT0)
     put(104, VAULT1)
     put(136, POOL)
@@ -45,6 +49,21 @@ def _pool_account(mint0: str, mint1: str) -> dict:
     put(232, TOKEN)
     put(264, TOKEN)
     put(296, POOL)
+    # protocol fees at 341/349, fund 357/365, creator 397/405: split the
+    # counter across all three so a decoder that skips one is caught.
+    for side, total in ((0, fees0), (1, fees1)):
+        a, b = total // 3, total // 3
+        struct.pack_into("<Q", data, 341 + 8 * side, a)
+        struct.pack_into("<Q", data, 357 + 8 * side, b)
+        struct.pack_into("<Q", data, 397 + 8 * side, total - a - b)
+    return {"owner": pf.CPMM, "data": [base64.b64encode(bytes(data)).decode(), "base64"]}
+
+
+def _amm_config(trade_fee_rate: int, creator_fee_rate: int = 0) -> dict:
+    data = bytearray(236)
+    struct.pack_into("<Q", data, 12, trade_fee_rate)
+    struct.pack_into("<Q", data, 20, 120_000)   # protocol share of the fee, not a swap rate
+    struct.pack_into("<Q", data, 108, creator_fee_rate)
     return {"owner": pf.CPMM, "data": [base64.b64encode(bytes(data)).decode(), "base64"]}
 
 
@@ -92,13 +111,33 @@ class TestTheSwap(unittest.TestCase):
     def test_the_constant_product_is_reduced_by_slippage(self):
         # 1e6 in against reserves 1e12 / 5e9: out is ~4999 before slippage.
         exact = 5_000_000_000 * 1_000_000 // (1_000_000_000_000 + 1_000_000)
-        self.assertEqual(pf.quote_out(1_000_000, 1_000_000_000_000, 5_000_000_000, 0), exact)
-        self.assertEqual(pf.quote_out(1_000_000, 1_000_000_000_000, 5_000_000_000, 100),
+        self.assertEqual(pf.quote_out(1_000_000, 1_000_000_000_000, 5_000_000_000, 0, fee_rate=0), exact)
+        self.assertEqual(pf.quote_out(1_000_000, 1_000_000_000_000, 5_000_000_000, 100, fee_rate=0),
                          exact * 9_900 // 10_000)
 
     def test_an_unfunded_pool_is_refused(self):
         with self.assertRaises(pf.PlatformFeeError):
-            pf.quote_out(1_000, 0, 5_000)
+            pf.quote_out(1_000, 0, 5_000, fee_rate=0)
+
+    def test_the_pool_fee_comes_off_the_input_rounded_up(self):
+        # 2500/1e6 of 1,000,001 is 2500.0025, which the program rounds to 2501.
+        net = 1_000_001 - 2_501
+        exact = 5_000_000_000 * net // (1_000_000_000_000 + net)
+        self.assertEqual(pf.quote_out(1_000_001, 1_000_000_000_000, 5_000_000_000, 0, fee_rate=2_500), exact)
+
+    def test_the_fee_rate_cannot_be_left_out(self):
+        """Leaving it out is the bug this argument exists to prevent."""
+        with self.assertRaises(TypeError):
+            pf.quote_out(1_000, 1_000_000, 5_000)  # noqa
+
+    def test_the_amm_config_fee_is_read_from_offset_12(self):
+        amm = pf.read_amm_config(base64.b64decode(_amm_config(3_000, 500)["data"][0]))
+        self.assertEqual(amm, {"trade_fee_rate": 3_000, "creator_fee_rate": 500})
+
+    def test_fee_counters_are_not_reserves(self):
+        pool = pf.read_pool(base64.b64decode(_pool_account(pf.USDC, pf.WSOL, 700, 11)["data"][0]))
+        self.assertEqual((pool["fees0"], pool["fees1"]), (700, 11))
+        self.assertFalse(pool["enable_creator_fee"])
 
 
 class TestPlan(unittest.TestCase):
@@ -114,8 +153,9 @@ class TestPlan(unittest.TestCase):
             # and vault1 holds wSOL. Mapping them the other way round is what
             # the decoder's expect_mint check exists to catch.
             table[POOL] = pool
-            table[VAULT0] = _token_account(quote, 1_000_000_000_000)
-            table[VAULT1] = _token_account(pf.WSOL, 5_000_000_000)
+            table[VAULT0] = _token_account(quote, RESERVE_USDC)
+            table[VAULT1] = _token_account(pf.WSOL, RESERVE_SOL)
+            table[AMM_CONFIG] = _amm_config(2_500)
         return FakeRpc(table)
 
     def test_a_sol_quote_never_swaps(self):
@@ -146,6 +186,22 @@ class TestPlan(unittest.TestCase):
         programs = [ix[0] for ix in out["instructions"]]
         self.assertEqual(programs.count(pf.CPMM), 1, "one hop, not a route")
         self.assertGreater(out["sol_out"], 0)
+
+    def test_the_plan_prices_after_the_fee_and_net_of_the_counters(self):
+        rpc = self._rpc(pf.USDC, 5_000_000, pool=_pool_account(pf.USDC, pf.WSOL, 9_000_000, 40_000_000))
+        out = pf.plan(rpc, ADMIN, pf.USDC, pool_key=POOL)
+        expected = pf.quote_out(5_000_000, RESERVE_USDC - 9_000_000, RESERVE_SOL - 40_000_000,
+                                fee_rate=2_500)
+        self.assertEqual(out["sol_out"], expected)
+        swap = next(ix for ix in out["instructions"] if ix[0] == pf.CPMM)
+        self.assertEqual(struct.unpack("<QQ", swap[2][8:24]), (5_000_000, expected))
+
+    def test_a_usdc_claim_worth_less_than_the_floor_stands_down(self):
+        # 0.1 USDC is about 0.0005 SOL, under the 0.001 SOL floor.
+        rpc = self._rpc(pf.USDC, 100_000, pool=_pool_account(pf.USDC, pf.WSOL))
+        out = pf.plan(rpc, ADMIN, pf.USDC, pool_key=POOL)
+        self.assertEqual(out["instructions"], [])
+        self.assertIn("minimum", " ".join(out["notes"]))
 
     def test_a_pool_that_does_not_trade_the_quote_is_refused(self):
         rpc = self._rpc(pf.USDC, 5_000_000, pool=_pool_account(pf.USDT, pf.WSOL))
