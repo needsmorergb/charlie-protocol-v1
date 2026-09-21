@@ -266,6 +266,22 @@ class TestForwarding(unittest.TestCase):
         self.assertEqual([a[0] for a in transfer[1]], [FEE_WALLET, COLLECTION])
         self.assertEqual(struct.unpack("<Q", transfer[2][4:12])[0], 2_000_000)
 
+    def test_a_sol_forward_is_asserted_against_the_claimed_balance(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000), FEE_WALLET, pf.WSOL, forward_to=COLLECTION)
+        progs = [ix[0] for ix in out["instructions"]]
+        guard = next(ix for ix in out["instructions"] if ix[0] == pf.buyback.TOKEN_PROGRAM and ix[2][0] == 3)
+        self.assertEqual(guard[1][0][0], guard[1][1][0], "a self-transfer")
+        self.assertEqual(guard[1][0][0], out["recipient"])
+        self.assertEqual(struct.unpack("<Q", guard[2][1:9])[0], 2_000_000)
+        idx = out["instructions"].index(guard)
+        self.assertLess(progs.index(pf.LAUNCHLAB), idx, "after the claim")
+        self.assertEqual(out["instructions"][idx + 1][2], bytes([9]), "before the unwrap")
+
+    def test_no_assertion_without_a_forward(self):
+        out = pf.plan(self._rpc(pf.WSOL, 2_000_000), FEE_WALLET, pf.WSOL)
+        self.assertFalse(any(ix[2][:1] == bytes([3]) for ix in out["instructions"]
+                             if ix[0] == pf.buyback.TOKEN_PROGRAM))
+
     def test_a_swap_forwards_the_bound_not_a_guess(self):
         rpc = self._rpc(pf.USDC, 5_000_000, pool=_pool_account(pf.USDC, pf.WSOL))
         out = pf.plan(rpc, FEE_WALLET, pf.USDC, pool_key=POOL, forward_to=COLLECTION)

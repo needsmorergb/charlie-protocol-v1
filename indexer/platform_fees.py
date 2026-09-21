@@ -108,6 +108,13 @@ def ix_claim_platform_fee(fee_wallet: str, config: str, recipient: str, quote_mi
     ], DISC_CLAIM_PLATFORM_FEE_FROM_VAULT)
 
 
+def ix_assert_token_balance(account: str, owner: str, amount: int) -> buyback.Instruction:
+    """spl-token `Transfer` of `amount` from `account` to itself: moves
+    nothing, and fails with InsufficientFunds if the account holds less."""
+    return (buyback.TOKEN_PROGRAM, [(account, False, True), (account, False, True), (owner, True, False)],
+            bytes([3]) + struct.pack("<Q", amount))
+
+
 def read_pool(data: bytes) -> dict:
     """Raydium CPMM pool state. Offsets from launchlab/src/raydium.rs."""
     if len(data) < 328:
@@ -239,6 +246,14 @@ def plan(rpc, admin: str, quote_mint: str, *, pool_key: str | None = None,
     if quote_mint == WSOL:
         # Tier 1. The fee IS wSOL; closing the account unwraps it to the
         # wallet, and no price is consulted anywhere in this path.
+        if forward_to and forward_to != admin:
+            # The forward below is paid in lamports, which the fee wallet has
+            # of its own. If the vault was drained between this read and the
+            # landing, the claim moves nothing and the forward would spend
+            # the operator's SOL. A self-transfer of `held` is an on-chain
+            # assertion: spl-token checks the balance before it returns early
+            # for source == destination, so the transaction fails whole.
+            ixs.append(ix_assert_token_balance(recipient, admin, held))
         ixs.append(buyback.ix_close_account(recipient, admin, admin))
         out["sol_out"] = held
         out["notes"].append("SOL quote: claimed as wSOL and unwrapped, no swap")

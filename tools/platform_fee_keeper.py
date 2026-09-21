@@ -55,8 +55,13 @@ def main(argv=None) -> int:
         out = pf.plan(rpc, admin, QUOTES.get(args.quote.lower(), args.quote), pool_key=args.pool,
                       slippage_bps=args.slippage_bps, forward_to=None if args.keep else legs.TOLL_DESTINATION)
         result = pf.execute(rpc, out, keypair, send=args.send) if out["instructions"] else {"sent": False}
-    except (pf.PlatformFeeError, buyback.BuybackError) as exc:
+    except pf.PlatformFeeError as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    except buyback.BuybackError as exc:
+        # Raised after sending too (confirmation timeout, on-chain failure):
+        # the transaction may have landed, so this is not a refusal.
+        print(f"stopped: {exc}", file=sys.stderr)
         return 2
     report = {k: v for k, v in out.items() if k != "instructions"}
     report.update(result)

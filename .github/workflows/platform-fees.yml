@@ -40,7 +40,9 @@ jobs:
   claim:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'workflow_dispatch' || vars.PLATFORM_FEES_ENABLED == 'true'
+    # The variable is the kill switch for every send, dispatched or not; a
+    # dry run is allowed without it.
+    if: vars.PLATFORM_FEES_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     env:
       CHARLIE_RPC_URLS: ${{ secrets.CHARLIE_RPC_URLS }}
       # Tier 2 runs only once a pool is named. Unset, only the SOL quote is
