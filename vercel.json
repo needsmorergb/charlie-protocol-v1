@@ -90,10 +90,6 @@
       "destination": "/charlie-flywheel.html"
     },
     {
-      "source": "/launchlab",
-      "destination": "/launchlab.html"
-    },
-    {
       "source": "/verify",
       "destination": "/verify.html"
     },
