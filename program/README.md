@@ -21,7 +21,7 @@ coin's own `route` account, so a caller cannot redirect a lamport of it. The SOL
 burn leg pays Solana's incinerator, which is a hardcoded constant, not an
 argument. `ops_address` comes out of `route`, never off the wire.
 
-`TOLL_BPS` is 2500 — 25%. It is a constant in this code and is not a field of
+`TOLL_BPS` sets the protocol's fee, 0.25% of each transaction. It is a constant in this code and is not a field of
 any account a dev can write. It is ALSO stored in `charlie_pool` at
 initialisation and asserted against the constant on every `distribute`, because
 a constant compiled into BPF is not on-chain state, and a protocol that asks
