@@ -10,6 +10,30 @@ makes enrollment refuse, build, or hold each one on purpose. **No SOL-paired
 enrollment byte changes**: `tests/test_quote_fields.py` pins the three SOL
 messages to hashes generated from `main` at `f6e922e`.
 
+> **PARKED 21 September 2026: USDC stays closed.** `NON_SOL_ENROLLMENT_OPEN`
+> remains False and no USDC work is scheduled.
+>
+> Measured that day from pump's frontend API (`quote_mint` on each coin, a
+> sample, not a full chain count). USDC was 0 of the 350 newest launches, 0 of
+> the 300 most recently traded coins, 5 of the top 400 by market cap (about
+> 0.3% of their combined market cap) and 1 of the top 200 graduated coins.
+> Custom pairs outnumbered USDC in every sample. Four months after pump
+> opened USDC pairs (21 May 2026), almost nothing launches or trades on them.
+>
+> Section 5 is superseded on one point: option (b) does **not** need the
+> collector program. A USDC row can point at a Charlie-controlled wallet, and
+> an off-chain keeper swaps the USDC to SOL, then burns it or hands it to
+> `charlie-buyback`, the same trust position the $CHARLIE leg already holds
+> (PROTOCOL.md sec.5). The cost is that this burn is keeper-dependent, unlike
+> the SOL incinerator row, which pump pays directly.
+>
+> If USDC is reopened, the work is: a mainnet simulation of a USDC
+> create-and-split; `distribute_creator_fees_v2` in `indexer/distribute.py`
+> (it pays lamports through v1 today); the swap keeper; token inflows and
+> swaps in the evidence record; a keeper-burn status in the checks; and page
+> copy. `/launch` cannot make USDC coins at all: pump creates them only with
+> `create_v2`, and the door uses the original `create`.
+
 ---
 
 ## 1. What the branch does
