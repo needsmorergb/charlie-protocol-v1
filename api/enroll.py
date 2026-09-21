@@ -143,6 +143,12 @@ class handler(BaseHTTPRequestHandler):
                     # rather than hardcode it. None while unset, and the
                     # build path refuses in that case.
                     "toll": {"address": enroll.legs.TOLL_DESTINATION, "bps": enroll.TOLL_BPS},
+                    # The other fixed rows, the same ones `/launch` pins. The
+                    # dev chooses their shares; the addresses are fixed and
+                    # the build path refuses a split without them.
+                    "buyback": {"address": enroll.legs.LAUNCH_BUYBACK_DESTINATION},
+                    "incinerator": {"address": enroll.INCINERATOR,
+                                    "min_bps": enroll.legs.min_incinerator_bps()},
                     # Read from the bonding curve, and three-valued on
                     # purpose: absent is not off. A cashback coin routes its
                     # whole creator fee to traders, so every leg of every

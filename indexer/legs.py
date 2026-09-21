@@ -297,6 +297,54 @@ def required_bps(mint: str | None = None) -> int:
     return TOLL_BPS
 
 
+# Every enrolled coin carries the same legs, whichever door it came through:
+# the protocol row, Solana's incinerator at a floor, and the shared launch
+# buyback treasury. `enroll` refuses to build a split without them, and
+# `invariants.protocol_share` does not call a coin enrolled without them.
+#
+# The incinerator's floor is 1% of what is left after the protocol row, in
+# the on-chain basis points the split is written in. With the protocol at
+# 2,500 that is 75, which is also what the pages' own rounding gives for 1.00%.
+MIN_INCINERATOR_PERCENT = 1
+
+
+def min_incinerator_bps(rate: int | None = None) -> int:
+    rate = TOLL_BPS if rate is None else rate
+    return (10_000 - rate) * MIN_INCINERATOR_PERCENT // 100
+
+
+INCINERATOR_LEG = "incinerator"
+BUYBACK_LEG = "buyback"
+
+# What a door tells the dev when a split lacks a leg.
+LEG_REFUSALS = {
+    INCINERATOR_LEG: (
+        "Every Charlie split keeps the incinerator row. Its address is fixed and its share "
+        f"must be at least {MIN_INCINERATOR_PERCENT}% of the rest. Change the other destinations instead."
+    ),
+    BUYBACK_LEG: (
+        "Every Charlie split includes the shared buyback treasury. Choose its percentage; "
+        "the address is fixed."
+    ),
+}
+
+
+def missing_legs(rows, rate: int | None = None) -> list[str]:
+    """The legs a split lacks beyond the protocol row (`INCINERATOR_LEG`,
+    `BUYBACK_LEG`), or an empty list. `rows` are `(address, bps)` pairs. The
+    protocol row itself is checked by the caller, which knows the coin's own
+    rate."""
+    bps: dict[str, int] = {}
+    for address, share in rows:
+        bps[address] = bps.get(address, 0) + share
+    missing = []
+    if bps.get(SOL_BURN_INCINERATOR, 0) < min_incinerator_bps(rate):
+        missing.append(INCINERATOR_LEG)
+    if bps.get(LAUNCH_BUYBACK_DESTINATION, 0) <= 0:
+        missing.append(BUYBACK_LEG)
+    return missing
+
+
 def lowest_required_bps() -> int:
     """The smallest rate any enrolled coin may carry. A scan looking for
     enrolled coins has to cast this wide and then check each coin against

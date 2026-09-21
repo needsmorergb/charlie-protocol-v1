@@ -108,7 +108,8 @@ def split_sum(split) -> Check:
 
 def protocol_share(split, mint: str | None = None) -> Check:
     """Is this coin in the protocol: does its on-chain split pay the
-    protocol's collection wallet at least the protocol's rate?
+    protocol's collection wallet at least the protocol's rate, and carry the
+    other legs every enrolled coin carries (`legs.missing_legs`)?
 
     This is the whole of enrollment, and pump is what enforces it. The
     sharing config pays every shareholder from the coin's creator vault, and
@@ -155,6 +156,22 @@ def protocol_share(split, mint: str | None = None) -> Check:
                       "check. Not enrolled is not a failed check",
                       expected=f">= {rate}", actual="0")
 
+    # It pays the protocol, so it is enrolling, and an enrolled coin carries
+    # the same legs as one made at /launch. Without them the coin claims an
+    # enrollment the chain does not support.
+    missing = legs.missing_legs(((a.address, a.bps) for a in split.attributions), rate) if paid >= rate else []
+    if missing:
+        lacks = {
+            legs.INCINERATOR_LEG: f"the incinerator row at {legs.min_incinerator_bps(rate)} bps or more",
+            legs.BUYBACK_LEG: f"the shared buyback treasury row ({legs.LAUNCH_BUYBACK_DESTINATION})",
+        }
+        return _check(
+            "PROTOCOL_SHARE", FAIL, [], equation,
+            f"the split pays the protocol's collection wallet {destination} {paid} bps "
+            "but lacks what every enrolled coin carries: "
+            + " and ".join(lacks[leg] for leg in missing),
+            expected=f">= {rate}, plus the incinerator and buyback treasury rows", actual=str(paid),
+        )
     if paid >= rate:
         return _check(
             "PROTOCOL_SHARE", PASS, [], equation,

@@ -271,14 +271,13 @@ def size_of(message: bytes) -> int:
 # -- what a dev is told before a wallet opens -------------------------------------
 
 
-# The incinerator's floor: 1% of what is left after the protocol row, in the
-# on-chain basis points the split is written in. With the protocol at 2,500
-# that is 75, which is also what the page's own rounding gives for 1.00%.
-MIN_INCINERATOR_PERCENT = 1
+# The incinerator's floor lives in `legs`, beside the other legs every
+# enrolled coin carries; `/enroll` holds a split to the same rule.
+MIN_INCINERATOR_PERCENT = legs.MIN_INCINERATOR_PERCENT
 
 
 def min_incinerator_bps() -> int:
-    return (10_000 - enroll.TOLL_BPS) * MIN_INCINERATOR_PERCENT // 100
+    return legs.min_incinerator_bps(enroll.TOLL_BPS)
 
 
 def preflight(dev: str, shares, meta: Metadata) -> None:
@@ -301,16 +300,12 @@ def preflight(dev: str, shares, meta: Metadata) -> None:
                 "Change the other destinations instead."
             ) from None
         raise LaunchError(str(exc)) from None
-    # Every coin made at this door burns: the incinerator row is fixed, and
-    # only its share is the dev's to choose. The page enforces the same rule,
-    # and this is the copy of it that cannot be bypassed.
-    if not any(s.address == enroll.INCINERATOR and s.bps >= min_incinerator_bps() for s in validated):
-        raise LaunchError(
-            "Every coin made here keeps the incinerator row. Its address is fixed and its share "
-            f"must be at least {MIN_INCINERATOR_PERCENT}% of the rest. Change the other destinations instead."
-        )
-    if not any(s.address == legs.LAUNCH_BUYBACK_DESTINATION and s.bps > 0 for s in validated):
-        raise LaunchError("Every coin made here includes the shared buyback treasury. Choose its percentage; the address is fixed.")
+    # Every coin made at this door burns and feeds the buyback treasury, the
+    # same legs `/enroll` requires. The page enforces the same rule, and this
+    # is the copy of it that cannot be bypassed.
+    missing = legs.missing_legs((s.address, s.bps) for s in validated)
+    if missing:
+        raise LaunchError(legs.LEG_REFUSALS[missing[0]])
     if not any(s.address == dev for s in validated):
         # Not refused -- a dev may route all of their share elsewhere -- but
         # it is a mistake often enough to be worth one sentence in the log.

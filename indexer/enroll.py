@@ -286,6 +286,15 @@ def require_toll(shares) -> None:
         )
 
 
+def require_legs(shares) -> None:
+    """The rest of what every enrolled coin carries, the same at both doors:
+    the incinerator row at its floor and the shared buyback treasury.
+    Checked after `require_toll`."""
+    missing = legs.missing_legs((r.address, r.bps) for r in shares)
+    if missing:
+        raise EnrollError(legs.LEG_REFUSALS[missing[0]])
+
+
 def instruction_data(shares) -> bytes:
     """`discriminator || u32 length || (pubkey, u16) * n`, Anchor's encoding
     for `Vec<Shareholder>`.
@@ -528,6 +537,10 @@ def preflight(config, authority: str, shares, *, curve=None) -> None:
             )
     validate(shares)
     require_toll(shares)
+    # A USDC-paired coin cannot carry the incinerator row (`refuse_quote`
+    # says why), so the shared legs are a SOL coin's. USDC stays parked.
+    if getattr(curve, "quote_mint", None) is None:
+        require_legs(shares)
 
 
 def refuse_quote(curve, shares) -> None:
