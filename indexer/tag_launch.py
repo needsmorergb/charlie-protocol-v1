@@ -384,12 +384,13 @@ def metadata_fields(request: TagRequest, handle: str, tweet_id: str) -> dict[str
 
 def reply_text(request: TagRequest, mint: str) -> str:
     """The only thing the bot says on success. Nothing from the tweet but
-    the ticker reaches it."""
+    the ticker reaches it. One link only, the coin page; the claim is
+    reached from that page rather than linked here."""
     return (f"${request.ticker} is live.\n\n"
             f"CA: {mint}\n"
             f"{SITE}/coin/{mint}\n\n"
-            f"Your share of its creator fees builds up for you. Claim it at {SITE}/claim "
-            "by signing in with this X account. Unclaimed fees burn after 7 days.\n\n"
+            "Your share of its creator fees is held for this X account. Sign in with X "
+            "on the coin page to claim. Unclaimed fees burn after 7 days.\n\n"
             "Not affiliated with any person or brand.")
 
 

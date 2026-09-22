@@ -1,6 +1,7 @@
 """Offline tests for the X-tag launcher's rules (`indexer.tag_launch`)."""
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -214,8 +215,14 @@ class TestWords(unittest.TestCase):
         text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), "MintAddr")
         self.assertIn("$MDOG", text)
         self.assertIn("MintAddr", text)
-        self.assertIn("/claim", text)
-        self.assertLessEqual(len(text), 280)
+        self.assertIn("to claim", text)
+        # X counts any link as 23 characters; a real mint is 44.
+        weighted = tag.reply_text(tag.TagRequest("Moon Dog", "ABCDEFGHIJ"), "M" * 44)
+        self.assertLessEqual(len(re.sub(r"https?://\S+", "x" * 23, weighted)), 280)
+
+    def test_the_reply_carries_one_link_the_coin_page(self):
+        text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), "MintAddr")
+        self.assertEqual(re.findall(r"https?://\S+", text), [f"{tag.SITE}/coin/MintAddr"])
 
     def test_metadata_credits_the_requester(self):
         fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100")
