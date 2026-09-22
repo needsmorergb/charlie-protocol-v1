@@ -223,6 +223,30 @@ TOLL_DESTINATION: str | None = "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8"
 # creator chooses its allocation; the address itself cannot be substituted.
 LAUNCH_BUYBACK_DESTINATION: str = "6BHusg5vZoagPDMe5xZzPhLSvkHiKcWwELYzwbMG7Bjo"
 
+# Charlie's OPS wallet, the leg a coin launched from an X tag carries in place
+# of the shared buyback treasury. It tops up the wallet that signs and pays for
+# tag launches, and the rest pays for infrastructure. It is an ordinary
+# spendable wallet, so it reads as OPS and no page may call it a burn.
+#
+# Setting it to None stops any split from carrying the leg, so no coin enrolls
+# through it; the doors and every other leg are unaffected.
+CHARLIE_OPS_DESTINATION: str | None = "964A71b6LgvvJhcYqpyWkSTShh9cPcKdo9ZUQ31vveYG"
+
+# Charlie's payout treasury: the requester's row on a coin launched from an X
+# tag. It holds each requester's creator fees, credited by their numeric X user
+# ID, until they claim them; credits unclaimed after seven days burn to
+# $CHARLIE. It is never the OPS wallet, so launch costs and requesters' money
+# stay apart.
+CHARLIE_PAYOUT_TREASURY: str = "FiJU5VxHFy6B4S8LG5W1xPiH7kyUfsKVV5nWfUWaWzw"
+
+# The hot wallet that signs and pays for tag launches. It holds only a float;
+# the OPS wallet refills it. It is never a row in any split.
+CHARLIE_LAUNCH_WALLET: str = "35dhpKUkedfQBnrXsamnZQnyV77Q3TAXtEW7QUzPbARm"
+
+# The Charlie OPS leg's share: a percentage of what is left after the protocol
+# row, like the incinerator's floor. Small, but enough to cover launches.
+CHARLIE_OPS_PERCENT = 10
+
 # Coins the enrollment check does not apply to, and why.
 #
 # This is an exemption list on a protocol's own check, which is the kind of
@@ -313,8 +337,14 @@ def min_incinerator_bps(rate: int | None = None) -> int:
     return (10_000 - rate) * MIN_INCINERATOR_PERCENT // 100
 
 
+def charlie_ops_bps(rate: int | None = None) -> int:
+    rate = TOLL_BPS if rate is None else rate
+    return (10_000 - rate) * CHARLIE_OPS_PERCENT // 100
+
+
 INCINERATOR_LEG = "incinerator"
 BUYBACK_LEG = "buyback"
+CHARLIE_OPS_LEG = "charlie_ops"
 
 # What a door tells the dev when a split lacks a leg.
 LEG_REFUSALS = {
@@ -326,22 +356,56 @@ LEG_REFUSALS = {
         "Every Charlie split includes the shared buyback treasury. Choose its percentage; "
         "the address is fixed."
     ),
+    CHARLIE_OPS_LEG: (
+        "A coin launched from an X tag carries Charlie's OPS wallet in place of the buyback "
+        f"treasury, at {CHARLIE_OPS_PERCENT}% of the rest or more. The address is fixed."
+    ),
 }
 
 
-def missing_legs(rows, rate: int | None = None) -> list[str]:
-    """The legs a split lacks beyond the protocol row (`INCINERATOR_LEG`,
-    `BUYBACK_LEG`), or an empty list. `rows` are `(address, bps)` pairs. The
-    protocol row itself is checked by the caller, which knows the coin's own
-    rate."""
+def _bps_by_address(rows) -> dict[str, int]:
     bps: dict[str, int] = {}
     for address, share in rows:
         bps[address] = bps.get(address, 0) + share
+    return bps
+
+
+def _carries_charlie_ops(bps: dict[str, int], rate: int | None) -> bool:
+    return (CHARLIE_OPS_DESTINATION is not None
+            and bps.get(CHARLIE_OPS_DESTINATION, 0) >= charlie_ops_bps(rate))
+
+
+def missing_legs(rows, rate: int | None = None, *, allow_charlie_ops: bool = False) -> list[str]:
+    """The legs a split lacks beyond the protocol row (`INCINERATOR_LEG`,
+    `BUYBACK_LEG`), or an empty list. `rows` are `(address, bps)` pairs. The
+    protocol row itself is checked by the caller, which knows the coin's own
+    rate.
+
+    The doors (/launch, /enroll) leave `allow_charlie_ops` off: a split made
+    there carries the buyback treasury. The enrollment check turns it on,
+    because a coin launched from an X tag is enrolled with the Charlie OPS leg
+    in the buyback's place (`tag_launch_missing_legs`)."""
+    bps = _bps_by_address(rows)
     missing = []
     if bps.get(SOL_BURN_INCINERATOR, 0) < min_incinerator_bps(rate):
         missing.append(INCINERATOR_LEG)
-    if bps.get(LAUNCH_BUYBACK_DESTINATION, 0) <= 0:
+    if bps.get(LAUNCH_BUYBACK_DESTINATION, 0) <= 0 and not (
+            allow_charlie_ops and _carries_charlie_ops(bps, rate)):
         missing.append(BUYBACK_LEG)
+    return missing
+
+
+def tag_launch_missing_legs(rows, rate: int | None = None) -> list[str]:
+    """The legs a split built for an X-tag launch lacks beyond the protocol
+    row: the incinerator at its floor and Charlie's OPS wallet at
+    `CHARLIE_OPS_PERCENT` of the rest. The launcher refuses to build without
+    both."""
+    bps = _bps_by_address(rows)
+    missing = []
+    if bps.get(SOL_BURN_INCINERATOR, 0) < min_incinerator_bps(rate):
+        missing.append(INCINERATOR_LEG)
+    if not _carries_charlie_ops(bps, rate):
+        missing.append(CHARLIE_OPS_LEG)
     return missing
 
 

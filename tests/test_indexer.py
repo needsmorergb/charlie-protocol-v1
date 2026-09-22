@@ -559,6 +559,62 @@ class TestProtocolShare(unittest.TestCase):
         self.assertIn(legs_module.LAUNCH_BUYBACK_DESTINATION, check.detail)
         self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
 
+    # A coin launched from an X tag carries Charlie's OPS wallet in place of
+    # the buyback treasury.
+    OPS = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+
+    def _with_ops(self):
+        real = legs_module.CHARLIE_OPS_DESTINATION
+        legs_module.CHARLIE_OPS_DESTINATION = self.OPS
+        self.addCleanup(setattr, legs_module, "CHARLIE_OPS_DESTINATION", real)
+
+    def _tag_rows(self, ops_bps):
+        rate = legs_module.TOLL_BPS
+        rows = [(self.TOLL, rate),
+                (legs_module.SOL_BURN_INCINERATOR, legs_module.min_incinerator_bps(rate)),
+                (self.OPS, ops_bps)]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        return rows
+
+    def test_the_charlie_ops_leg_is_ten_percent_of_the_rest(self):
+        self.assertEqual(legs_module.charlie_ops_bps(2500), 750)
+
+    def test_a_tag_launch_split_with_the_charlie_ops_leg_is_enrolled(self):
+        self._with_ops()
+        rows = self._tag_rows(legs_module.charlie_ops_bps())
+        self.assertEqual(legs_module.tag_launch_missing_legs(rows[1:]), [])
+        self.assertEqual(invariants.protocol_share(self._split(rows)).status, invariants.PASS)
+
+    def test_a_charlie_ops_leg_below_its_share_is_not_enrolled(self):
+        self._with_ops()
+        rows = self._tag_rows(legs_module.charlie_ops_bps() - 1)
+        self.assertEqual(legs_module.tag_launch_missing_legs(rows[1:]), [legs_module.CHARLIE_OPS_LEG])
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
+        self.assertIn(self.OPS, check.detail)
+
+    def test_the_doors_still_require_the_buyback_treasury(self):
+        self._with_ops()
+        rows = self._tag_rows(legs_module.charlie_ops_bps())
+        self.assertEqual(legs_module.missing_legs(rows[1:]), [legs_module.BUYBACK_LEG])
+
+    def test_the_tag_launch_wallets_are_distinct_from_every_other_leg(self):
+        wallets = [legs_module.CHARLIE_OPS_DESTINATION, legs_module.CHARLIE_PAYOUT_TREASURY,
+                   legs_module.CHARLIE_LAUNCH_WALLET, legs_module.TOLL_DESTINATION, legs_module.LAUNCH_BUYBACK_DESTINATION,
+                   legs_module.SOL_BURN_INCINERATOR]
+        self.assertEqual(len(set(wallets)), len(wallets))
+        for wallet in wallets[:3]:
+            self.assertEqual(len(decode(wallet)), 32)
+
+    def test_no_coin_carries_the_charlie_ops_leg_without_the_wallet(self):
+        real = legs_module.CHARLIE_OPS_DESTINATION
+        legs_module.CHARLIE_OPS_DESTINATION = None
+        self.addCleanup(setattr, legs_module, "CHARLIE_OPS_DESTINATION", real)
+        rows = self._tag_rows(legs_module.charlie_ops_bps())
+        self.assertEqual(legs_module.tag_launch_missing_legs(rows[1:]), [legs_module.CHARLIE_OPS_LEG])
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
+
     def test_a_complete_split_passes(self):
         rate = legs_module.TOLL_BPS
         rows = [(self.TOLL, rate), *self._complete_legs(rate)]
