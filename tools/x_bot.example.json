@@ -1,0 +1,32 @@
+{
+  "_comment": "Copy to %USERPROFILE%\\.charlie-bot\\config.json (never inside the repo) and fill in. Every value here is a placeholder.",
+  "_keys": {
+    "x": "X API credentials. bearer reads mentions; the four OAuth 1.0a values post replies as the bot account.",
+    "bot_user_id": "The bot account's numeric X user ID (a string). Required.",
+    "rpc_urls": "Mainnet RPC URLs, tried in order. Empty uses the indexer's defaults.",
+    "keypairs": "Paths to the Solana key files: launch, treasury, ops. Each must be the matching legs wallet. Not read in --dry-run.",
+    "upstash": "Upstash Redis REST url and token, shared with the site's /api/claim.",
+    "db": "SQLite file for the Book and the ledger. Default: book.db next to this config.",
+    "log": "Log file, one line per event. Default: bot.log next to this config."
+  },
+  "x": {
+    "bearer": "YOUR_X_BEARER_TOKEN",
+    "consumer_key": "YOUR_X_CONSUMER_KEY",
+    "consumer_secret": "YOUR_X_CONSUMER_SECRET",
+    "access_token": "YOUR_X_ACCESS_TOKEN",
+    "access_secret": "YOUR_X_ACCESS_SECRET"
+  },
+  "bot_user_id": "0000000000000000000",
+  "rpc_urls": ["https://your-rpc.example"],
+  "keypairs": {
+    "launch": "C:\\path\\outside\\the\\repo\\launch-key.json",
+    "treasury": "C:\\path\\outside\\the\\repo\\treasury-key.json",
+    "ops": "C:\\path\\outside\\the\\repo\\ops-key.json"
+  },
+  "upstash": {
+    "url": "https://your-db.upstash.io",
+    "token": "YOUR_UPSTASH_TOKEN"
+  },
+  "db": "C:\\Users\\YOU\\.charlie-bot\\book.db",
+  "log": "C:\\Users\\YOU\\.charlie-bot\\bot.log"
+}

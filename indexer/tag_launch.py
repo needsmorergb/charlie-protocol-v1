@@ -287,6 +287,19 @@ class Book:
                 "INSERT OR REPLACE INTO tag_requests VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (tweet_key, user_id, now, outcome, code, ticker, mint))
 
+    def taken_tickers(self) -> set[str]:
+        """Tickers of coins that exist: launched, or created with the split pending."""
+        return {r[0] for r in self.db.execute(
+            "SELECT DISTINCT ticker FROM tag_requests WHERE ticker IS NOT NULL AND mint IS NOT NULL "
+            "AND (outcome = 'launched' OR code = 'split_pending')")}
+
+    def pending_splits(self) -> list[tuple]:
+        """`(tweet_key, user_id, at, ticker, mint)` for coins whose create
+        landed and whose split did not."""
+        return self.db.execute(
+            "SELECT tweet_key, user_id, at, ticker, mint FROM tag_requests "
+            "WHERE outcome = 'failed' AND code = 'split_pending' AND mint IS NOT NULL ORDER BY at").fetchall()
+
     def ban(self, user_id: str, now: int, reason: str) -> None:
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO tag_bans VALUES (?, ?, ?)", (user_id, now, reason))

@@ -68,6 +68,8 @@ DEPLOY_ONLY_REWRITE_SOURCES = {
     "/preview/enroll",
     "/preview/coins",
     "/preview/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+    # claim.html is hand-authored in the deploy repository only.
+    "/claim",
 }
 
 

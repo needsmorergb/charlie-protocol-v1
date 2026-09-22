@@ -17,7 +17,6 @@ is the step it calls once a tag has passed them (`indexer.tag_launch`).
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import mimetypes
 import os
@@ -25,37 +24,24 @@ import sys
 from pathlib import Path
 
 from indexer import buyback, launch, legs
+from indexer import tag_bot
 from indexer import tag_launch as tag
 from indexer.ed25519 import Keypair
 from indexer.rpc import DEFAULT_ENDPOINTS, RpcClient
 
-PLACEHOLDER_URI = "https://ipfs.io/ipfs/" + "Q" * 46
+PLACEHOLDER_URI = tag_bot.PLACEHOLDER_URI
 
 
-def _simulate(rpc, wire: bytes) -> dict:
-    result = rpc.call("simulateTransaction", [base64.b64encode(wire).decode(), {
-        "encoding": "base64", "sigVerify": False, "replaceRecentBlockhash": True, "commitment": "processed",
-    }])
-    return (result or {}).get("value") or {}
-
-
-def _send(rpc, wire: bytes) -> str:
-    return rpc.call("sendTransaction", [base64.b64encode(wire).decode(), {
-        "encoding": "base64", "skipPreflight": False, "preflightCommitment": "confirmed", "maxRetries": 5,
-    }])
-
-
-def _blockhash(rpc) -> str:
-    return rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
+# The RPC steps live in `indexer.tag_bot` so the X bot runs the same ones.
+_simulate = tag_bot.simulate_wire
+_send = tag_bot.send_wire
+_blockhash = tag_bot.blockhash
 
 
 def _pin(request: tag.TagRequest, image: Path, handle: str, tweet_id: str) -> str:
     from api.launch import pin_metadata
     ctype = mimetypes.guess_type(image.name)[0] or "image/png"
-    pinned = pin_metadata(tag.metadata_fields(request, handle, tweet_id), (image.name, ctype, image.read_bytes()))
-    uri = (pinned or {}).get("metadataUri") or ""
-    launch.validate_metadata(request.name, request.ticker, uri)
-    return uri
+    return tag_bot.pin_uri(pin_metadata, request, (image.name, ctype, image.read_bytes()), handle, tweet_id)
 
 
 def main(argv=None) -> int:

@@ -15,6 +15,10 @@
     "api/launch.py": {
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 60
+    },
+    "api/claim.py": {
+      "includeFiles": "{indexer/**,web/**}",
+      "maxDuration": 20
     }
   },
   "rewrites": [
@@ -68,6 +72,10 @@
     {
       "source": "/launch",
       "destination": "/launch.html"
+    },
+    {
+      "source": "/claim",
+      "destination": "/claim.html"
     },
     {
       "source": "/dilution",
