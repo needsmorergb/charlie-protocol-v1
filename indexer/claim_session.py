@@ -86,9 +86,10 @@ def read_cookies(header: str | None) -> dict[str, str]:
 #
 # The site pushes each claim onto a queue the bot pops. The bot pays only
 # items this secret signed, so write access to the store alone cannot queue a
-# payment. An item is stale after CLAIM_SECONDS.
+# payment. An item is stale after CLAIM_SECONDS (7 days): a replayed item
+# only asks again for a payout to the user's own bound wallet, so it is harmless.
 
-CLAIM_SECONDS = 3600
+CLAIM_SECONDS = 7 * 86_400
 CLAIM_FIELDS = ("xid", "handle", "wallet", "at")
 
 

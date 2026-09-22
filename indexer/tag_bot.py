@@ -93,8 +93,16 @@ def send_wire(rpc, wire: bytes) -> str:
     }])
 
 
+def latest_blockhash(rpc) -> tuple[str, int | None]:
+    """`(blockhash, lastValidBlockHeight)`: past that height a transaction
+    built on this blockhash can never land."""
+    value = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]
+    last_valid = value.get("lastValidBlockHeight")
+    return value["blockhash"], int(last_valid) if isinstance(last_valid, int) else None
+
+
 def blockhash(rpc) -> str:
-    return rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]["blockhash"]
+    return latest_blockhash(rpc)[0]
 
 
 def pin_uri(pin, request: tag.TagRequest, image: tuple[str, str, bytes], handle: str, tweet_id: str) -> str:
@@ -339,6 +347,14 @@ class Bot:
             return
         ts = self._ts()
         for mint, row in list(unconfirmed.items()):
+            current = self.book.entry(row["key"])
+            if current is None or current["mint"] != mint or not (
+                    current["outcome"] == "launching" or current["code"] == "create_failed"):
+                # Never sent (the crash came before `launching`), or the tweet
+                # has a newer row since: this entry must not overwrite it.
+                self.log("unconfirmed_stale", tweet=row["key"], mint=mint)
+                del unconfirmed[mint]
+                continue
             if self.rpc.accounts([mint])[0]:
                 self.ledger.add_coin(mint, row["user_id"], row["handle"], row["tweet_id"], row["at"])
                 self.book.record(row["key"], row["user_id"], row["at"], "failed", code="split_pending",
@@ -440,12 +456,13 @@ class Bot:
 
     # -- paying out of the treasury, written ahead --
 
-    def _pay_out(self, destination: str, amount: int, debits, kind: str) -> tuple[str | None, str | None]:
+    def _pay_out(self, destination: str, amount: int, debits, kind: str, *,
+                 holder: str | None = None) -> tuple[str | None, str | None]:
         """Send `amount` less the network fee from the treasury, with every
         `(user_id, lamports)` in `debits` written pending BEFORE the send.
         Returns `(signature, None)`, or `(None, why)` when nothing was sent."""
-        message = transfer_message(legs.CHARLIE_PAYOUT_TREASURY, destination, amount - TX_FEE_LAMPORTS,
-                                   blockhash(self.rpc))
+        recent, last_valid = latest_blockhash(self.rpc)
+        message = transfer_message(legs.CHARLIE_PAYOUT_TREASURY, destination, amount - TX_FEE_LAMPORTS, recent)
         checked = buyback.simulate(self.rpc, message)
         if checked.get("err") is not None:
             return None, f"simulation: {checked.get('err')}"
@@ -453,7 +470,10 @@ class Bot:
             return None, "dry run"
         wire = self._sign("treasury", message)
         signature = wire_signature(wire)
-        self.ledger.debit_pending(kind, debits, wallet=destination, signature=signature, at=self._ts())
+        self.ledger.debit_pending(kind, debits, wallet=destination, signature=signature, at=self._ts(),
+                                  last_valid=last_valid)
+        if holder is not None:      # any open hold is paid only once this is final
+            self.ledger.link_held(holder, signature)
         try:
             self.transmit(wire)
         except Exception as exc:  # noqa: BLE001 -- it may still land; reconcile decides
@@ -465,32 +485,56 @@ class Bot:
             self.log("confirm_uncertain", kind=kind, signature=signature, reason=f"{type(exc).__name__}: {exc}")
         return signature, None
 
-    def reconcile(self) -> list[dict]:
-        """Settle every pending debit from the chain: confirmed becomes final;
-        failed, or unseen after PENDING_EXPIRY (its blockhash is dead), is
-        deleted, which restores the credit. A burn stamps `last_burn_at` only
-        once final."""
-        pending = self.ledger.pending()
-        signatures = list(pending)
-        ts = self._ts()
-        settled = []
+    def _statuses(self, signatures: list[str]) -> dict:
+        out = {}
         for start in range(0, len(signatures), STATUS_BATCH):
             batch = signatures[start:start + STATUS_BATCH]
             result = self.rpc.call("getSignatureStatuses", [batch, {"searchTransactionHistory": True}])
             values = list((result or {}).get("value") or [])
             values += [None] * (len(batch) - len(values))
-            for signature, status in zip(batch, values):
-                entry = pending[signature]
-                if status and status.get("err") is not None:
-                    outcome = "failed"
-                elif status and status.get("confirmationStatus") in ("confirmed", "finalized"):
-                    outcome = "final"
-                elif status is None and ts - entry["at"] > tag_ledger.PENDING_EXPIRY_SECONDS:
-                    outcome = "expired"
-                else:
-                    continue
-                self._settle(signature, entry, outcome, ts)
-                settled.append({"signature": signature, "kind": entry["kind"], "outcome": outcome})
+            out.update(zip(batch, values))
+        return out
+
+    @staticmethod
+    def _outcome(status) -> str | None:
+        if status and status.get("err") is not None:
+            return "failed"
+        if status and status.get("confirmationStatus") in ("confirmed", "finalized"):
+            return "final"
+        return None
+
+    def reconcile(self) -> list[dict]:
+        """Settle every pending debit from the chain: confirmed becomes final;
+        failed is deleted, which restores the credit. An unknown signature is
+        deleted only on proof it can never land: the finalized block height
+        is past its blockhash's `last_valid`, and a second status read, taken
+        after that height, still does not know it. An unknown status alone
+        never drops a debit. A burn stamps `last_burn_at` only once final."""
+        pending = self.ledger.pending()
+        if not pending:
+            return []
+        ts = self._ts()
+        settled = []
+
+        def settle(signature, outcome):
+            self._settle(signature, pending[signature], outcome, ts)
+            settled.append({"signature": signature, "kind": pending[signature]["kind"], "outcome": outcome})
+
+        unknown = []
+        for signature, status in self._statuses(list(pending)).items():
+            outcome = self._outcome(status)
+            if outcome:
+                settle(signature, outcome)
+            elif status is None and pending[signature]["last_valid"] is not None:
+                unknown.append(signature)
+        if unknown:
+            height = self.rpc.call("getBlockHeight", [{"commitment": "finalized"}])
+            expired = [s for s in unknown if isinstance(height, int) and height > pending[s]["last_valid"]]
+            if expired:
+                for signature, status in self._statuses(expired).items():
+                    outcome = self._outcome(status) or ("expired" if status is None else None)
+                    if outcome:
+                        settle(signature, outcome)
         return settled
 
     def _settle(self, signature: str, entry: dict, outcome: str, ts: int) -> None:
@@ -527,47 +571,56 @@ class Bot:
             done.append(self.claim(fields["xid"], fields["wallet"]))
         return done
 
-    def claim(self, xid: str, wallet: str, *, caps: bool = True) -> dict:
+    def claim(self, xid: str, wallet: str, *, caps: bool = True, most: int | None = None) -> dict:
         """Decide and, when the decision is to pay, pay one claim (written ahead)."""
+        return self._claim(xid, wallet, caps=caps, most=most)[0]
+
+    def _claim(self, xid: str, wallet: str, *, caps: bool, most: int | None) -> tuple[dict, bool]:
+        """`(status, refused_outright)`. `most` caps the amount (an approved
+        hold pays at most what was held)."""
         if not xid or not valid_wallet(wallet):
-            return self._status(xid or "unknown", "refused", 0, reason="that wallet cannot receive claims")
+            return self._status(xid or "unknown", "refused", 0, reason="that wallet cannot receive claims"), True
         if self.ledger.has_pending(xid):
-            return self._status(xid, "queued", 0, reason="a payment is still confirming")
+            return self._status(xid, "queued", 0, reason="a payment is still confirming"), False
         ts = self._ts()
         bound, pending, ready_at = self.ledger.wallet(xid)
+        balance = self.ledger.balance(xid)
+        if most is not None:
+            balance = min(balance, int(most))
         decision = tag_ledger.claim_decision(
-            balance=self.ledger.balance(xid), wallet=wallet, bound=bound, pending=pending, ready_at=ready_at,
+            balance=balance, wallet=wallet, bound=bound, pending=pending, ready_at=ready_at,
             now=ts, recipient_lamports=self.rpc.balance(wallet),
             treasury_lamports=self.rpc.balance(legs.CHARLIE_PAYOUT_TREASURY),
             paid_today=self.ledger.claimed_since(ts - tag_ledger.DAY), caps=caps)
         self.ledger.apply_wallet(xid, decision)
         if decision.state == "held":
             self.ledger.hold(xid, decision.lamports, wallet, ts)
-            return self._status(xid, "held", decision.lamports, reason=decision.reason)
+            return self._status(xid, "held", decision.lamports, reason=decision.reason), False
         if decision.state != "pay":
-            return self._status(xid, decision.state, decision.lamports, reason=decision.reason)
-        signature, why = self._pay_out(wallet, decision.lamports, [(xid, decision.lamports)], "claim")
+            return self._status(xid, decision.state, decision.lamports, reason=decision.reason), True
+        signature, why = self._pay_out(wallet, decision.lamports, [(xid, decision.lamports)], "claim",
+                                       holder=xid)
         if signature is None:
-            return self._status(xid, "refused", 0, reason=f"the payment could not be made ({why}); claim again")
-        self.ledger.close_held(xid, "paid")
+            return self._status(xid, "refused", 0,
+                                reason=f"the payment could not be made ({why}); claim again"), False
         status = self._status(xid, "queued", decision.lamports - TX_FEE_LAMPORTS, signature, reason="sending")
         for row in self.reconcile():
             if row["signature"] == signature:
-                return self.kv.get_json(f"claim:status:{xid}") or status
-        return status
+                return self.kv.get_json(f"claim:status:{xid}") or status, False
+        return status, False
 
     def _pay_approved(self) -> list[dict]:
         """Held claims the owner approved, paid without the caps through the
         same written-ahead path. `--approve-held` only marks them."""
         if self.dry_run:
-            for user_id, wallet in self.ledger.approved():
-                self.log("would_pay_approved", user=user_id, wallet=wallet, lamports=self.ledger.balance(user_id))
+            for user_id, wallet, lamports in self.ledger.approved():
+                self.log("would_pay_approved", user=user_id, wallet=wallet, lamports=lamports)
             return []
         done = []
-        for user_id, wallet in self.ledger.approved():
-            status = self.claim(user_id, wallet, caps=False)
-            if status["state"] == "refused":
-                self.ledger.close_held(user_id, "dropped")
+        for user_id, wallet, lamports in self.ledger.approved():
+            status, refused_outright = self._claim(user_id, wallet, caps=False, most=lamports)
+            if refused_outright:
+                self.ledger.drop_held(user_id)
             done.append(status)
         return done
 

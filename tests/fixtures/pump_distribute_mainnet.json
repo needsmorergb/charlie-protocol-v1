@@ -1,0 +1,241 @@
+{
+ "blockTime": 1788714613,
+ "meta": {
+  "computeUnitsConsumed": 38451,
+  "costUnits": 43541,
+  "err": null,
+  "fee": 5000,
+  "innerInstructions": [
+   {
+    "index": 0,
+    "instructions": [
+     {
+      "parsed": {
+       "info": {
+        "destination": "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
+        "lamports": 203889,
+        "source": "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi"
+       },
+       "type": "transfer"
+      },
+      "program": "system",
+      "programId": "11111111111111111111111111111111",
+      "stackHeight": 2
+     },
+     {
+      "parsed": {
+       "info": {
+        "destination": "Wak5qWkdu5cTQFrKnMfYRDXy4nc244fZSkj3Ced2kuQ",
+        "lamports": 1019445,
+        "source": "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi"
+       },
+       "type": "transfer"
+      },
+      "program": "system",
+      "programId": "11111111111111111111111111111111",
+      "stackHeight": 2
+     },
+     {
+      "parsed": {
+       "info": {
+        "destination": "1nc1nerator11111111111111111111111111111111",
+        "lamports": 815556,
+        "source": "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi"
+       },
+       "type": "transfer"
+      },
+      "program": "system",
+      "programId": "11111111111111111111111111111111",
+      "stackHeight": 2
+     },
+     {
+      "parsed": {
+       "info": {
+        "destination": "BKoMRi2Tvac2YfJ5q6E6oNBpQcK8cXgYsUqV9uapUuMW",
+        "lamports": 2038891,
+        "source": "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi"
+       },
+       "type": "transfer"
+      },
+      "program": "system",
+      "programId": "11111111111111111111111111111111",
+      "stackHeight": 2
+     },
+     {
+      "accounts": [
+       "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1"
+      ],
+      "data": "5VsbpyQxU3vkRSBHFEcdq4hJ5m2L6BmF9EwYBiou4VGKLsnq7AXwXTseNtNAajpLMC8UE5Ucdy9txPNtYDZuF18VdhVQq5tjWdwciP5UD1etaF5BMh5F9QSwm1oGPLoUYUmG62RkHZi8WY1zorCKSvq3r7dRAkJTPihroBjvsBwjSVYf2JHyuW6A6pZpUgipGRcJ1DgHkNgmN9wmhFT313rrq4aZmyJffvcAasnq1L26i32iWxF9jdDLBVww5jNgGBD6iAE4PQDejNZuVaSmytuKxSj1hQnL92fDGdqsciB98Xkg1Ah62B3or22GweVWndkhBGt7C4XSLZZrKh89JZ3RGmbD9uCJz1Jzdeip3GddpsoEEFaNxk9viY1FNXFjCQUcnXumTrq7KMPkFf7KMmrnFiZBXuyiv6mjmxkYBgjmxUjbHPHBhyvPLX279KNYtqxt5u",
+      "programId": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+      "stackHeight": 2
+     }
+    ]
+   }
+  ],
+  "logMessages": [
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P invoke [1]",
+   "Program log: Instruction: DistributeCreatorFees",
+   "Program 11111111111111111111111111111111 invoke [2]",
+   "Program 11111111111111111111111111111111 success",
+   "Program 11111111111111111111111111111111 invoke [2]",
+   "Program 11111111111111111111111111111111 success",
+   "Program 11111111111111111111111111111111 invoke [2]",
+   "Program 11111111111111111111111111111111 success",
+   "Program 11111111111111111111111111111111 invoke [2]",
+   "Program 11111111111111111111111111111111 success",
+   "Program data: pTeBcASzyih1np1qAAAAAAG8Ma3r9JBBJsVuA4o//VApVygoXeq5wz7pOgiKa0BPzbUNrxqp1LEy4gj7usdYoyjbeH/WD+lxTWyPYNM6BFfo5Tn9r9zHM7KOcKtItDdZ20936/zTotDeS+A0zvaIJ5llvAFQ++LbTXEEN2nAHoRXEd6XSaUzredNGXrW5sK9BAAAAG6lhuQS2RIZ5nmDSHsMSQUcir/K+DLlMeunHZ/53ZaB9AEHk/8gZD+s9CcO75tFZaEy3VzYshBd8V/PclLkcVO3M8QJADOQco00EWB5vckRv/8A29RNLs3M95ym4QA44QAAAADQB5llvAFQ++LbTXEEN2nAHoRXEd6XSaUzredNGXrW5sK9iBPVOD4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P invoke [2]",
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P consumed 2125 of 164490 compute units",
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P success",
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P consumed 38451 of 200000 compute units",
+   "Program return: 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P dZ6dagAAAAABvDGt6/SQQSbFbgOKP/1QKVcoKF3qucM+6ToIimtAT821Da8aqdSxMuII+7rHWKMo23h/1g/pcU1sj2DTOgRX6OU5/a/cxzOyjnCrSLQ3WdtPd+v806LQ3kvgNM72iCeZZbwBUPvi201xBDdpwB6EVxHel0mlM63nTRl61ubCvQQAAABupYbkEtkSGeZ5g0h7DEkFHIq/yvgy5THrpx2f+d2WgfQBB5P/IGQ/rPQnDu+bRWWhMt1c2LIQXfFfz3JS5HFTtzPECQAzkHKNNBFgeb3JEb//ANvUTS7NzPecpuEAOOEAAAAA0AeZZbwBUPvi201xBDdpwB6EVxHel0mlM63nTRl61ubCvYgT1Tg+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+   "Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P success"
+  ],
+  "postBalances": [
+   17897820,
+   815556,
+   810625,
+   6733423,
+   66947064,
+   1019445,
+   1,
+   8642112471,
+   3758400,
+   168261611,
+   1941846,
+   7295616
+  ],
+  "postTokenBalances": [],
+  "preBalances": [
+   17902820,
+   0,
+   4888406,
+   6529534,
+   64908173,
+   0,
+   1,
+   8642112471,
+   3758400,
+   168261611,
+   1941846,
+   7295616
+  ],
+  "preTokenBalances": [],
+  "returnData": {
+   "data": [
+    "dZ6dagAAAAABvDGt6/SQQSbFbgOKP/1QKVcoKF3qucM+6ToIimtAT821Da8aqdSxMuII+7rHWKMo23h/1g/pcU1sj2DTOgRX6OU5/a/cxzOyjnCrSLQ3WdtPd+v806LQ3kvgNM72iCeZZbwBUPvi201xBDdpwB6EVxHel0mlM63nTRl61ubCvQQAAABupYbkEtkSGeZ5g0h7DEkFHIq/yvgy5THrpx2f+d2WgfQBB5P/IGQ/rPQnDu+bRWWhMt1c2LIQXfFfz3JS5HFTtzPECQAzkHKNNBFgeb3JEb//ANvUTS7NzPecpuEAOOEAAAAA0AeZZbwBUPvi201xBDdpwB6EVxHel0mlM63nTRl61ubCvYgT1Tg+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "base64"
+   ],
+   "programId": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+  },
+  "rewards": [],
+  "status": {
+   "Ok": null
+  }
+ },
+ "slot": 444846046,
+ "transaction": {
+  "message": {
+   "accountKeys": [
+    {
+     "pubkey": "DqP9Wb6ppiYWTxDiJMMzo3HDM6eT4GEwP1S3Ak1htmwj",
+     "signer": true,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "1nc1nerator11111111111111111111111111111111",
+     "signer": false,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi",
+     "signer": false,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
+     "signer": false,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "BKoMRi2Tvac2YfJ5q6E6oNBpQcK8cXgYsUqV9uapUuMW",
+     "signer": false,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "Wak5qWkdu5cTQFrKnMfYRDXy4nc244fZSkj3Ced2kuQ",
+     "signer": false,
+     "source": "transaction",
+     "writable": true
+    },
+    {
+     "pubkey": "11111111111111111111111111111111",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    },
+    {
+     "pubkey": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    },
+    {
+     "pubkey": "7mr9vEN4XEUDCjaDzZnVLAAE2VV5FmzBBti7t2Kpump",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    },
+    {
+     "pubkey": "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    },
+    {
+     "pubkey": "Eqzhkf6cgbVGHwU3jgNJ6EG3j6ztcPXDAX4X6Vh5z6qU",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    },
+    {
+     "pubkey": "Gg8KGc2LDbAeBnyFtoqBZcosQGz1NBzsH3NRhQWdsriA",
+     "signer": false,
+     "source": "transaction",
+     "writable": false
+    }
+   ],
+   "instructions": [
+    {
+     "accounts": [
+      "7mr9vEN4XEUDCjaDzZnVLAAE2VV5FmzBBti7t2Kpump",
+      "Eqzhkf6cgbVGHwU3jgNJ6EG3j6ztcPXDAX4X6Vh5z6qU",
+      "Gg8KGc2LDbAeBnyFtoqBZcosQGz1NBzsH3NRhQWdsriA",
+      "8F3gqeW5EcfEBh8y54JpbK1S7Mk88ZXoMMs2moSZThsi",
+      "11111111111111111111111111111111",
+      "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+      "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+      "8SvEu1bvkhgaSkZW4XHLzfw8djd748KAVHMwvkYGfyr8",
+      "Wak5qWkdu5cTQFrKnMfYRDXy4nc244fZSkj3Ced2kuQ",
+      "1nc1nerator11111111111111111111111111111111",
+      "BKoMRi2Tvac2YfJ5q6E6oNBpQcK8cXgYsUqV9uapUuMW"
+     ],
+     "data": "Ug3SNLp8V8c",
+     "programId": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "stackHeight": 1
+    }
+   ],
+   "recentBlockhash": "8V5Du7i35J7Ud91nV5Uyi9thkDyCriar3nLMnip68rkX"
+  },
+  "signatures": [
+   "2mA8Fp65EinRv6CksirWBJXqMb27xX2Qn2kqztn9WkJtamWjjMwRawDyunjoeX79wW9EWmXfp2Vz4mXDwTgujYTW"
+  ]
+ },
+ "transactionIndex": 472,
+ "version": "legacy"
+}

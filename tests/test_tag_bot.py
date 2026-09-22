@@ -115,10 +115,17 @@ class FakeRpc:
         self.signatures, self.txs = [], {}
         self.existing = set()
         self.statuses = {}
+        self.last_valid = 1_000         # what getLatestBlockhash says
+        self.height = 900               # the finalized block height
+        self.on_height = None           # called when the height is read
 
     def call(self, method, params=None):
         if method == "getLatestBlockhash":
-            return {"value": {"blockhash": BLOCKHASH}}
+            return {"value": {"blockhash": BLOCKHASH, "lastValidBlockHeight": self.last_valid}}
+        if method == "getBlockHeight":
+            if self.on_height:
+                self.on_height()
+            return self.height
         if method == "simulateTransaction":
             self.sims += 1
             err = self.sim_errors.pop(0) if self.sim_errors else None
@@ -319,6 +326,18 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
         self.assertIsNone(h.book.limit_refusal("7", tag.epoch(h.clock[0])))
 
+    def test_a_stale_unconfirmed_entry_never_overwrites_a_newer_row(self):
+        h = Harness()
+        pending = {"key": "100", "user_id": "7", "handle": "alice", "tweet_id": "100", "at": TS, "ticker": "MDOG"}
+        h.ledger.set_state(tag_bot.UNCONFIRMED_KEY, {"oldMint": dict(pending), "neverSent": dict(pending, key="300")})
+        h.book.record("100", "7", TS, "launched", ticker="MDOG", mint="newMint")    # the relaunch won
+        h.rpc.existing.add("oldMint")
+        h.bot.tick_mentions()
+        self.assertEqual(h.outcome("100"), ("launched", None, "MDOG", "newMint"))
+        self.assertIsNone(h.outcome("300"))                     # the crash came before `launching`
+        self.assertIsNone(h.ledger.coin("oldMint"))
+        self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
+
     def test_the_tweet_is_launching_before_the_create_is_sent(self):
         h = Harness(x=FakeX([tweet()]))
         seen = []
@@ -457,14 +476,57 @@ class TestMoney(unittest.TestCase):
         h.on_transmit = None
         self.assertEqual(h.bot.claim("7", WALLET)["state"], "queued")   # no second payment
         self.assertEqual(len(self.paid(h)), 1)
-        h.clock[0] = NOW + timedelta(seconds=180)
+        h.clock[0] = NOW + timedelta(hours=1)
         h.bot.reconcile()
-        self.assertEqual(h.ledger.balance("7"), 0)              # not yet: the blockhash may live
-        h.clock[0] = NOW + timedelta(seconds=181)
+        self.assertEqual(h.ledger.balance("7"), 0)              # unknown for an hour: still never dropped
+        h.rpc.height = 1_000
+        h.bot.reconcile()
+        self.assertEqual(h.ledger.balance("7"), 0)              # at last_valid it may still land
+        h.rpc.height = 1_001
         h.bot.reconcile()
         self.assertEqual(h.ledger.balance("7"), 2 * SOL)
         self.assertEqual(h.kv.get_json("claim:status:7")["reason"], tag_bot.PAYMENT_FAILED)
         self.assertEqual(h.bot.claim("7", WALLET)["state"], "paid")
+
+    def test_a_status_seen_on_the_second_read_is_never_dropped(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.on_transmit = lambda wire, signature: None             # the node has not seen it yet
+        h.bot.claim("7", WALLET)
+        (signature,) = h.ledger.pending()
+        h.rpc.height = 5_000
+
+        def lands_meanwhile():
+            h.rpc.statuses[signature] = CONFIRMED
+        h.rpc.on_height = lands_meanwhile
+        h.bot.reconcile()
+        self.assertEqual((h.ledger.balance("7"), h.ledger.pending()), (0, {}))
+        self.assertEqual(h.kv.get_json("claim:status:7")["state"], "paid")
+
+    def test_a_pending_debit_without_a_height_is_never_dropped(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.rpc.last_valid = None
+        h.on_transmit = lambda wire, signature: None
+        h.bot.claim("7", WALLET)
+        h.rpc.height = 10 ** 9
+        h.bot.reconcile()
+        self.assertEqual(h.ledger.balance("7"), 0)
+        self.assertEqual(len(h.ledger.pending()), 1)
+
+    def test_an_unseen_burn_is_dropped_only_past_its_height(self):
+        h = Harness()
+        self.credit(h, 30_000_000, at=TS - 8 * 86_400)
+        h.on_transmit = lambda wire, signature: None
+        h.bot.tick_money()
+        h.clock[0] = NOW + timedelta(days=1)
+        h.bot.reconcile()
+        self.assertTrue(h.ledger.pending_burn())
+        h.rpc.height = 1_001
+        h.bot.reconcile()
+        self.assertFalse(h.ledger.pending_burn())
+        self.assertIsNone(h.ledger.state(tag_bot.LAST_BURN_KEY))
+        self.assertEqual(h.ledger.balance("7"), 30_000_000)
 
     def test_an_ambiguous_send_that_did_land_is_final(self):
         h = Harness()
@@ -494,10 +556,17 @@ class TestMoney(unittest.TestCase):
         forged = claim_session.sign_claim("7", "alice", WALLET, TS, SECRET)
         forged["wallet"] = WALLET_2          # the plain field is ignored; the signed one pays
         h.kv.push("claim:queue", dict(forged, sig=forged["sig"][:-2] + "AA"))
-        h.queue(at=TS - 3601)
+        h.queue(at=TS - 7 * 86_400 - 1)
         h.bot.tick_money()
         self.assertEqual(self.paid(h), [])
         self.assertEqual(sum(1 for line in h.lines if line.startswith("claim_dropped")), 4)
+
+    def test_a_signed_item_days_old_still_pays(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.queue(at=TS - 6 * 86_400)
+        h.bot.tick_money()
+        self.assertEqual(h.kv.get_json("claim:status:7")["state"], "paid")
 
     def test_a_claim_over_the_cap_is_held_approved_and_paid_by_the_loop(self):
         h = Harness()
@@ -514,6 +583,39 @@ class TestMoney(unittest.TestCase):
         self.assertTrue(lamports_in(self.paid(h)[0][1], WALLET, 6 * SOL - FEE))
         self.assertEqual(h.kv.get_json("claim:status:7")["state"], "paid")
         self.assertEqual(h.ledger.approved(), [])
+
+    def test_an_approved_hold_pays_at_most_what_was_held(self):
+        h = Harness()
+        self.credit(h, 6 * SOL)
+        h.queue()
+        h.bot.tick_money()
+        self.credit(h, 3 * SOL, signature="c2")                 # more arrives after the approval was asked
+        h.ledger.approve_held("7")
+        h.bot.tick_money()
+        self.assertEqual(len(self.paid(h)), 1)
+        self.assertTrue(lamports_in(self.paid(h)[0][1], WALLET, 6 * SOL - FEE))
+        self.assertEqual(h.ledger.balance("7"), 3 * SOL)
+
+    def test_an_approved_hold_closes_only_once_its_payment_is_final(self):
+        h = Harness()
+        self.credit(h, 6 * SOL, at=TS - 8 * 86_400)
+        h.queue()
+        h.bot.tick_money()
+        h.ledger.approve_held("7")
+
+        def lost(wire, signature):
+            raise RuntimeError("connection reset")
+        h.on_transmit = lost
+        h.bot.tick_money()
+        self.assertEqual(len(self.paid(h)), 1)
+        held = "SELECT state, signature IS NOT NULL FROM tag_held"
+        self.assertEqual(h.ledger.db.execute(held).fetchall(), [("approved", 1)])
+        h.rpc.height = 1_001                                    # it can never land now
+        h.on_transmit = None
+        h.bot.tick_money()                                      # dropped, then paid again under the approval
+        self.assertEqual(len(self.paid(h)), 2)                  # no burn of the week-old held credit
+        self.assertEqual(h.ledger.db.execute(held).fetchall(), [("paid", 1)])
+        self.assertEqual(h.ledger.balance("7"), 0)
 
     def test_a_new_wallet_waits_before_it_is_paid(self):
         h = Harness()
@@ -692,6 +794,19 @@ class TestXBotCli(unittest.TestCase):
             with self.assertRaises(x_bot.ConfigError):
                 x_bot.load_config(path)
 
+    def test_a_live_bot_needs_the_claim_secret(self):
+        import contextlib
+        import io
+        from tools import x_bot
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"bot_user_id": "1", "claim_secret": ""}', encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(x_bot.main(["--config", str(path), "--once"]), 2)
+            self.assertIn("claim_secret is empty", err.getvalue())
+            self.assertFalse((Path(tmp) / "book.db.lock").exists())
+
     def test_a_second_bot_cannot_take_the_lock(self):
         from tools import x_bot
         with tempfile.TemporaryDirectory() as tmp:
@@ -714,7 +829,7 @@ class TestXBotCli(unittest.TestCase):
             self.assertEqual(x_bot.approve_held(db, "7"), 1)
             self.assertEqual(x_bot.approve_held(db, "7"), 0)
             book = tag.Book(db)
-            self.assertEqual(tag_ledger.Ledger(book.db).approved(), [("7", WALLET)])
+            self.assertEqual(tag_ledger.Ledger(book.db).approved(), [("7", WALLET, 6 * SOL)])
             book.db.close()
 
     def test_once_runs_each_tick_one_time(self):

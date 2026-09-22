@@ -3,24 +3,30 @@
 Every tag-launched coin's split pays one row to `legs.CHARLIE_PAYOUT_TREASURY`.
 That wallet is shared, so the ledger attributes each SOL inflow to a coin, and
 each coin to the numeric X user ID that requested it (`tag_coins`, written at
-launch). An inflow counts only when its transaction holds exactly ONE pump
-`distribute_creator_fees` instruction, top-level or inner (a CPI), for a known
-tag mint; the amount is the treasury's own balance change in that
-transaction. Anything else that reaches the treasury is unattributed: nobody's
-credit, and logged. With two distributes in one transaction a caller could
-pair a real tag coin with anything else and have the whole gain credited to
-the tag coin, so that is refused rather than guessed.
+launch). Attribution is per pump `distribute_creator_fees` instruction,
+top-level or inner (a CPI): pump pays each shareholder row with a system
+`transfer` it makes itself, so the transfers to the treasury nested under one
+distribute are exactly what that coin paid (measured on mainnet, fixture
+`tests/fixtures/pump_distribute_mainnet.json`). A transaction with several
+distributes therefore credits each known tag mint exactly its own share.
+Anything else that reaches the treasury (a distribute of another coin, a
+plain transfer, a CPI transfer beside a distribute) is unattributed: nobody's
+credit, and logged. If the nested transfers ever add up to more than the
+treasury actually gained, nothing is credited.
 
 Credits leave by two roads, both written as debits: a claim to the wallet the
 requester signs in with, or the burn once a credit is seven days old
 (`burnable`; debits use up the oldest credits first). A debit is written
 `pending` BEFORE its transaction is sent (a write-ahead intent) and becomes
 `final` once the chain confirms it, or is deleted when the transaction failed
-or never landed (`reconcile` in the bot). A pending debit already lowers the
-balance, so an ambiguous send can never be paid twice.
+or provably never landed (`reconcile` in the bot: its blockhash's
+`last_valid` height has passed and the signature is still unknown). A pending
+debit already lowers the balance, so an ambiguous send can never be paid twice.
 
 A claim held for the owner sits in `tag_held` (held, then approved, then
-paid); held and approved amounts do not burn. `claim_decision` is the whole
+paid); held and approved amounts do not burn. A payment that covers a hold is
+linked to it by signature: the hold is paid only once that payment is final,
+and returns to its state (approved stays approved) if it fails. `claim_decision` is the whole
 claim policy and does no I/O.
 
 The tables live in the same SQLite file as `tag_launch.Book`.
@@ -45,10 +51,10 @@ TX_FEE_LAMPORTS = 5_000                    # one signature; taken out of the amo
 TREASURY_RESERVE_LAMPORTS = RENT_EXEMPT_MIN_LAMPORTS + TX_FEE_LAMPORTS
 PER_CLAIM_MAX_LAMPORTS = 5_000_000_000     # 5 SOL; larger claims are held for the owner
 PER_DAY_MAX_LAMPORTS = 20_000_000_000      # 20 SOL of claims per day, all requesters together
-PENDING_EXPIRY_SECONDS = 180               # a blockhash is dead by then: unseen means never landed
 SCAN_PAGE = 1_000                          # signatures per getSignaturesForAddress page
 
 PUMP_PROGRAM = distribute.PUMP_PROGRAM
+SYSTEM_PROGRAM = "11111111111111111111111111111111"
 DISTRIBUTE_DISCRIMINATOR = distribute.DISTRIBUTE_CREATOR_FEES
 
 CURSOR_KEY = "treasury_cursor"
@@ -76,14 +82,54 @@ def _is_distribute(ix: dict) -> bool:
         return False
 
 
-def distributes(tx: dict) -> list[str]:
-    """The mint (account 0) of every pump distribute instruction in the
-    transaction, top-level and inner alike, one entry per instruction."""
+def _paid_to(instructions, treasury: str) -> int:
+    """Lamports the parsed system `transfer`s in `instructions` sent to `treasury`."""
+    total = 0
+    for ix in instructions:
+        parsed = ix.get("parsed")
+        if ix.get("program") != "system" and ix.get("programId") != SYSTEM_PROGRAM:
+            continue
+        if not isinstance(parsed, dict) or parsed.get("type") not in ("transfer", "transferWithSeed"):
+            continue
+        info = parsed.get("info") or {}
+        if info.get("destination") == treasury:
+            try:
+                total += int(info.get("lamports") or 0)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
+def distributes(tx: dict, treasury: str) -> list[tuple[str, int | None]]:
+    """`(mint, lamports)` for every pump distribute instruction, top-level and
+    inner alike, in order: the mint is account 0, the lamports are the system
+    transfers to `treasury` nested under that instruction (None when an
+    inner distribute's nesting cannot be read, i.e. no stackHeight)."""
     message = (tx.get("transaction") or {}).get("message") or {}
-    instructions = list(message.get("instructions") or [])
+    groups = {}
     for group in (tx.get("meta") or {}).get("innerInstructions") or []:
-        instructions.extend(group.get("instructions") or [])
-    return [ix["accounts"][0] for ix in instructions if _is_distribute(ix)]
+        groups.setdefault(group.get("index"), []).extend(group.get("instructions") or [])
+    out = []
+    for index, ix in enumerate(message.get("instructions") or []):
+        inner = groups.get(index, [])
+        if _is_distribute(ix):
+            out.append((ix["accounts"][0], _paid_to(inner, treasury)))
+            continue
+        for at, cix in enumerate(inner):
+            if not _is_distribute(cix):
+                continue
+            height = cix.get("stackHeight")
+            if not isinstance(height, int):
+                out.append((cix["accounts"][0], None))
+                continue
+            under = []
+            for nxt in inner[at + 1:]:
+                nested = nxt.get("stackHeight")
+                if not isinstance(nested, int) or nested <= height:
+                    break
+                under.append(nxt)
+            out.append((cix["accounts"][0], _paid_to(under, treasury)))
+    return out
 
 
 def gain(tx: dict, treasury: str) -> int:
@@ -100,30 +146,40 @@ def gain(tx: dict, treasury: str) -> int:
         return 0
 
 
-def classify(tx: dict | None, treasury: str, known=None) -> tuple[str | None, int, str | None]:
-    """`(mint, lamports, why_not)`: the mint to credit and the treasury's
-    gain, or `(None, gain, reason)` when the gain is nobody's credit."""
+def classify(tx: dict | None, treasury: str, known=None) -> tuple[list[tuple[str, int]], int, str | None]:
+    """`(credits, unattributed, why)`: `[(mint, lamports)]` per known mint
+    (summed over its distributes), the rest of the treasury's gain that is
+    nobody's credit, and why that rest was not attributed."""
     if not tx or (tx.get("meta") or {}).get("err") is not None:
-        return None, 0, "failed"
+        return [], 0, "failed"
     amount = gain(tx, treasury)
-    if amount <= 0:
-        return None, amount, "no_gain"
-    mints = distributes(tx)
-    if not mints:
-        return None, amount, "no_distribute"
-    if len(mints) > 1:
-        return None, amount, "several_distributes"
-    if known is not None and mints[0] not in known:
-        return None, amount, "unknown_mint"
-    return mints[0], amount, None
+    found = distributes(tx, treasury)
+    if any(lamports is None for _mint, lamports in found):
+        return [], max(amount, 0), "unreadable_nesting"
+    credits: dict[str, int] = {}
+    unknown = False
+    for mint, lamports in found:
+        if lamports <= 0:
+            continue
+        if known is not None and mint not in known:
+            unknown = True
+            continue
+        credits[mint] = credits.get(mint, 0) + lamports
+    total = sum(credits.values())
+    if total > max(amount, 0):
+        return [], max(amount, 0), "inconsistent"
+    rest = amount - total
+    if rest <= 0:
+        return list(credits.items()), 0, None
+    why = "unknown_mint" if unknown else ("no_distribute" if not found else "not_distributed")
+    return list(credits.items()), rest, why
 
 
 def inflow(tx: dict | None, treasury: str, known=None) -> list[tuple[str, int]]:
-    """`[(mint, lamports)]` the treasury received through exactly one pump
-    distribute instruction (top-level or inner) in a jsonParsed transaction,
-    or `[]`. With `known`, the mint must be in it."""
-    mint, amount, _ = classify(tx, treasury, known)
-    return [(mint, amount)] if mint else []
+    """`[(mint, lamports)]` the treasury received through pump distribute
+    instructions (top-level or inner) in a jsonParsed transaction, one entry
+    per mint. With `known`, only those mints."""
+    return classify(tx, treasury, known)[0]
 
 
 # -- the claim policy --------------------------------------------------------------------
@@ -211,7 +267,8 @@ CREATE TABLE IF NOT EXISTS tag_debits (
     wallet      TEXT,
     signature   TEXT,
     at          INTEGER NOT NULL,       -- when it was written, right after the blockhash was fetched
-    state       TEXT NOT NULL DEFAULT 'final'   -- pending | final
+    state       TEXT NOT NULL DEFAULT 'final',  -- pending | final
+    last_valid  INTEGER                 -- the blockhash's lastValidBlockHeight (pending rows)
 );
 CREATE INDEX IF NOT EXISTS tag_debits_user ON tag_debits (user_id, at);
 CREATE INDEX IF NOT EXISTS tag_debits_state ON tag_debits (state, signature);
@@ -221,7 +278,8 @@ CREATE TABLE IF NOT EXISTS tag_held (
     lamports    INTEGER NOT NULL,
     wallet      TEXT NOT NULL,
     at          INTEGER NOT NULL,
-    state       TEXT NOT NULL           -- held | approved | paid
+    state       TEXT NOT NULL,          -- held | approved | paid
+    signature   TEXT                    -- the pending payment covering it, if any
 );
 CREATE INDEX IF NOT EXISTS tag_held_user ON tag_held (user_id, state);
 CREATE TABLE IF NOT EXISTS tag_wallets (
@@ -235,6 +293,13 @@ CREATE TABLE IF NOT EXISTS tag_state (
     value       TEXT
 );
 """)
+        # A database made before these columns existed gains them.
+        if "last_valid" not in {r[1] for r in self.db.execute("PRAGMA table_info(tag_debits)")}:
+            with self.db:
+                self.db.execute("ALTER TABLE tag_debits ADD COLUMN last_valid INTEGER")
+        if "signature" not in {r[1] for r in self.db.execute("PRAGMA table_info(tag_held)")}:
+            with self.db:
+                self.db.execute("ALTER TABLE tag_held ADD COLUMN signature TEXT")
 
     # -- state --
 
@@ -309,14 +374,13 @@ CREATE TABLE IF NOT EXISTS tag_state (
             if tx is None:
                 rows.append({"kind": "unread", "signature": signature})
                 return rows
-            mint, lamports, why = classify(tx, treasury, known)
-            if mint:
+            credits, rest, why = classify(tx, treasury, known)
+            for mint, lamports in credits:
                 if self.credit(signature, mint, lamports, now):
                     rows.append({"kind": "credit", "signature": signature, "mint": mint, "lamports": lamports,
                                  "user_id": self.coin(mint)["user_id"], "at": now})
-            elif lamports > 0:
-                rows.append({"kind": "unattributed", "signature": signature, "lamports": lamports,
-                             "reason": why})
+            if rest > 0:
+                rows.append({"kind": "unattributed", "signature": signature, "lamports": rest, "reason": why})
         self.set_state(CURSOR_KEY, entries[0]["signature"])
         return rows
 
@@ -334,40 +398,49 @@ CREATE TABLE IF NOT EXISTS tag_state (
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (str(user_id), kind, int(lamports), wallet, signature, at, state))
 
-    def debit_pending(self, kind: str, rows, *, wallet: str, signature: str, at: int) -> None:
+    def debit_pending(self, kind: str, rows, *, wallet: str, signature: str, at: int,
+                      last_valid: int | None) -> None:
         """The write-ahead intent: every `(user_id, lamports)` of one signed
-        transaction, pending, in one database transaction, before it is sent."""
+        transaction, pending, in one database transaction, before it is sent.
+        `last_valid` is its blockhash's lastValidBlockHeight: past it, a
+        signature still unknown can never land."""
         if kind not in ("claim", "burn"):
             raise ValueError(f"unknown debit kind {kind!r}")
         with self.db:
             self.db.executemany(
-                "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'pending')",
-                [(str(uid), kind, int(lamports), wallet, signature, at) for uid, lamports in rows])
+                "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at, state, last_valid) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                [(str(uid), kind, int(lamports), wallet, signature, at, last_valid) for uid, lamports in rows])
 
     def has_pending(self, user_id: str) -> bool:
         return self.db.execute("SELECT 1 FROM tag_debits WHERE user_id = ? AND state = 'pending' LIMIT 1",
                                (str(user_id),)).fetchone() is not None
 
     def pending(self) -> dict[str, dict]:
-        """signature -> {"kind", "at", "rows": [(user_id, lamports, wallet)]} for pending debits."""
+        """signature -> {"kind", "at", "last_valid", "rows": [(user_id, lamports, wallet)]}
+        for pending debits."""
         out: dict[str, dict] = {}
-        for signature, kind, at, user_id, lamports, wallet in self.db.execute(
-                "SELECT signature, kind, at, user_id, lamports, wallet FROM tag_debits "
+        for signature, kind, at, last_valid, user_id, lamports, wallet in self.db.execute(
+                "SELECT signature, kind, at, last_valid, user_id, lamports, wallet FROM tag_debits "
                 "WHERE state = 'pending' ORDER BY id"):
-            entry = out.setdefault(signature, {"kind": kind, "at": at, "rows": []})
+            entry = out.setdefault(signature, {"kind": kind, "at": at, "last_valid": last_valid, "rows": []})
             entry["rows"].append((user_id, lamports, wallet))
         return out
 
     def finalize(self, signature: str) -> None:
+        """The transaction landed: its debits are final and any hold it covered is paid."""
         with self.db:
             self.db.execute("UPDATE tag_debits SET state = 'final' WHERE signature = ? AND state = 'pending'",
                             (signature,))
+            self.db.execute("UPDATE tag_held SET state = 'paid' WHERE signature = ?", (signature,))
 
     def drop_pending(self, signature: str) -> None:
-        """The transaction failed or never landed: the credit is restored."""
+        """The transaction failed or never landed: the credit is restored, and
+        any hold it covered is open again in the state it had (approved stays approved)."""
         with self.db:
             self.db.execute("DELETE FROM tag_debits WHERE signature = ? AND state = 'pending'", (signature,))
+            self.db.execute("UPDATE tag_held SET signature = NULL WHERE signature = ? AND state != 'paid'",
+                            (signature,))
 
     def pending_burn(self) -> bool:
         return self.db.execute(
@@ -412,19 +485,33 @@ CREATE TABLE IF NOT EXISTS tag_state (
     # -- held claims --
 
     def hold(self, user_id: str, lamports: int, wallet: str, at: int) -> None:
-        """Hold a claim for the owner; an open one is updated, not doubled."""
+        """Hold a claim for the owner. An open, unapproved one is updated, not
+        doubled; one the owner already approved (or one being paid) is left
+        exactly as it was, so an approval never grows after the fact."""
         with self.db:
+            if self.db.execute("SELECT 1 FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved') "
+                               "AND (state = 'approved' OR signature IS NOT NULL) LIMIT 1",
+                               (str(user_id),)).fetchone():
+                return
             cur = self.db.execute(
-                "UPDATE tag_held SET lamports = ?, wallet = ? WHERE user_id = ? AND state IN ('held', 'approved')",
+                "UPDATE tag_held SET lamports = ?, wallet = ? WHERE user_id = ? AND state = 'held'",
                 (int(lamports), wallet, str(user_id)))
             if cur.rowcount == 0:
                 self.db.execute("INSERT INTO tag_held (user_id, lamports, wallet, at, state) VALUES (?, ?, ?, ?, ?)",
                                 (str(user_id), int(lamports), wallet, at, "held"))
 
     def held_lamports(self, user_id: str) -> int:
+        """Held and approved amounts not already covered by a pending payment
+        (a pending debit lowers the balance by itself)."""
         return self.db.execute(
-            "SELECT COALESCE(SUM(lamports), 0) FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved')",
-            (str(user_id),)).fetchone()[0]
+            "SELECT COALESCE(SUM(lamports), 0) FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved') "
+            "AND signature IS NULL", (str(user_id),)).fetchone()[0]
+
+    def link_held(self, user_id: str, signature: str) -> None:
+        """A pending payment for this user covers their open hold, if any."""
+        with self.db:
+            self.db.execute("UPDATE tag_held SET signature = ? WHERE user_id = ? AND state IN ('held', 'approved') "
+                            "AND signature IS NULL", (signature, str(user_id)))
 
     def approve_held(self, user_id: str) -> int:
         """The owner's approval. Only marks the row; the running bot pays it."""
@@ -432,19 +519,16 @@ CREATE TABLE IF NOT EXISTS tag_state (
             return self.db.execute("UPDATE tag_held SET state = 'approved' WHERE user_id = ? AND state = 'held'",
                                    (str(user_id),)).rowcount
 
-    def approved(self) -> list[tuple[str, str]]:
-        """`(user_id, wallet)` of every approved held claim."""
-        return self.db.execute("SELECT user_id, wallet FROM tag_held WHERE state = 'approved' ORDER BY id").fetchall()
+    def approved(self) -> list[tuple[str, str, int]]:
+        """`(user_id, wallet, lamports)` of every approved held claim not being paid."""
+        return self.db.execute("SELECT user_id, wallet, lamports FROM tag_held WHERE state = 'approved' "
+                               "AND signature IS NULL ORDER BY id").fetchall()
 
-    def close_held(self, user_id: str, state: str = "paid") -> None:
-        """A claim for this user was paid (or no longer stands): no open hold remains."""
+    def drop_held(self, user_id: str) -> None:
+        """The claim no longer stands (refused outright): its open, unpaid hold goes."""
         with self.db:
-            if state == "paid":
-                self.db.execute("UPDATE tag_held SET state = 'paid' WHERE user_id = ? AND state IN ('held', 'approved')",
-                                (str(user_id),))
-            else:
-                self.db.execute("DELETE FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved')",
-                                (str(user_id),))
+            self.db.execute("DELETE FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved') "
+                            "AND signature IS NULL", (str(user_id),))
 
     # -- wallets --
 

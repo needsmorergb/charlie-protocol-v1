@@ -287,6 +287,12 @@ class Book:
                 "INSERT OR REPLACE INTO tag_requests VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (tweet_key, user_id, now, outcome, code, ticker, mint))
 
+    def entry(self, tweet_key: str) -> dict | None:
+        """The tweet's current row: `{"outcome", "code", "ticker", "mint"}`, or None."""
+        row = self.db.execute("SELECT outcome, code, ticker, mint FROM tag_requests WHERE tweet_key = ?",
+                              (tweet_key,)).fetchone()
+        return dict(zip(("outcome", "code", "ticker", "mint"), row)) if row else None
+
     def taken_tickers(self) -> set[str]:
         """Tickers of coins that exist or may: launched, launching, created
         with the split pending, or a create not yet known to have failed."""

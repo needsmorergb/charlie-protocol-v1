@@ -165,6 +165,8 @@ def main(argv=None) -> int:
             count = approve_held(config["db"], args.approve_held)
             print(f"approved {count} held claim(s) for {args.approve_held}")
             return 0 if count else 1
+        if not args.dry_run and not config.get("claim_secret"):
+            raise ConfigError("claim_secret is empty: set it to the site's CHARLIE_SESSION_SECRET before running live")
         lock = acquire_lock(config["db_dry"] if args.dry_run else config["db"])
         bot = build_bot(config, dry_run=args.dry_run, config_dir=Path(args.config).resolve().parent)
     except (ConfigError, Locked, OSError, KeyError, ValueError) as exc:

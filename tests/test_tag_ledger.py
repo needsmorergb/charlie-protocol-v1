@@ -1,6 +1,8 @@
 """Offline tests for the X-tag payout ledger (`indexer.tag_ledger`)."""
 from __future__ import annotations
 
+import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -22,6 +24,14 @@ CONFIG = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ"
 DAY = ledger_mod.DAY
 SOL = 1_000_000_000
 T0 = 1_790_000_000
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "pump_distribute_mainnet.json"
+
+
+def transfer(destination: str, lamports: int, height=2) -> dict:
+    """A jsonParsed system transfer, as pump makes it for each shareholder row."""
+    return {"program": "system", "programId": "11111111111111111111111111111111", "stackHeight": height,
+            "parsed": {"type": "transfer", "info": {"source": "Vau1t11111111111111111111111111111111111111",
+                                                     "destination": destination, "lamports": lamports}}}
 
 
 def distribute_ix(mint: str, *, data: str | None = None) -> dict:
@@ -44,22 +54,30 @@ def distribute_tx(mints=(MINT,), *, treasury_gain=4_000_000, err=None, graduated
     if graduated:
         instructions.append({"programId": distribute.PUMP_AMM_PROGRAM, "accounts": [LAUNCHER],
                              "data": encode(distribute.TRANSFER_CREATOR_FEES_TO_PUMP), "stackHeight": None})
-    instructions += [distribute_ix(m, data=data) for m in mints]
+    share = max(treasury_gain, 0)
+    inner_groups = []
+    for m in mints:     # pump pays each row with its own nested system transfer
+        instructions.append(distribute_ix(m, data=data))
+        inner_groups.append({"index": len(instructions) - 1,
+                             "instructions": [transfer(legs.TOLL_DESTINATION, 7), transfer(TREASURY, share)]})
     if inner:   # another program calling pump's distribute by CPI
         instructions.append({"programId": "Evi1Program11111111111111111111111111111111", "accounts": [LAUNCHER],
                              "data": "1", "stackHeight": None})
-    inner_groups = [{"index": len(instructions) - 1,
-                     "instructions": [dict(distribute_ix(m), stackHeight=2) for m in inner]}] if inner else []
+        nested = []
+        for m in inner:
+            nested += [dict(distribute_ix(m), stackHeight=2), transfer(TREASURY, share, height=3)]
+        inner_groups.append({"index": len(instructions) - 1, "instructions": nested})
     keys, seen = [LAUNCHER], {LAUNCHER}
     for ix in instructions + [i for g in inner_groups for i in g["instructions"]]:
-        for account in [*ix["accounts"], ix["programId"]]:
+        for account in [*ix.get("accounts", []), ix["programId"]]:
             if account not in seen:
                 seen.add(account)
                 keys.append(account)
     pre = [5 * SOL] + [1_000_000] * (len(keys) - 1)
     post = list(pre)
     post[0] -= 5_000
-    post[keys.index(TREASURY)] += treasury_gain
+    post[keys.index(TREASURY)] += treasury_gain * max(1, len(mints) + len(inner)) if treasury_gain > 0 \
+        else treasury_gain
     return {
         "blockTime": T0,
         "slot": 400_000_000,
@@ -101,19 +119,72 @@ class TestInflow(unittest.TestCase):
     def test_an_unknown_mint_is_nobody_s(self):
         self.assertEqual(inflow(distribute_tx(), TREASURY, known={OTHER_MINT}), [])
 
-    def test_two_mints_in_one_tx_cannot_be_split(self):
-        self.assertEqual(inflow(distribute_tx(mints=(MINT, OTHER_MINT)), TREASURY), [])
+    def test_two_mints_in_one_tx_each_get_their_own_transfers(self):
+        self.assertEqual(inflow(distribute_tx(mints=(MINT, OTHER_MINT)), TREASURY),
+                         [(MINT, 4_000_000), (OTHER_MINT, 4_000_000)])
+        credits, rest, why = ledger_mod.classify(distribute_tx(mints=(MINT, OTHER_MINT)), TREASURY, {MINT})
+        self.assertEqual((credits, rest, why), ([(MINT, 4_000_000)], 4_000_000, "unknown_mint"))
+
+    def test_a_real_mainnet_distribute_pays_by_nested_system_transfers(self):
+        # 2mA8Fp65..., one pump distribute; its shareholder rows are parsed
+        # system transfers nested under it, and the one to the collection
+        # wallet equals that wallet's balance change.
+        tx = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        mint = tx["transaction"]["message"]["instructions"][0]["accounts"][0]
+        self.assertEqual(ledger_mod.distributes(tx, legs.TOLL_DESTINATION), [(mint, 203_889)])
+        self.assertEqual(ledger_mod.gain(tx, legs.TOLL_DESTINATION), 203_889)
+        self.assertEqual(inflow(tx, legs.TOLL_DESTINATION, known={mint}), [(mint, 203_889)])
+
+    def test_the_real_distribute_twice_in_one_tx_credits_each_exactly(self):
+        tx = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        mint = tx["transaction"]["message"]["instructions"][0]["accounts"][0]
+        second = copy.deepcopy(tx["transaction"]["message"]["instructions"][0])
+        second["accounts"][0] = OTHER_MINT
+        tx["transaction"]["message"]["instructions"].append(second)
+        group = copy.deepcopy(tx["meta"]["innerInstructions"][0])
+        group["index"] = 1
+        for ix in group["instructions"]:
+            if (ix.get("parsed") or {}).get("info", {}).get("destination") == legs.TOLL_DESTINATION:
+                ix["parsed"]["info"]["lamports"] = 100_000
+        tx["meta"]["innerInstructions"].append(group)
+        at = [k["pubkey"] for k in tx["transaction"]["message"]["accountKeys"]].index(legs.TOLL_DESTINATION)
+        tx["meta"]["postBalances"][at] += 100_000
+        self.assertEqual(inflow(tx, legs.TOLL_DESTINATION, known={mint, OTHER_MINT}),
+                         [(mint, 203_889), (OTHER_MINT, 100_000)])
+        self.assertEqual(ledger_mod.classify(tx, legs.TOLL_DESTINATION, {OTHER_MINT}),
+                         ([(OTHER_MINT, 100_000)], 203_889, "unknown_mint"))
+
+    def test_nested_transfers_beyond_the_real_gain_credit_nothing(self):
+        tx = distribute_tx()
+        tx["meta"]["postBalances"][[k["pubkey"] for k in tx["transaction"]["message"]["accountKeys"]]
+                                   .index(TREASURY)] -= 1
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[0], [])
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[2], "inconsistent")
+
+    def test_a_transfer_beside_a_distribute_is_not_under_it(self):
+        tx = distribute_tx(mints=(), inner=(MINT,))
+        tx["meta"]["innerInstructions"][0]["instructions"].append(transfer(TREASURY, 9_000_000, height=2))
+        tx["meta"]["postBalances"][[k["pubkey"] for k in tx["transaction"]["message"]["accountKeys"]]
+                                   .index(TREASURY)] += 9_000_000
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT}),
+                         ([(MINT, 4_000_000)], 9_000_000, "not_distributed"))
 
     def test_an_inner_distribute_of_a_known_mint_is_credited(self):
         tx = distribute_tx(mints=(), inner=(MINT,))
         self.assertEqual(inflow(tx, TREASURY, known={MINT}), [(MINT, 4_000_000)])
 
     def test_a_cpi_distribute_cannot_ride_on_a_known_one(self):
-        # A real tag coin's distribute, plus another coin's by CPI: the gain
-        # cannot be split, so nobody is credited.
+        # A real tag coin's distribute, plus another coin's by CPI: the tag
+        # coin gets exactly its own transfer, the other coin's is nobody's.
         tx = distribute_tx(mints=(MINT,), inner=(OTHER_MINT,))
-        self.assertEqual(inflow(tx, TREASURY, known={MINT}), [])
-        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[2], "several_distributes")
+        self.assertEqual(inflow(tx, TREASURY, known={MINT}), [(MINT, 4_000_000)])
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[1:], (4_000_000, "unknown_mint"))
+
+    def test_an_inner_distribute_without_nesting_heights_is_not_guessed(self):
+        tx = distribute_tx(mints=(), inner=(MINT,))
+        for ix in tx["meta"]["innerInstructions"][0]["instructions"]:
+            ix["stackHeight"] = None
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT}), ([], 4_000_000, "unreadable_nesting"))
 
     def test_an_inner_only_distribute_of_an_unknown_mint_is_unattributed(self):
         tx = distribute_tx(mints=(), inner=(OTHER_MINT,))
@@ -202,13 +273,16 @@ class TestLedger(unittest.TestCase):
 
     def test_pending_debits_lower_the_balance_until_dropped_or_final(self):
         self.ledger.credit("a", MINT, 3_000_000, T0)
-        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p1", at=T0)
+        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p1", at=T0,
+                                  last_valid=500)
         self.assertEqual(self.ledger.balance("7"), 0)
         self.assertTrue(self.ledger.has_pending("7"))
         self.assertEqual(self.ledger.pending()["p1"]["rows"], [("7", 3_000_000, WALLET)])
+        self.assertEqual(self.ledger.pending()["p1"]["last_valid"], 500)
         self.ledger.drop_pending("p1")
         self.assertEqual(self.ledger.balance("7"), 3_000_000)
-        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p2", at=T0)
+        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p2", at=T0,
+                                  last_valid=500)
         self.ledger.finalize("p2")
         self.ledger.drop_pending("p2")                     # a final debit is never dropped
         self.assertEqual((self.ledger.balance("7"), self.ledger.pending()), (0, {}))
@@ -220,11 +294,46 @@ class TestLedger(unittest.TestCase):
         self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
         self.assertIsNone(self.ledger.burns_at("7"))
         self.assertEqual(self.ledger.approve_held("7"), 1)
-        self.assertEqual(self.ledger.approved(), [("7", WALLET)])
+        self.assertEqual(self.ledger.approved(), [("7", WALLET, 30_000_000)])
         self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
-        self.ledger.close_held("7", "paid")
+        self.ledger.hold("7", 90_000_000, WALLET, T0 + 2)          # an approval never grows
+        self.assertEqual(self.ledger.approved(), [("7", WALLET, 30_000_000)])
+        self.ledger.drop_held("7")
         self.assertEqual(self.ledger.approved(), [])
         self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 30_000_000)
+
+    def test_a_hold_is_paid_only_when_its_payment_is_final(self):
+        self.ledger.credit("a", MINT, 30_000_000, T0)
+        self.ledger.hold("7", 30_000_000, WALLET, T0)
+        self.ledger.approve_held("7")
+        self.ledger.debit_pending("claim", [("7", 30_000_000)], wallet=WALLET, signature="p1", at=T0,
+                                  last_valid=500)
+        self.ledger.link_held("7", "p1")
+        self.assertEqual(self.ledger.approved(), [])                     # being paid
+        self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
+        self.ledger.drop_pending("p1")                                   # failed: approved again
+        self.assertEqual(self.ledger.approved(), [("7", WALLET, 30_000_000)])
+        self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
+        self.ledger.debit_pending("claim", [("7", 30_000_000)], wallet=WALLET, signature="p2", at=T0,
+                                  last_valid=500)
+        self.ledger.link_held("7", "p2")
+        self.ledger.finalize("p2")
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM tag_held").fetchall(), [("paid",)])
+        self.assertEqual((self.ledger.approved(), self.ledger.held_lamports("7")), ([], 0))
+
+    def test_an_old_database_gains_the_new_columns(self):
+        import sqlite3
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE tag_debits (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, "
+                         "lamports INTEGER NOT NULL, wallet TEXT, signature TEXT, at INTEGER NOT NULL, "
+                         "state TEXT NOT NULL DEFAULT 'final');"
+                         "CREATE TABLE tag_held (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, "
+                         "lamports INTEGER NOT NULL, wallet TEXT NOT NULL, at INTEGER NOT NULL, state TEXT NOT NULL);")
+        ledger = Ledger(db)
+        ledger.debit_pending("burn", [("7", 1)], wallet=WALLET, signature="p", at=T0, last_valid=9)
+        self.assertEqual(ledger.pending()["p"]["last_valid"], 9)
+        ledger.hold("7", 5, WALLET, T0)
+        self.assertEqual(ledger.held_lamports("7"), 5)
 
     def test_mirror_writes_one_record_per_requester(self):
         self.ledger.credit("a", MINT, 3_000_000, T0)
