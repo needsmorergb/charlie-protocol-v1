@@ -161,11 +161,15 @@ def protocol_share(split, mint: str | None = None) -> Check:
     # applicable rather than FAIL: a coin that enrolled before the legs rule
     # followed the rules of its day and cannot change a permanent split, so
     # it contradicts no claim. Its numeric `actual` reads not-enrolled.
-    missing = legs.missing_legs(((a.address, a.bps) for a in split.attributions), rate) if paid >= rate else []
+    missing = (legs.missing_legs(((a.address, a.bps) for a in split.attributions), rate,
+                                 allow_charlie_ops=True) if paid >= rate else [])
     if missing:
         lacks = {
             legs.INCINERATOR_LEG: f"the incinerator row at {legs.min_incinerator_bps(rate)} bps or more",
-            legs.BUYBACK_LEG: f"the shared buyback treasury row ({legs.LAUNCH_BUYBACK_DESTINATION})",
+            legs.BUYBACK_LEG: (f"the shared buyback treasury row ({legs.LAUNCH_BUYBACK_DESTINATION})"
+                               + (f" or, for a coin launched from an X tag, Charlie's OPS row "
+                                  f"({legs.CHARLIE_OPS_DESTINATION}) at {legs.charlie_ops_bps(rate)} bps or more"
+                                  if legs.CHARLIE_OPS_DESTINATION else "")),
         }
         return _check(
             "PROTOCOL_SHARE", UNCHECKED, [], equation,
