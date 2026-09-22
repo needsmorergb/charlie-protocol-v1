@@ -78,6 +78,9 @@ class TestStdlibOnlyImports(unittest.TestCase):
 
 # argument 0 of an execute-family call that is not a plain string literal.
 PERMITTED_STATEMENTS = {
+    ("tag_launch.py", "__init__", "_SCHEMA"):
+        "a module-level string literal of CREATE TABLE/INDEX IF NOT EXISTS "
+        "statements, with no interpolation of any kind in it",
     ("evidence.py", "current_sharing_configs", "query"): (
         "built in the four lines above from string literals only -- the two "
         "optional clauses are literals and their VALUES are bound through ? "
