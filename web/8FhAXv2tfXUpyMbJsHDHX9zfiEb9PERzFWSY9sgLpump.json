@@ -18,7 +18,7 @@
     "burn_total": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
+        "detail": "the mint's supply is lower than the recorded burns account for: 151827872147 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
         "status": "UNCHECKED"
       },
       {
@@ -44,7 +44,7 @@
     "supply_destroyed": [
       {
         "check": "BURN_SUPPLY",
-        "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
+        "detail": "the mint's supply is lower than the recorded burns account for: 151827872147 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
         "status": "UNCHECKED"
       }
     ]
@@ -108,12 +108,12 @@
       "status": "UNCHECKED"
     },
     {
-      "actual": "956271591699956",
+      "actual": "956271591699953",
       "backs": [
         "burn_total",
         "supply_destroyed"
       ],
-      "detail": "the mint's supply is lower than the recorded burns account for: 151827872144 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
+      "detail": "the mint's supply is lower than the recorded burns account for: 151827872147 raw units were destroyed beyond what this walk could attribute to a recorded burn. Nothing this coin claims is contradicted -- the chain supports more destruction than is claimed -- but no exact supply-destroyed total is stated while part of the destruction has no record behind it",
       "equation": "initial_supply - sum(burn_amounts) == getMint(mint).supply",
       "expected": "956423419572100",
       "name": "BURN_SUPPLY",
@@ -198,10 +198,10 @@
     "decimals": 6,
     "freeze_authority": null,
     "mint_authority": null,
-    "supply": 956271591699956,
+    "supply": 956271591699953,
     "token_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
   },
-  "observed_at": 1789988708.0396996,
+  "observed_at": 1790072306.8289204,
   "publishable": [
     "split"
   ],
