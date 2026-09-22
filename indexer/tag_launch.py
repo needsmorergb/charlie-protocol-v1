@@ -1,4 +1,4 @@
-"""Launch a pump coin from an X tag: `@Charlie launch <Name> $TICKER` + image.
+"""Launch a pump coin from an X tag: `@CharlieSlugSOL launch <Name> $TICKER` + image.
 
 The tweet's author is the only beneficiary. Charlie's launch wallet
 (`legs.CHARLIE_LAUNCH_WALLET`) signs and pays for both transactions, so it is
@@ -89,6 +89,9 @@ PROTECTED_NAMES = frozenset({
 
 SITE = "https://charlieprotocol.fun"
 
+# Charlie's X account, the one a tag must address.
+BOT_HANDLE = "CharlieSlugSOL"
+
 
 class TagRefused(ValueError):
     """A tag that does not become a coin. `code` is stable for the log."""
@@ -115,7 +118,7 @@ _TAG = re.compile(
 )
 
 
-def parse(text: str, bot_handle: str) -> TagRequest | None:
+def parse(text: str, bot_handle: str = BOT_HANDLE) -> TagRequest | None:
     """The request in a tweet's text, or None when the text is not exactly a
     launch tag addressed to `bot_handle`. X appends a t.co link for attached
     media; those are dropped first. Nothing else is tolerated."""
