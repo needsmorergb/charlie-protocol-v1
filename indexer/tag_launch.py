@@ -79,7 +79,7 @@ RESERVED_TICKERS = frozenset({
 # stripped to letters and digits. People, brands and projects a coin could be
 # mistaken for. The caller adds more (`protected=`).
 PROTECTED_NAMES = frozenset({
-    "charlie", "charlieprotocol", "pumpfun", "pump", "solana", "bitcoin", "ethereum",
+    "charlie", "charlieprotocol", "charlieslug", "charlieslugsol", "pumpfun", "pump", "solana", "bitcoin", "ethereum",
     "coinbase", "binance", "phantom", "jupiter", "raydium", "tether", "circle",
     "elonmusk", "elon", "tesla", "spacex", "twitter", "xai", "grok", "openai",
     "anthropic", "claude", "google", "apple", "microsoft", "amazon", "nvidia", "meta",
