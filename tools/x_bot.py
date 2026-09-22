@@ -2,11 +2,16 @@
 
     python -m tools.x_bot --dry-run --once          # one simulated pass, nothing sent
     python -m tools.x_bot                           # the loop: mentions every 60 s, money every 30 min
-    python -m tools.x_bot --pay-held <x user id>    # pay a held claim to its bound wallet
+    python -m tools.x_bot --approve-held <x id>     # approve a held claim; the running bot pays it
 
 The config lives OUTSIDE the repo, by default in %USERPROFILE%\\.charlie-bot\\config.json
 (see tools/x_bot.example.json for every key). The keys are loaded only when
-not in a dry run, and each must be the wallet its name says (legs).
+not in a dry run, and each must be the wallet its name says (legs). A dry
+run uses its own database (`db_dry`), so it never consumes live tags.
+
+One bot at a time: the bot holds an exclusive lock file next to its
+database, and a second one exits. `--approve-held` only updates a row and
+does not take the lock.
 
 A file named STOP in the config directory pauses launches; the money tick
 carries on. Every event is one line on stdout and in the log file.
@@ -15,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -37,16 +43,23 @@ class ConfigError(ValueError):
     pass
 
 
+class Locked(RuntimeError):
+    pass
+
+
 def load_config(path: Path) -> dict:
     path = Path(path).resolve()
     if path == REPO or REPO in path.parents:
         raise ConfigError(f"{path} is inside the repo; the bot's config lives outside it")
     config = json.loads(path.read_text(encoding="utf-8"))
     config.setdefault("db", str(path.parent / "book.db"))
+    config.setdefault("db_dry", str(path.parent / "book-dry.db"))
     config.setdefault("log", str(path.parent / "bot.log"))
     for field in ("bot_user_id",):
         if not config.get(field):
             raise ConfigError(f"the config has no {field}")
+    if Path(config["db"]).resolve() == Path(config["db_dry"]).resolve():
+        raise ConfigError("db and db_dry must be different files")
     return config
 
 
@@ -61,6 +74,25 @@ def load_keys(paths: dict, *, reader=Keypair.from_file) -> dict:
             raise ConfigError(f"keypairs.{name} is {key.address}, not the {name} wallet {address}")
         keys[name] = key
     return keys
+
+
+def acquire_lock(db_path: str):
+    """An exclusive, non-blocking lock on `<db>.lock`. Returns the open file,
+    which holds the lock until it is closed or the process ends."""
+    path = f"{db_path}.lock"
+    handle = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise Locked(f"another x_bot holds {path}; only one may run against this database") from None
+    return handle
 
 
 def file_logger(path: str):
@@ -81,11 +113,21 @@ def build_bot(config: dict, *, dry_run: bool, config_dir: Path) -> tag_bot.Bot:
                    ("bearer", "consumer_key", "consumer_secret", "access_token", "access_secret")})
     rpc = RpcClient(tuple(config.get("rpc_urls") or ()) or DEFAULT_ENDPOINTS)
     kv = KV(config["upstash"]["url"], config["upstash"]["token"])
-    book = tag.Book(config["db"])
+    book = tag.Book(config["db_dry"] if dry_run else config["db"])
     ledger = tag_ledger.Ledger(book.db)
     keys = None if dry_run else load_keys(config.get("keypairs") or {})
     return tag_bot.Bot(x, rpc, kv, book, ledger, keys, dry_run=dry_run, bot_id=str(config["bot_user_id"]),
-                       pin=pin_metadata, stop_file=config_dir / "STOP", log=file_logger(config["log"]))
+                       pin=pin_metadata, stop_file=config_dir / "STOP", claim_secret=config.get("claim_secret", ""),
+                       log=file_logger(config["log"]))
+
+
+def approve_held(db_path: str, xid: str) -> int:
+    """Mark a user's held claim approved. The running bot pays it."""
+    book = tag.Book(db_path)
+    try:
+        return tag_ledger.Ledger(book.db).approve_held(xid)
+    finally:
+        book.db.close()
 
 
 def run(bot: tag_bot.Bot, *, once: bool, clock=time.monotonic, sleep=time.sleep) -> None:
@@ -113,21 +155,26 @@ def _guarded(bot, step) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.x_bot", description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    ap.add_argument("--dry-run", action="store_true", help="simulate; never send, post, pin or write the KV")
+    ap.add_argument("--dry-run", action="store_true", help="simulate on its own database; never send, post, pin or write the KV")
     ap.add_argument("--once", action="store_true", help="one mentions tick and one money tick, then exit")
-    ap.add_argument("--pay-held", metavar="XID", help="pay a held claim to the user's bound wallet, without caps")
+    ap.add_argument("--approve-held", metavar="XID", help="approve a held claim; the running bot pays it without the caps")
     args = ap.parse_args(argv)
     try:
         config = load_config(args.config)
+        if args.approve_held:
+            count = approve_held(config["db"], args.approve_held)
+            print(f"approved {count} held claim(s) for {args.approve_held}")
+            return 0 if count else 1
+        lock = acquire_lock(config["db_dry"] if args.dry_run else config["db"])
         bot = build_bot(config, dry_run=args.dry_run, config_dir=Path(args.config).resolve().parent)
-    except (ConfigError, OSError, KeyError, ValueError) as exc:
+    except (ConfigError, Locked, OSError, KeyError, ValueError) as exc:
         print(f"x_bot: {exc}", file=sys.stderr)
         return 2
-    if args.pay_held:
-        print(json.dumps(bot.pay_held(args.pay_held), indent=2))
-        return 0
-    bot.log("start", dry_run=args.dry_run, once=args.once)
-    run(bot, once=args.once)
+    try:
+        bot.log("start", dry_run=args.dry_run, once=args.once)
+        run(bot, once=args.once)
+    finally:
+        lock.close()
     return 0
 
 

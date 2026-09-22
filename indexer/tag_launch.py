@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS tag_requests (
     tweet_key   TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL,
     at          INTEGER NOT NULL,
-    outcome     TEXT NOT NULL,          -- launched | refused | failed
+    outcome     TEXT NOT NULL,          -- launched | refused | failed | launching
     code        TEXT,
     ticker      TEXT,
     mint        TEXT
@@ -288,10 +288,11 @@ class Book:
                 (tweet_key, user_id, now, outcome, code, ticker, mint))
 
     def taken_tickers(self) -> set[str]:
-        """Tickers of coins that exist: launched, or created with the split pending."""
+        """Tickers of coins that exist or may: launched, launching, created
+        with the split pending, or a create not yet known to have failed."""
         return {r[0] for r in self.db.execute(
             "SELECT DISTINCT ticker FROM tag_requests WHERE ticker IS NOT NULL AND mint IS NOT NULL "
-            "AND (outcome = 'launched' OR code = 'split_pending')")}
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))")}
 
     def pending_splits(self) -> list[tuple]:
         """`(tweet_key, user_id, at, ticker, mint)` for coins whose create

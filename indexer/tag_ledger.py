@@ -3,15 +3,25 @@
 Every tag-launched coin's split pays one row to `legs.CHARLIE_PAYOUT_TREASURY`.
 That wallet is shared, so the ledger attributes each SOL inflow to a coin, and
 each coin to the numeric X user ID that requested it (`tag_coins`, written at
-launch). An inflow counts when its transaction runs pump's
-`distribute_creator_fees` for a known tag mint; the amount is the treasury's
-own balance change in that transaction. Anything else that reaches the
-treasury is nobody's credit.
+launch). An inflow counts only when its transaction holds exactly ONE pump
+`distribute_creator_fees` instruction, top-level or inner (a CPI), for a known
+tag mint; the amount is the treasury's own balance change in that
+transaction. Anything else that reaches the treasury is unattributed: nobody's
+credit, and logged. With two distributes in one transaction a caller could
+pair a real tag coin with anything else and have the whole gain credited to
+the tag coin, so that is refused rather than guessed.
 
 Credits leave by two roads, both written as debits: a claim to the wallet the
 requester signs in with, or the burn once a credit is seven days old
-(`burnable`; debits use up the oldest credits first). `claim_decision` is the
-whole claim policy and does no I/O.
+(`burnable`; debits use up the oldest credits first). A debit is written
+`pending` BEFORE its transaction is sent (a write-ahead intent) and becomes
+`final` once the chain confirms it, or is deleted when the transaction failed
+or never landed (`reconcile` in the bot). A pending debit already lowers the
+balance, so an ambiguous send can never be paid twice.
+
+A claim held for the owner sits in `tag_held` (held, then approved, then
+paid); held and approved amounts do not burn. `claim_decision` is the whole
+claim policy and does no I/O.
 
 The tables live in the same SQLite file as `tag_launch.Book`.
 """
@@ -27,16 +37,16 @@ from .base58 import decode
 # -- the numbers ----------------------------------------------------------------------
 
 DAY = 86_400
-BURN_AFTER_SECONDS = 7 * DAY               # unclaimed credit burns after this
+BURN_AFTER_SECONDS = 7 * DAY               # unclaimed credit burns this long after it was recorded
 WALLET_CHANGE_DELAY_SECONDS = 72 * 3_600   # a bound wallet changes only after this
 MIN_CLAIM_LAMPORTS = 1_000_000             # 0.001 SOL; below this a claim is refused
 RENT_EXEMPT_MIN_LAMPORTS = 890_880         # a 0-data system account's rent-exempt minimum
-TX_FEE_LAMPORTS = 5_000                    # one signature
+TX_FEE_LAMPORTS = 5_000                    # one signature; taken out of the amount sent
 TREASURY_RESERVE_LAMPORTS = RENT_EXEMPT_MIN_LAMPORTS + TX_FEE_LAMPORTS
 PER_CLAIM_MAX_LAMPORTS = 5_000_000_000     # 5 SOL; larger claims are held for the owner
 PER_DAY_MAX_LAMPORTS = 20_000_000_000      # 20 SOL of claims per day, all requesters together
+PENDING_EXPIRY_SECONDS = 180               # a blockhash is dead by then: unseen means never landed
 SCAN_PAGE = 1_000                          # signatures per getSignaturesForAddress page
-SCAN_MAX_PAGES = 20                        # one scan reads at most this many pages
 
 PUMP_PROGRAM = distribute.PUMP_PROGRAM
 DISTRIBUTE_DISCRIMINATOR = distribute.DISTRIBUTE_CREATOR_FEES
@@ -46,7 +56,7 @@ CURSOR_KEY = "treasury_cursor"
 # Wallets a claim may never pay: Charlie's own.
 CHARLIE_WALLETS = frozenset(a for a in (
     legs.TOLL_DESTINATION, legs.CHARLIE_OPS_DESTINATION, legs.CHARLIE_PAYOUT_TREASURY,
-    legs.CHARLIE_LAUNCH_WALLET, legs.SOL_BURN_INCINERATOR,
+    legs.CHARLIE_LAUNCH_WALLET, legs.SOL_BURN_INCINERATOR, legs.LAUNCH_BUYBACK_DESTINATION,
 ) if a)
 
 
@@ -66,35 +76,54 @@ def _is_distribute(ix: dict) -> bool:
         return False
 
 
-def inflow(tx: dict | None, treasury: str, known=None) -> list[tuple[str, int]]:
-    """`[(mint, lamports)]` the treasury received in a jsonParsed transaction
-    through pump's distribute instruction, or `[]`.
-
-    The mint is account 0 of the distribute instruction; the amount is the
-    treasury's post minus pre balance, and only a gain counts. A failed
-    transaction, one with no distribute instruction, one distributing more
-    than one mint (the gain could not be split between them), or a mint not
-    in `known` (when given) yields `[]`.
-    """
-    if not tx or (tx.get("meta") or {}).get("err") is not None:
-        return []
+def distributes(tx: dict) -> list[str]:
+    """The mint (account 0) of every pump distribute instruction in the
+    transaction, top-level and inner alike, one entry per instruction."""
     message = (tx.get("transaction") or {}).get("message") or {}
-    mints = {ix["accounts"][0] for ix in message.get("instructions") or [] if _is_distribute(ix)}
-    if len(mints) != 1:
-        return []
-    mint = mints.pop()
-    if known is not None and mint not in known:
-        return []
+    instructions = list(message.get("instructions") or [])
+    for group in (tx.get("meta") or {}).get("innerInstructions") or []:
+        instructions.extend(group.get("instructions") or [])
+    return [ix["accounts"][0] for ix in instructions if _is_distribute(ix)]
+
+
+def gain(tx: dict, treasury: str) -> int:
+    """The treasury's post minus pre balance in this transaction (0 if absent)."""
+    message = (tx.get("transaction") or {}).get("message") or {}
     keys = [_key(k) for k in message.get("accountKeys") or []]
     if treasury not in keys:
-        return []
+        return 0
     at = keys.index(treasury)
-    meta = tx["meta"]
+    meta = tx.get("meta") or {}
     try:
-        gain = int(meta["postBalances"][at]) - int(meta["preBalances"][at])
+        return int(meta["postBalances"][at]) - int(meta["preBalances"][at])
     except (KeyError, IndexError, TypeError, ValueError):
-        return []
-    return [(mint, gain)] if gain > 0 else []
+        return 0
+
+
+def classify(tx: dict | None, treasury: str, known=None) -> tuple[str | None, int, str | None]:
+    """`(mint, lamports, why_not)`: the mint to credit and the treasury's
+    gain, or `(None, gain, reason)` when the gain is nobody's credit."""
+    if not tx or (tx.get("meta") or {}).get("err") is not None:
+        return None, 0, "failed"
+    amount = gain(tx, treasury)
+    if amount <= 0:
+        return None, amount, "no_gain"
+    mints = distributes(tx)
+    if not mints:
+        return None, amount, "no_distribute"
+    if len(mints) > 1:
+        return None, amount, "several_distributes"
+    if known is not None and mints[0] not in known:
+        return None, amount, "unknown_mint"
+    return mints[0], amount, None
+
+
+def inflow(tx: dict | None, treasury: str, known=None) -> list[tuple[str, int]]:
+    """`[(mint, lamports)]` the treasury received through exactly one pump
+    distribute instruction (top-level or inner) in a jsonParsed transaction,
+    or `[]`. With `known`, the mint must be in it."""
+    mint, amount, _ = classify(tx, treasury, known)
+    return [(mint, amount)] if mint else []
 
 
 # -- the claim policy --------------------------------------------------------------------
@@ -103,9 +132,9 @@ def inflow(tx: dict | None, treasury: str, known=None) -> list[tuple[str, int]]:
 @dataclass(frozen=True)
 class Decision:
     state: str                    # pay | held | refused
-    lamports: int
+    lamports: int                 # debited from the credit; the wallet receives this less TX_FEE
     reason: str | None = None
-    bind: str | None = None       # the wallet to bind now
+    bind: str | None = None       # the wallet to bind now (clears any pending change)
     pending: str | None = None    # a new wallet to start waiting on
     ready_at: int | None = None   # when `pending` becomes usable
 
@@ -115,28 +144,29 @@ def claim_decision(*, balance: int, wallet: str, bound: str | None, pending: str
                    treasury_lamports: int, paid_today: int, caps: bool = True) -> Decision:
     """What to do with one claim. Pure: every number is passed in.
 
-    The first wallet binds. A different wallet waits WALLET_CHANGE_DELAY
+    The first wallet binds. A claim to the bound wallet keeps it bound and
+    clears any pending change. A different wallet waits WALLET_CHANGE_DELAY
     from the request that names it (a new different wallet restarts the
-    wait), then binds. The amount is the whole balance. A claim below
+    wait), then binds. The amount is the whole balance; the network fee comes
+    out of it, so the wallet receives the amount less TX_FEE. A claim below
     MIN_CLAIM, or one that would leave a new recipient below rent exemption,
     is refused. One the treasury cannot pay while keeping its reserve, above
     PER_CLAIM_MAX, or past PER_DAY_MAX today, is held for the owner, who
-    pays it with a command (`caps=False` skips the two caps).
+    approves it (`caps=False` then skips the two caps).
     """
-    bind = None
     if wallet in CHARLIE_WALLETS:
         return Decision("refused", 0, "that wallet cannot receive claims")
-    if bound is None or (pending == wallet and ready_at is not None and ready_at <= now):
+    if bound is None or wallet == bound or (pending == wallet and ready_at is not None and ready_at <= now):
         bind = wallet
-    elif wallet != bound:
-        if pending == wallet:
-            return Decision("refused", 0, "the new wallet is still waiting", pending=wallet, ready_at=ready_at)
+    elif pending == wallet:
+        return Decision("refused", 0, "the new wallet is still waiting", pending=wallet, ready_at=ready_at)
+    else:
         return Decision("refused", 0, "a new wallet waits 72 hours before it can receive a claim",
                         pending=wallet, ready_at=now + WALLET_CHANGE_DELAY_SECONDS)
     amount = balance
     if amount < MIN_CLAIM_LAMPORTS:
         return Decision("refused", 0, "nothing to claim yet", bind=bind)
-    if recipient_lamports + amount < RENT_EXEMPT_MIN_LAMPORTS:
+    if recipient_lamports + amount - TX_FEE_LAMPORTS < RENT_EXEMPT_MIN_LAMPORTS:
         return Decision("refused", 0, "the amount would not keep a new wallet open", bind=bind)
     if treasury_lamports - amount < TREASURY_RESERVE_LAMPORTS:
         return Decision("held", amount, "the treasury cannot cover this claim yet", bind=bind)
@@ -169,7 +199,7 @@ CREATE TABLE IF NOT EXISTS tag_credits (
     mint        TEXT NOT NULL,
     user_id     TEXT NOT NULL,
     lamports    INTEGER NOT NULL,
-    at          INTEGER NOT NULL,
+    at          INTEGER NOT NULL,       -- when the ledger recorded it, not the block time
     PRIMARY KEY (signature, mint)
 );
 CREATE INDEX IF NOT EXISTS tag_credits_user ON tag_credits (user_id, at);
@@ -180,9 +210,20 @@ CREATE TABLE IF NOT EXISTS tag_debits (
     lamports    INTEGER NOT NULL,
     wallet      TEXT,
     signature   TEXT,
-    at          INTEGER NOT NULL
+    at          INTEGER NOT NULL,       -- when it was written, right after the blockhash was fetched
+    state       TEXT NOT NULL DEFAULT 'final'   -- pending | final
 );
 CREATE INDEX IF NOT EXISTS tag_debits_user ON tag_debits (user_id, at);
+CREATE INDEX IF NOT EXISTS tag_debits_state ON tag_debits (state, signature);
+CREATE TABLE IF NOT EXISTS tag_held (
+    id          INTEGER PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    lamports    INTEGER NOT NULL,
+    wallet      TEXT NOT NULL,
+    at          INTEGER NOT NULL,
+    state       TEXT NOT NULL           -- held | approved | paid
+);
+CREATE INDEX IF NOT EXISTS tag_held_user ON tag_held (user_id, state);
 CREATE TABLE IF NOT EXISTS tag_wallets (
     user_id     TEXT PRIMARY KEY,
     wallet      TEXT,
@@ -238,45 +279,99 @@ CREATE TABLE IF NOT EXISTS tag_state (
                                   (signature, mint, coin["user_id"], int(lamports), at))
         return cur.rowcount == 1
 
-    def scan(self, rpc, treasury: str, *, now: int = 0) -> list[dict]:
-        """Walk the treasury's signatures newer than the saved cursor, oldest
-        first, and credit each tag-mint inflow once. The cursor moves past a
-        signature only once its transaction was read; one the node cannot
-        return yet stops the walk, to be read next time."""
+    def scan(self, rpc, treasury: str, *, now: int) -> list[dict]:
+        """Walk the treasury's signatures back to the saved cursor, then read
+        them oldest first. Each tag-mint inflow is credited once, dated `now`
+        (when the ledger learnt of it), so a credit always has its full week
+        on the site before it can burn. The cursor moves only after every
+        signature was read; one the node cannot return yet stops the scan
+        without moving it (credits are idempotent, so the rescan is safe).
+
+        Rows: `{"kind": "credit", ...}` or `{"kind": "unattributed", ...}`
+        for a treasury gain that is nobody's credit."""
         cursor = self.state(CURSOR_KEY)
         entries, before = [], None
-        for _ in range(SCAN_MAX_PAGES):
+        while True:
             page = rpc.signatures_for_address(treasury, before=before, until=cursor, limit=SCAN_PAGE)
             entries.extend(page)
             if len(page) < SCAN_PAGE:
                 break
             before = page[-1]["signature"]
+        if not entries:
+            return []
         known = set(self.tag_mints())
-        credited = []
+        rows = []
         for entry in reversed(entries):
+            if entry.get("err") is not None:
+                continue
             signature = entry["signature"]
-            if entry.get("err") is None:
-                tx = rpc.transaction(signature)
-                if tx is None:
-                    break
-                at = int(tx.get("blockTime") or entry.get("blockTime") or now)
-                for mint, lamports in inflow(tx, treasury, known):
-                    if self.credit(signature, mint, lamports, at):
-                        credited.append({"signature": signature, "mint": mint, "lamports": lamports,
-                                         "user_id": self.coin(mint)["user_id"], "at": at})
-            self.set_state(CURSOR_KEY, signature)
-        return credited
+            tx = rpc.transaction(signature)
+            if tx is None:
+                rows.append({"kind": "unread", "signature": signature})
+                return rows
+            mint, lamports, why = classify(tx, treasury, known)
+            if mint:
+                if self.credit(signature, mint, lamports, now):
+                    rows.append({"kind": "credit", "signature": signature, "mint": mint, "lamports": lamports,
+                                 "user_id": self.coin(mint)["user_id"], "at": now})
+            elif lamports > 0:
+                rows.append({"kind": "unattributed", "signature": signature, "lamports": lamports,
+                             "reason": why})
+        self.set_state(CURSOR_KEY, entries[0]["signature"])
+        return rows
 
     # -- debits --
 
     def debit(self, user_id: str, kind: str, lamports: int, *, wallet: str | None = None,
-              signature: str | None = None, at: int) -> None:
+              signature: str | None = None, at: int, state: str = "final") -> None:
+        if kind not in ("claim", "burn"):
+            raise ValueError(f"unknown debit kind {kind!r}")
+        if state not in ("pending", "final"):
+            raise ValueError(f"unknown debit state {state!r}")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(user_id), kind, int(lamports), wallet, signature, at, state))
+
+    def debit_pending(self, kind: str, rows, *, wallet: str, signature: str, at: int) -> None:
+        """The write-ahead intent: every `(user_id, lamports)` of one signed
+        transaction, pending, in one database transaction, before it is sent."""
         if kind not in ("claim", "burn"):
             raise ValueError(f"unknown debit kind {kind!r}")
         with self.db:
-            self.db.execute(
-                "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at) VALUES (?, ?, ?, ?, ?, ?)",
-                (str(user_id), kind, int(lamports), wallet, signature, at))
+            self.db.executemany(
+                "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+                [(str(uid), kind, int(lamports), wallet, signature, at) for uid, lamports in rows])
+
+    def has_pending(self, user_id: str) -> bool:
+        return self.db.execute("SELECT 1 FROM tag_debits WHERE user_id = ? AND state = 'pending' LIMIT 1",
+                               (str(user_id),)).fetchone() is not None
+
+    def pending(self) -> dict[str, dict]:
+        """signature -> {"kind", "at", "rows": [(user_id, lamports, wallet)]} for pending debits."""
+        out: dict[str, dict] = {}
+        for signature, kind, at, user_id, lamports, wallet in self.db.execute(
+                "SELECT signature, kind, at, user_id, lamports, wallet FROM tag_debits "
+                "WHERE state = 'pending' ORDER BY id"):
+            entry = out.setdefault(signature, {"kind": kind, "at": at, "rows": []})
+            entry["rows"].append((user_id, lamports, wallet))
+        return out
+
+    def finalize(self, signature: str) -> None:
+        with self.db:
+            self.db.execute("UPDATE tag_debits SET state = 'final' WHERE signature = ? AND state = 'pending'",
+                            (signature,))
+
+    def drop_pending(self, signature: str) -> None:
+        """The transaction failed or never landed: the credit is restored."""
+        with self.db:
+            self.db.execute("DELETE FROM tag_debits WHERE signature = ? AND state = 'pending'", (signature,))
+
+    def pending_burn(self) -> bool:
+        return self.db.execute(
+            "SELECT 1 FROM tag_debits WHERE kind = 'burn' AND state = 'pending' LIMIT 1").fetchone() is not None
 
     def _credited(self, user_id: str) -> int:
         return self.db.execute("SELECT COALESCE(SUM(lamports), 0) FROM tag_credits WHERE user_id = ?",
@@ -287,19 +382,20 @@ CREATE TABLE IF NOT EXISTS tag_state (
                                (str(user_id),)).fetchone()[0]
 
     def balance(self, user_id: str) -> int:
+        """Credits less every debit, pending ones included."""
         return self._credited(user_id) - self._debited(user_id)
 
     def burnable(self, user_id: str, now: int) -> int:
         """Credits older than BURN_AFTER not yet covered by debits (debits
-        use up the oldest credits first)."""
+        use up the oldest credits first), less any held or approved claim."""
         old = self.db.execute(
             "SELECT COALESCE(SUM(lamports), 0) FROM tag_credits WHERE user_id = ? AND at <= ?",
             (str(user_id), now - BURN_AFTER_SECONDS)).fetchone()[0]
-        return max(0, old - self._debited(user_id))
+        return max(0, old - self._debited(user_id) - self.held_lamports(user_id))
 
     def burns_at(self, user_id: str) -> int | None:
         """When the oldest credit not yet covered by debits burns."""
-        covered = self._debited(user_id)
+        covered = self._debited(user_id) + self.held_lamports(user_id)
         for lamports, at in self.db.execute(
                 "SELECT lamports, at FROM tag_credits WHERE user_id = ? ORDER BY at, signature, mint",
                 (str(user_id),)):
@@ -312,6 +408,43 @@ CREATE TABLE IF NOT EXISTS tag_state (
         return self.db.execute(
             "SELECT COALESCE(SUM(lamports), 0) FROM tag_debits WHERE kind = 'claim' AND at > ?",
             (since,)).fetchone()[0]
+
+    # -- held claims --
+
+    def hold(self, user_id: str, lamports: int, wallet: str, at: int) -> None:
+        """Hold a claim for the owner; an open one is updated, not doubled."""
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE tag_held SET lamports = ?, wallet = ? WHERE user_id = ? AND state IN ('held', 'approved')",
+                (int(lamports), wallet, str(user_id)))
+            if cur.rowcount == 0:
+                self.db.execute("INSERT INTO tag_held (user_id, lamports, wallet, at, state) VALUES (?, ?, ?, ?, ?)",
+                                (str(user_id), int(lamports), wallet, at, "held"))
+
+    def held_lamports(self, user_id: str) -> int:
+        return self.db.execute(
+            "SELECT COALESCE(SUM(lamports), 0) FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved')",
+            (str(user_id),)).fetchone()[0]
+
+    def approve_held(self, user_id: str) -> int:
+        """The owner's approval. Only marks the row; the running bot pays it."""
+        with self.db:
+            return self.db.execute("UPDATE tag_held SET state = 'approved' WHERE user_id = ? AND state = 'held'",
+                                   (str(user_id),)).rowcount
+
+    def approved(self) -> list[tuple[str, str]]:
+        """`(user_id, wallet)` of every approved held claim."""
+        return self.db.execute("SELECT user_id, wallet FROM tag_held WHERE state = 'approved' ORDER BY id").fetchall()
+
+    def close_held(self, user_id: str, state: str = "paid") -> None:
+        """A claim for this user was paid (or no longer stands): no open hold remains."""
+        with self.db:
+            if state == "paid":
+                self.db.execute("UPDATE tag_held SET state = 'paid' WHERE user_id = ? AND state IN ('held', 'approved')",
+                                (str(user_id),))
+            else:
+                self.db.execute("DELETE FROM tag_held WHERE user_id = ? AND state IN ('held', 'approved')",
+                                (str(user_id),))
 
     # -- wallets --
 

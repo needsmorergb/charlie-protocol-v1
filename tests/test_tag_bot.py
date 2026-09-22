@@ -1,6 +1,7 @@
 """Offline tests for the X-tag bot (`indexer.tag_bot`). Every outside effect is a fake."""
 from __future__ import annotations
 
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -9,11 +10,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from indexer import legs
+from indexer import claim_session, legs
 from indexer import tag_bot
 from indexer import tag_launch as tag
 from indexer import tag_ledger
-from indexer.base58 import decode
+from indexer.base58 import decode, encode
 
 try:
     from indexer.kv import MemoryKV
@@ -23,11 +24,18 @@ except ImportError:   # built alongside; the same methods
 NOW = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 TS = tag.epoch(NOW)
 SOL = 1_000_000_000
+FEE = tag_ledger.TX_FEE_LAMPORTS
 BLOCKHASH = "11111111111111111111111111111111"
 URI = "https://ipfs.io/ipfs/" + "Q" * 46
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 WALLET = "So11111111111111111111111111111111111111112"
 WALLET_2 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+SECRET = "test-only-claim-secret"
+CONFIRMED = {"err": None, "confirmationStatus": "confirmed"}
+
+
+class Crash(BaseException):
+    """The process dying mid-step: not caught by the bot's `except Exception`."""
 
 
 class FakeKV:
@@ -106,9 +114,7 @@ class FakeRpc:
         self.sims = 0
         self.signatures, self.txs = [], {}
         self.existing = set()
-
-    def accounts(self, addresses):
-        return [{"lamports": 1} if a in self.existing else None for a in addresses]
+        self.statuses = {}
 
     def call(self, method, params=None):
         if method == "getLatestBlockhash":
@@ -117,7 +123,12 @@ class FakeRpc:
             self.sims += 1
             err = self.sim_errors.pop(0) if self.sim_errors else None
             return {"value": {"err": err, "logs": [], "unitsConsumed": 1000}}
+        if method == "getSignatureStatuses":
+            return {"value": [self.statuses.get(s) for s in params[0]]}
         raise AssertionError(f"unexpected RPC {method}")
+
+    def accounts(self, addresses):
+        return [{"lamports": 1} if a in self.existing else None for a in addresses]
 
     def balance(self, address):
         return self.balances.get(address, 0)
@@ -135,23 +146,38 @@ class FakeRpc:
 
 
 class Harness:
-    def __init__(self, *, x=None, rpc=None, dry_run=False, stop_file=None, now=NOW):
+    def __init__(self, *, x=None, rpc=None, dry_run=False, stop_file=None, now=NOW, db=":memory:"):
         self.x = x or FakeX()
         self.rpc = rpc or FakeRpc()
         self.kv = make_kv()
-        self.book = tag.Book()
+        self.book = tag.Book(db)
         self.ledger = tag_ledger.Ledger(self.book.db)
-        self.sent, self.pins, self.lines, self.distributed = [], [], [], []
+        self.sent, self.wires, self.pins, self.lines, self.distributed, self.events = [], [], [], [], [], []
+        self.on_transmit = None          # None: lands confirmed; else a callable(wire, signature)
         self.clock = [now]
-        self.bot = tag_bot.Bot(
-            self.x, self.rpc, self.kv, self.book, self.ledger, None, dry_run=dry_run,
-            now=lambda: self.clock[0], bot_id="999", sender=self.sender, pin=self.pin,
-            confirm=lambda signature: None, distribute_run=self.distribute_run,
-            stop_file=stop_file, log=self.lines.append)
+        self.bot = self.make_bot(dry_run=dry_run, stop_file=stop_file)
 
-    def sender(self, name, message, cosigners=()):
+    def make_bot(self, *, dry_run=False, stop_file=None):
+        return tag_bot.Bot(
+            self.x, self.rpc, self.kv, self.book, self.ledger, None, dry_run=dry_run,
+            now=lambda: self.clock[0], bot_id="999", signer=self.signer, transmit=self.transmit, pin=self.pin,
+            confirm=lambda signature: None, distribute_run=self.distribute_run,
+            stop_file=stop_file, claim_secret=SECRET, log=self.lines.append)
+
+    def signer(self, name, message, cosigners=()):
         self.sent.append((name, message, tuple(c.address for c in cosigners)))
-        return f"sig{len(self.sent)}"
+        self.events.append(("sign", name))
+        signature = hashlib.sha512(f"{len(self.sent)}".encode()).digest()
+        return bytes([1]) + signature + message
+
+    def transmit(self, wire):
+        signature = encode(wire[1:65])
+        self.wires.append(signature)
+        if self.on_transmit is not None:
+            self.on_transmit(wire, signature)
+        else:
+            self.rpc.statuses[signature] = CONFIRMED
+        return signature
 
     def pin(self, fields, image):
         self.pins.append((fields, image[1]))
@@ -173,6 +199,9 @@ class Harness:
         return self.book.db.execute("SELECT outcome, code, ticker, mint FROM tag_requests WHERE tweet_key = ?",
                                     (key,)).fetchone()
 
+    def queue(self, xid="7", wallet=WALLET, at=TS, secret=SECRET):
+        self.kv.push("claim:queue", claim_session.sign_claim(xid, "alice", wallet, at, secret))
+
 
 def lamports_in(message: bytes, destination: str, lamports: int) -> bool:
     return decode(destination) in message and lamports.to_bytes(8, "little") in message
@@ -192,6 +221,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.pins[0][0]["twitter"], "https://x.com/alice/status/100")
         self.assertEqual(h.pins[0][1], "image/png")
         self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "100")
+        self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
         h.x.tweets = [tweet()]                          # seen: never twice
         self.assertEqual(h.bot.tick_mentions(), [])
         self.assertEqual(h.x.since[-1], "100")
@@ -258,14 +288,13 @@ class TestMentions(unittest.TestCase):
     def _unconfirmed_create(self):
         h = Harness(x=FakeX([tweet()]))
 
-        def failing(name, message, cosigners=()):
-            h.sent.append((name, message, ()))
+        def failing(wire, signature):
             raise RuntimeError("confirm timed out")
-        h.bot.sender = failing
+        h.on_transmit = failing
         mint = h.bot.tick_mentions()[0]["mint"]
         self.assertEqual(h.outcome(), ("failed", "create_failed", "MDOG", mint))
         self.assertIsNone(h.ledger.coin(mint))
-        h.bot.sender = h.sender
+        h.on_transmit = None
         return h, mint
 
     def test_an_unconfirmed_create_that_landed_gets_its_split(self):
@@ -290,15 +319,58 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
         self.assertIsNone(h.book.limit_refusal("7", tag.epoch(h.clock[0])))
 
+    def test_the_tweet_is_launching_before_the_create_is_sent(self):
+        h = Harness(x=FakeX([tweet()]))
+        seen = []
+
+        def check(wire, signature):
+            if not seen:
+                seen.append((h.outcome()[:2], h.book.seen("100")))
+            h.rpc.statuses[signature] = CONFIRMED
+        h.on_transmit = check
+        h.bot.tick_mentions()
+        self.assertEqual(seen, [(("launching", None), True)])
+
+    def test_a_crash_mid_create_never_launches_the_tweet_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "book.db")
+            second = tweet(id="101", edit_history_tweet_ids=["101"], author_id="8",
+                           text="@CharlieSlugSOL launch Moon Cat $MCAT")
+            x = FakeX([tweet(), second], users={"7": user(), "8": user(id="8", username="bob")})
+            h = Harness(x=x, db=db)
+
+            def crash_on_second(wire, signature):
+                if len(h.wires) == 3:          # create 1, split 1, create 2
+                    raise Crash()
+                h.rpc.statuses[signature] = CONFIRMED
+            h.on_transmit = crash_on_second
+            with self.assertRaises(Crash):
+                h.bot.tick_mentions()
+            self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "100")     # saved per tweet
+            self.assertEqual(h.outcome("101")[0], "launching")
+            mint = h.outcome("101")[3]
+            h.book.db.close()
+
+            # the restart: the same database, the tweet redelivered, the coin on chain
+            h2 = Harness(x=FakeX([second], users={"8": user(id="8", username="bob")}), db=db)
+            h2.rpc.existing.add(mint)
+            rows = h2.bot.tick_mentions()
+            self.assertEqual([(r["outcome"], r["mint"]) for r in rows], [("launched", mint)])
+            self.assertEqual(h2.outcome("101"), ("launched", None, "MCAT", mint))
+            self.assertEqual([s[2] for s in h2.sent], [()])                # only the split; no second create
+            self.assertEqual(h2.ledger.coin(mint)["handle"], "bob")
+            h2.book.db.close()
+
     def test_a_failed_create_simulation_sends_nothing(self):
         h = Harness(x=FakeX([tweet()]), rpc=FakeRpc(sim_errors=[{"InstructionError": [0, "x"]}]))
         h.bot.tick_mentions()
         self.assertEqual(h.outcome()[:2], ("failed", "create_simulation"))
         self.assertEqual((h.sent, h.x.replies), ([], []))
 
-    def test_dry_run_sends_posts_pins_and_records_nothing(self):
+    def test_dry_run_signs_sends_posts_pins_and_records_nothing(self):
         h = Harness(x=FakeX([tweet()]), dry_run=True)
-        h.bot.sender = lambda *a: self.fail("dry run sent")
+        h.bot.signer = lambda *a: self.fail("dry run signed")
+        h.bot.transmit = lambda *a: self.fail("dry run sent")
         h.x.post_reply = lambda *a: self.fail("dry run posted")
         rows = h.bot.tick_mentions()
         self.assertEqual(rows[0]["outcome"], "simulated")
@@ -322,15 +394,15 @@ class TestMentions(unittest.TestCase):
 
 class TestMoney(unittest.TestCase):
     @staticmethod
-    def paid(h):
-        """What the bot sent, less the distribute crank's own transactions."""
-        return [s for s in h.sent if s[1] != b"distribute-message"]
+    def paid(h, name="treasury"):
+        """What the bot signed with one key."""
+        return [s for s in h.sent if s[0] == name]
 
     def credit(self, h, lamports, at=TS, signature="c1", user_id="7"):
         h.ledger.add_coin(f"mint{user_id}", user_id, "alice", "1", at)
         h.ledger.credit(signature, f"mint{user_id}", lamports, at)
 
-    def test_distribute_pays_fees_from_the_launch_wallet_through_the_sender(self):
+    def test_distribute_pays_fees_from_the_launch_wallet_through_the_signer(self):
         h = Harness()
         h.ledger.add_coin("mintA", "7", "alice", "1", TS)
         h.bot.tick_money()
@@ -347,29 +419,101 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(h.ledger.balance("7"), 7_000_000)
         self.assertEqual(h.kv.get_json("claim:credit:7")["claimable"], 7_000_000)
 
-    def test_a_claim_pays_the_balance_and_writes_the_status(self):
+    def test_a_claim_pays_the_balance_less_the_fee_and_writes_the_status(self):
         h = Harness()
         self.credit(h, 2 * SOL)
-        h.kv.push("claim:queue", {"xid": "7", "handle": "alice", "wallet": WALLET, "at": TS})
+        h.queue()
         h.bot.tick_money()
-        name, message, _ = self.paid(h)[0]
-        self.assertEqual(name, "treasury")
-        self.assertTrue(lamports_in(message, WALLET, 2 * SOL))
-        self.assertEqual(h.kv.get_json("claim:status:7")["state"], "paid")
+        _, message, _ = self.paid(h)[0]
+        self.assertTrue(lamports_in(message, WALLET, 2 * SOL - FEE))
+        status = h.kv.get_json("claim:status:7")
+        self.assertEqual((status["state"], status["lamports"], status["signature"]), ("paid", 2 * SOL - FEE, h.wires[-1]))
         self.assertEqual(h.ledger.balance("7"), 0)
+        self.assertEqual(h.ledger.pending(), {})
         self.assertEqual(h.ledger.wallet("7")[0], WALLET)
         self.assertEqual(h.kv.get_json("claim:credit:7")["wallet"], WALLET)
 
-    def test_a_claim_over_the_cap_is_held_and_the_owner_pays_it(self):
+    def test_the_debit_is_pending_before_the_send(self):
         h = Harness()
-        self.credit(h, 6 * SOL)
+        self.credit(h, 2 * SOL)
+        seen = []
+
+        def check(wire, signature):
+            seen.append((h.ledger.has_pending("7"), list(h.ledger.pending()), h.ledger.balance("7")))
+            h.rpc.statuses[signature] = CONFIRMED
+        h.on_transmit = check
+        h.bot.claim("7", WALLET)
+        self.assertEqual(seen, [(True, [h.wires[0]], 0)])
+
+    def test_an_ambiguous_send_is_never_paid_twice_and_expires_back_to_credit(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+
+        def lost(wire, signature):
+            raise RuntimeError("connection reset")
+        h.on_transmit = lost
+        self.assertEqual(h.bot.claim("7", WALLET)["state"], "queued")
+        self.assertEqual(h.ledger.balance("7"), 0)              # the pending debit stays
+        h.on_transmit = None
+        self.assertEqual(h.bot.claim("7", WALLET)["state"], "queued")   # no second payment
+        self.assertEqual(len(self.paid(h)), 1)
+        h.clock[0] = NOW + timedelta(seconds=180)
+        h.bot.reconcile()
+        self.assertEqual(h.ledger.balance("7"), 0)              # not yet: the blockhash may live
+        h.clock[0] = NOW + timedelta(seconds=181)
+        h.bot.reconcile()
+        self.assertEqual(h.ledger.balance("7"), 2 * SOL)
+        self.assertEqual(h.kv.get_json("claim:status:7")["reason"], tag_bot.PAYMENT_FAILED)
+        self.assertEqual(h.bot.claim("7", WALLET)["state"], "paid")
+
+    def test_an_ambiguous_send_that_did_land_is_final(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+
+        def landed_but_raised(wire, signature):
+            h.rpc.statuses[signature] = CONFIRMED
+            raise RuntimeError("timeout after forwarding")
+        h.on_transmit = landed_but_raised
+        self.assertEqual(h.bot.claim("7", WALLET)["state"], "paid")
+        self.assertEqual((h.ledger.balance("7"), h.ledger.pending()), (0, {}))
+
+    def test_a_failed_payment_restores_the_credit(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.on_transmit = lambda wire, signature: h.rpc.statuses.__setitem__(
+            signature, {"err": {"InstructionError": [0, "x"]}, "confirmationStatus": "confirmed"})
+        status = h.bot.claim("7", WALLET)
+        self.assertEqual((status["state"], status["reason"]), ("refused", tag_bot.PAYMENT_FAILED))
+        self.assertEqual(h.ledger.balance("7"), 2 * SOL)
+
+    def test_unsigned_altered_or_stale_queue_items_are_dropped(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
         h.kv.push("claim:queue", {"xid": "7", "handle": "alice", "wallet": WALLET, "at": TS})
+        h.queue(secret="another-secret")
+        forged = claim_session.sign_claim("7", "alice", WALLET, TS, SECRET)
+        forged["wallet"] = WALLET_2          # the plain field is ignored; the signed one pays
+        h.kv.push("claim:queue", dict(forged, sig=forged["sig"][:-2] + "AA"))
+        h.queue(at=TS - 3601)
+        h.bot.tick_money()
+        self.assertEqual(self.paid(h), [])
+        self.assertEqual(sum(1 for line in h.lines if line.startswith("claim_dropped")), 4)
+
+    def test_a_claim_over_the_cap_is_held_approved_and_paid_by_the_loop(self):
+        h = Harness()
+        self.credit(h, 6 * SOL, at=TS - 8 * 86_400)
+        h.queue()
         h.bot.tick_money()
         self.assertEqual(h.kv.get_json("claim:status:7")["state"], "held")
-        self.assertEqual(self.paid(h), [])
+        self.assertEqual(self.paid(h), [])                      # nor burnt, though a week old
         self.assertEqual(h.ledger.balance("7"), 6 * SOL)
-        self.assertEqual(h.bot.pay_held("7")["state"], "paid")
-        self.assertTrue(lamports_in(self.paid(h)[0][1], WALLET, 6 * SOL))
+        h.bot.tick_money()
+        self.assertEqual(self.paid(h), [])                      # held stays held
+        self.assertEqual(h.ledger.approve_held("7"), 1)
+        h.bot.tick_money()
+        self.assertTrue(lamports_in(self.paid(h)[0][1], WALLET, 6 * SOL - FEE))
+        self.assertEqual(h.kv.get_json("claim:status:7")["state"], "paid")
+        self.assertEqual(h.ledger.approved(), [])
 
     def test_a_new_wallet_waits_before_it_is_paid(self):
         h = Harness()
@@ -381,6 +525,14 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(h.bot.claim("7", WALLET_2)["state"], "paid")
         self.assertEqual(h.ledger.wallet("7"), (WALLET_2, None, None))
 
+    def test_a_claim_to_the_bound_wallet_cancels_a_pending_change(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.ledger.apply_wallet("7", tag_ledger.Decision("pay", 0, bind=WALLET))
+        h.bot.claim("7", WALLET_2)
+        self.assertEqual(h.bot.claim("7", WALLET)["state"], "paid")
+        self.assertEqual(h.ledger.wallet("7"), (WALLET, None, None))
+
     def test_a_charlie_wallet_or_junk_is_refused(self):
         h = Harness()
         self.credit(h, 2 * SOL)
@@ -388,19 +540,61 @@ class TestMoney(unittest.TestCase):
             self.assertEqual(h.bot.claim("7", wallet)["state"], "refused")
         self.assertEqual(h.sent, [])
 
-    def test_week_old_credit_burns_once_a_day_to_the_collection_wallet(self):
+    def test_week_old_credit_burns_once_a_day_less_the_fee(self):
         h = Harness()
         self.credit(h, 30_000_000, at=TS - 8 * 86_400)
         self.credit(h, 5_000_000, at=TS - 86_400, signature="c2")
         h.bot.tick_money()
-        burns = [s for s in h.sent if s[0] == "treasury"]
+        burns = self.paid(h)
         self.assertEqual(len(burns), 1)
-        self.assertTrue(lamports_in(burns[0][1], legs.TOLL_DESTINATION, 30_000_000))
+        self.assertTrue(lamports_in(burns[0][1], legs.TOLL_DESTINATION, 30_000_000 - FEE))
         self.assertEqual(h.ledger.balance("7"), 5_000_000)
+        self.assertEqual(h.ledger.state(tag_bot.LAST_BURN_KEY), TS)
         h.clock[0] = NOW + timedelta(hours=23)
         self.credit(h, 30_000_000, at=TS - 8 * 86_400, signature="c3")
         h.bot.tick_money()
-        self.assertEqual(len([s for s in h.sent if s[0] == "treasury"]), 1)
+        self.assertEqual(len(self.paid(h)), 1)
+
+    def test_a_burn_stamps_its_day_only_once_final(self):
+        h = Harness()
+        self.credit(h, 30_000_000, at=TS - 8 * 86_400)
+        h.on_transmit = lambda wire, signature: None            # sent, not yet seen
+        h.bot.tick_money()
+        self.assertIsNone(h.ledger.state(tag_bot.LAST_BURN_KEY))
+        self.assertTrue(h.ledger.pending_burn())
+        h.bot.tick_money()
+        self.assertEqual(len(self.paid(h)), 1)                  # never a second burn while one is pending
+        (burn_signature,) = h.ledger.pending()
+        h.rpc.statuses[burn_signature] = CONFIRMED
+        h.clock[0] = NOW + timedelta(minutes=30)
+        h.bot.tick_money()
+        self.assertEqual(h.ledger.state(tag_bot.LAST_BURN_KEY), TS + 1800)
+        self.assertEqual(h.ledger.balance("7"), 0)
+
+    def test_credit_is_dated_when_scanned_so_it_shows_a_week_before_burning(self):
+        from test_tag_ledger import distribute_tx, MINT
+        h = Harness()
+        h.ledger.add_coin(MINT, "7", "alice", "1", TS - 30 * 86_400)
+        h.rpc.signatures = ["s1"]
+        old = distribute_tx(treasury_gain=30_000_000)
+        old["blockTime"] = TS - 30 * 86_400                    # landed long ago, seen only now
+        h.rpc.txs = {"s1": old}
+        h.bot.tick_money()
+        self.assertEqual(self.paid(h), [])
+        self.assertEqual(h.kv.get_json("claim:credit:7")["burns_at"], TS + 7 * 86_400)
+
+    def test_the_site_sees_the_credit_before_anything_burns(self):
+        h = Harness()
+        self.credit(h, 30_000_000, at=TS - 8 * 86_400)
+        real_set = h.kv.set_json
+
+        def recording(key, value, **kw):
+            h.events.append(("kv", key))
+            return real_set(key, value, **kw)
+        h.kv.set_json = recording
+        h.bot.tick_money()
+        order = [e for e in h.events if e in (("kv", "claim:credit:7"), ("sign", "treasury"))]
+        self.assertEqual(order[:2], [("kv", "claim:credit:7"), ("sign", "treasury")])
 
     def test_burn_waits_below_the_minimum(self):
         h = Harness()
@@ -408,7 +602,7 @@ class TestMoney(unittest.TestCase):
         h.bot.tick_money()
         self.assertEqual(self.paid(h), [])
 
-    def test_ops_tops_up_a_low_launch_wallet(self):
+    def test_ops_fills_a_low_launch_wallet_up_to_half_a_sol(self):
         reserve = tag_ledger.TREASURY_RESERVE_LAMPORTS
         for launch_balance, ops, amount in ((100_000_000, 2 * SOL, 400_000_000),
                                             (100_000_000, 300_000_000, 300_000_000 - reserve),
@@ -419,23 +613,23 @@ class TestMoney(unittest.TestCase):
                 h = Harness(rpc=FakeRpc({legs.CHARLIE_LAUNCH_WALLET: launch_balance,
                                          legs.CHARLIE_OPS_DESTINATION: ops}))
                 h.bot.tick_money()
-                sweeps = [s for s in h.sent if s[0] == "ops"]
+                sweeps = self.paid(h, "ops")
                 if amount is None:
                     self.assertEqual(sweeps, [])
                 else:
                     self.assertEqual(len(sweeps), 1)
                     self.assertTrue(lamports_in(sweeps[0][1], legs.CHARLIE_LAUNCH_WALLET, amount))
 
-    def test_dry_run_money_sends_nothing_and_leaves_the_queue(self):
+    def test_dry_run_money_signs_nothing_and_leaves_the_queue(self):
         h = Harness(dry_run=True, rpc=FakeRpc({legs.CHARLIE_LAUNCH_WALLET: 100_000_000,
                                                legs.CHARLIE_OPS_DESTINATION: 2 * SOL}))
-        h.bot.sender = lambda *a: self.fail("dry run sent")
+        h.bot.signer = lambda *a: self.fail("dry run signed")
         self.credit(h, 30_000_000, at=TS - 8 * 86_400)
-        h.kv.push("claim:queue", {"xid": "7", "wallet": WALLET})
+        h.queue()
         out = h.bot.tick_money()
         self.assertEqual(out["burn"]["state"], "simulated")
         self.assertEqual(out["sweep"]["state"], "simulated")
-        self.assertEqual(h.kv.pop("claim:queue"), {"xid": "7", "wallet": WALLET})
+        self.assertIsNotNone(h.kv.pop("claim:queue"))
         self.assertIsNone(h.kv.get_json("claim:credit:7"))
         self.assertEqual(h.distributed[0][2], None)
 
@@ -448,26 +642,17 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(out["sweep"]["state"], "sent")
 
 
-class TestLiveSender(unittest.TestCase):
-    def test_the_key_sender_signs_in_the_message_s_order_with_cosigners(self):
+class TestLiveSigner(unittest.TestCase):
+    def test_the_key_signer_signs_in_the_message_s_order_with_cosigners(self):
         from indexer.ed25519 import Keypair, verify
         launcher = Keypair.from_seed(bytes(range(32)))
         built = tag.build(tag.TagRequest("Moon Dog", "MDOG"), URI, BLOCKHASH, launcher=launcher.address)
-        wires = []
-
-        class Rpc:
-            def call(self, method, params):
-                import base64
-                wires.append(base64.b64decode(params[0]))
-                return "sig"
-
-        send = tag_bot.key_sender(Rpc(), {"launch": launcher})
-        self.assertEqual(send("launch", built.create, (built.mint,)), "sig")
-        wire = wires[0]
+        wire = tag_bot.key_signer({"launch": launcher})("launch", built.create, (built.mint,))
         self.assertEqual(wire[0], 2)
         signers = tag.launch.signer_addresses(built.create)
         for i, address in enumerate(signers):
             self.assertTrue(verify(decode(address), built.create, wire[1 + 64 * i: 65 + 64 * i]))
+        self.assertEqual(tag_bot.wire_signature(wire), encode(wire[1:65]))
         with self.assertRaises(tag.launch.LaunchError):
             tag_bot.sign_with(built.create, (launcher,))
 
@@ -493,6 +678,44 @@ class TestXBotCli(unittest.TestCase):
         from tools import x_bot
         with self.assertRaises(x_bot.ConfigError):
             x_bot.load_config(x_bot.REPO / "tools" / "x_bot.example.json")
+
+    def test_a_dry_run_gets_its_own_database(self):
+        from tools import x_bot
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"bot_user_id": "1"}', encoding="utf-8")
+            config = x_bot.load_config(path)
+            self.assertEqual(Path(config["db_dry"]).name, "book-dry.db")
+            self.assertNotEqual(config["db"], config["db_dry"])
+            same = str(Path(tmp) / "one.db").replace("\\", "/")
+            path.write_text('{"bot_user_id": "1", "db": "%s", "db_dry": "%s"}' % (same, same), encoding="utf-8")
+            with self.assertRaises(x_bot.ConfigError):
+                x_bot.load_config(path)
+
+    def test_a_second_bot_cannot_take_the_lock(self):
+        from tools import x_bot
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "book.db")
+            first = x_bot.acquire_lock(db)
+            try:
+                with self.assertRaises(x_bot.Locked):
+                    x_bot.acquire_lock(db)
+            finally:
+                first.close()
+            x_bot.acquire_lock(db).close()          # free again once the first is gone
+
+    def test_approve_held_only_marks_the_row(self):
+        from tools import x_bot
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "book.db")
+            book = tag.Book(db)
+            tag_ledger.Ledger(book.db).hold("7", 6 * SOL, WALLET, TS)
+            book.db.close()
+            self.assertEqual(x_bot.approve_held(db, "7"), 1)
+            self.assertEqual(x_bot.approve_held(db, "7"), 0)
+            book = tag.Book(db)
+            self.assertEqual(tag_ledger.Ledger(book.db).approved(), [("7", WALLET)])
+            book.db.close()
 
     def test_once_runs_each_tick_one_time(self):
         from tools import x_bot

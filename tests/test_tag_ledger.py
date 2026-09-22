@@ -34,7 +34,8 @@ def distribute_ix(mint: str, *, data: str | None = None) -> dict:
             "data": data or encode(distribute.DISTRIBUTE_CREATOR_FEES), "stackHeight": None}
 
 
-def distribute_tx(mints=(MINT,), *, treasury_gain=4_000_000, err=None, graduated=False, data=None) -> dict:
+def distribute_tx(mints=(MINT,), *, treasury_gain=4_000_000, err=None, graduated=False, data=None,
+                  inner=()) -> dict:
     """The shape RpcClient.transaction returns (jsonParsed, legacy)."""
     instructions = [
         {"programId": "ComputeBudget111111111111111111111111111111", "accounts": [], "data": "3gJqkocMWaMm",
@@ -44,8 +45,13 @@ def distribute_tx(mints=(MINT,), *, treasury_gain=4_000_000, err=None, graduated
         instructions.append({"programId": distribute.PUMP_AMM_PROGRAM, "accounts": [LAUNCHER],
                              "data": encode(distribute.TRANSFER_CREATOR_FEES_TO_PUMP), "stackHeight": None})
     instructions += [distribute_ix(m, data=data) for m in mints]
+    if inner:   # another program calling pump's distribute by CPI
+        instructions.append({"programId": "Evi1Program11111111111111111111111111111111", "accounts": [LAUNCHER],
+                             "data": "1", "stackHeight": None})
+    inner_groups = [{"index": len(instructions) - 1,
+                     "instructions": [dict(distribute_ix(m), stackHeight=2) for m in inner]}] if inner else []
     keys, seen = [LAUNCHER], {LAUNCHER}
-    for ix in instructions:
+    for ix in instructions + [i for g in inner_groups for i in g["instructions"]]:
         for account in [*ix["accounts"], ix["programId"]]:
             if account not in seen:
                 seen.add(account)
@@ -59,7 +65,7 @@ def distribute_tx(mints=(MINT,), *, treasury_gain=4_000_000, err=None, graduated
         "slot": 400_000_000,
         "version": "legacy",
         "meta": {"err": err, "fee": 5_000, "preBalances": pre, "postBalances": post,
-                 "innerInstructions": [], "logMessages": []},
+                 "innerInstructions": inner_groups, "logMessages": []},
         "transaction": {
             "signatures": ["sig"],
             "message": {
@@ -98,6 +104,22 @@ class TestInflow(unittest.TestCase):
     def test_two_mints_in_one_tx_cannot_be_split(self):
         self.assertEqual(inflow(distribute_tx(mints=(MINT, OTHER_MINT)), TREASURY), [])
 
+    def test_an_inner_distribute_of_a_known_mint_is_credited(self):
+        tx = distribute_tx(mints=(), inner=(MINT,))
+        self.assertEqual(inflow(tx, TREASURY, known={MINT}), [(MINT, 4_000_000)])
+
+    def test_a_cpi_distribute_cannot_ride_on_a_known_one(self):
+        # A real tag coin's distribute, plus another coin's by CPI: the gain
+        # cannot be split, so nobody is credited.
+        tx = distribute_tx(mints=(MINT,), inner=(OTHER_MINT,))
+        self.assertEqual(inflow(tx, TREASURY, known={MINT}), [])
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[2], "several_distributes")
+
+    def test_an_inner_only_distribute_of_an_unknown_mint_is_unattributed(self):
+        tx = distribute_tx(mints=(), inner=(OTHER_MINT,))
+        self.assertEqual(inflow(tx, TREASURY, known={MINT}), [])
+        self.assertEqual(ledger_mod.classify(tx, TREASURY, {MINT})[2], "unknown_mint")
+
     def test_plain_string_account_keys_also_read(self):
         tx = distribute_tx()
         message = tx["transaction"]["message"]
@@ -135,21 +157,33 @@ class TestLedger(unittest.TestCase):
     def test_scan_credits_each_signature_and_mint_once(self):
         tx = distribute_tx()
         rpc = ScanRpc({"s1": tx, "s2": distribute_tx(mints=(OTHER_MINT,))}, ["s2", "s1"])
-        got = self.ledger.scan(rpc, TREASURY)
-        self.assertEqual([(r["signature"], r["user_id"], r["lamports"]) for r in got], [("s1", "7", 4_000_000)])
+        got = self.ledger.scan(rpc, TREASURY, now=T0 + 99)
+        self.assertEqual([(r["kind"], r["signature"], r.get("user_id"), r["lamports"]) for r in got],
+                         [("credit", "s1", "7", 4_000_000), ("unattributed", "s2", None, 4_000_000)])
+        self.assertEqual(got[0]["at"], T0 + 99)          # dated when recorded, not the block time
         self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s2")
         self.ledger.set_state(ledger_mod.CURSOR_KEY, None)     # a rescan from scratch
-        self.assertEqual(self.ledger.scan(rpc, TREASURY), [])
+        self.assertEqual([r["kind"] for r in self.ledger.scan(rpc, TREASURY, now=T0)], ["unattributed"])
         self.assertEqual(self.ledger.balance("7"), 4_000_000)
         self.assertFalse(self.ledger.credit("s1", MINT, 4_000_000, T0))
 
     def test_scan_stops_at_a_transaction_the_node_cannot_return_yet(self):
         rpc = ScanRpc({"s1": distribute_tx()}, ["s2", "s1"])
-        self.ledger.scan(rpc, TREASURY)
-        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s1")
+        self.ledger.scan(rpc, TREASURY, now=T0)
+        self.assertIsNone(self.ledger.state(ledger_mod.CURSOR_KEY))     # not moved: s2 is unread
         rpc.txs["s2"] = distribute_tx(treasury_gain=1_000)
-        self.ledger.scan(rpc, TREASURY)
+        self.ledger.scan(rpc, TREASURY, now=T0)
         self.assertEqual(self.ledger.balance("7"), 4_001_000)
+        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s2")
+
+    def test_scan_walks_every_page_back_to_the_cursor(self):
+        order = [f"s{i}" for i in range(60, 0, -1)]
+        rpc = ScanRpc({s: distribute_tx(treasury_gain=10) for s in order}, order)
+        with mock.patch.object(ledger_mod, "SCAN_PAGE", 2):
+            got = self.ledger.scan(rpc, TREASURY, now=T0)
+        self.assertEqual(len(got), 60)
+        self.assertEqual(got[0]["signature"], "s1")        # oldest first
+        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s60")
 
     def test_burnable_is_week_old_credit_not_covered_by_debits(self):
         self.ledger.credit("a", MINT, 3_000_000, T0)
@@ -165,6 +199,32 @@ class TestLedger(unittest.TestCase):
         self.assertEqual(self.ledger.balance("7"), 1_000_000)
         with self.assertRaises(ValueError):
             self.ledger.debit("7", "gift", 1, at=T0)
+
+    def test_pending_debits_lower_the_balance_until_dropped_or_final(self):
+        self.ledger.credit("a", MINT, 3_000_000, T0)
+        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p1", at=T0)
+        self.assertEqual(self.ledger.balance("7"), 0)
+        self.assertTrue(self.ledger.has_pending("7"))
+        self.assertEqual(self.ledger.pending()["p1"]["rows"], [("7", 3_000_000, WALLET)])
+        self.ledger.drop_pending("p1")
+        self.assertEqual(self.ledger.balance("7"), 3_000_000)
+        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p2", at=T0)
+        self.ledger.finalize("p2")
+        self.ledger.drop_pending("p2")                     # a final debit is never dropped
+        self.assertEqual((self.ledger.balance("7"), self.ledger.pending()), (0, {}))
+
+    def test_held_and_approved_claims_do_not_burn(self):
+        self.ledger.credit("a", MINT, 30_000_000, T0)
+        self.ledger.hold("7", 30_000_000, WALLET, T0)
+        self.ledger.hold("7", 30_000_000, WALLET, T0 + 1)          # updated, not doubled
+        self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
+        self.assertIsNone(self.ledger.burns_at("7"))
+        self.assertEqual(self.ledger.approve_held("7"), 1)
+        self.assertEqual(self.ledger.approved(), [("7", WALLET)])
+        self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 0)
+        self.ledger.close_held("7", "paid")
+        self.assertEqual(self.ledger.approved(), [])
+        self.assertEqual(self.ledger.burnable("7", T0 + 8 * DAY), 30_000_000)
 
     def test_mirror_writes_one_record_per_requester(self):
         self.ledger.credit("a", MINT, 3_000_000, T0)
@@ -197,7 +257,11 @@ def decide(**over) -> dict:
 
 class TestClaimDecision(unittest.TestCase):
     def test_pays_the_whole_balance_to_the_bound_wallet(self):
-        self.assertEqual(claim_decision(**decide()), ledger_mod.Decision("pay", 2 * SOL))
+        self.assertEqual(claim_decision(**decide()), ledger_mod.Decision("pay", 2 * SOL, bind=WALLET))
+
+    def test_a_claim_to_the_bound_wallet_clears_a_pending_change(self):
+        got = claim_decision(**decide(pending=WALLET_2, ready_at=T0 + 100))
+        self.assertEqual((got.state, got.bind), ("pay", WALLET))
 
     def test_the_first_wallet_binds(self):
         got = claim_decision(**decide(bound=None))
@@ -224,8 +288,9 @@ class TestClaimDecision(unittest.TestCase):
 
     def test_a_new_recipient_must_end_rent_exempt(self):
         with mock.patch.object(ledger_mod, "MIN_CLAIM_LAMPORTS", 1):
-            self.assertEqual(claim_decision(**decide(balance=890_879)).state, "refused")
-            self.assertEqual(claim_decision(**decide(balance=890_880)).state, "pay")
+            # the fee comes out of the amount, so the wallet must end rent-exempt after it
+            self.assertEqual(claim_decision(**decide(balance=895_879)).state, "refused")
+            self.assertEqual(claim_decision(**decide(balance=895_880)).state, "pay")
             self.assertEqual(claim_decision(**decide(balance=10, recipient_lamports=SOL)).state, "pay")
 
     def test_the_treasury_keeps_its_reserve(self):

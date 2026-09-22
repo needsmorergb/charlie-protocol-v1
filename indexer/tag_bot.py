@@ -5,19 +5,31 @@ Two ticks, each safe to run again after a crash:
 - `tick_mentions` (every minute): the bot's new mentions, oldest first. Each
   is parsed (`tag_launch.parse`; anything else is ignored and not recorded),
   deduped, run through the refusals, and its image fetched and checked.
-  A tag that passes is launched: metadata pinned, create simulated, signed,
-  sent and confirmed, then the split. Refusals are recorded and silent. A
-  create that landed without its split is recorded `split_pending` and the
-  split is retried every tick. Success is the only thing the bot says.
+  A tag that passes is launched: metadata pinned, create simulated, the tweet
+  recorded `launching` with its mint BEFORE the create is sent (so a restart
+  can never launch it twice), then signed, sent and confirmed, then the
+  split. Refusals are recorded and silent. A create that landed without its
+  split is `split_pending` and the split is retried every tick; a create
+  whose outcome is unknown is checked on chain every tick. `since_id` is
+  saved after each tweet. Success is the only thing the bot says.
 - `tick_money` (every 30 minutes): the distribute crank for tag coins (the
-  launch wallet pays the fees), the treasury scan into the ledger, the claim
-  queue, the daily burn of credit older than seven days, the OPS top-up of
-  the launch wallet, and the mirror of every balance to the site's KV.
+  launch wallet pays the fees), the treasury scan into the ledger, the
+  reconcile of pending payments, the mirror of every balance to the site's
+  KV, the signed claim queue, approved held claims, the daily burn of credit
+  older than seven days, the OPS top-up of the launch wallet, and the mirror
+  again.
 
-Every outside effect is injected: the X client, the RPC, the KV, `sender`
-(signs a message with a named key and sends it), `pin` (pump's metadata
-pin), the clock and the log. `dry_run` simulates and never sends, posts,
-pins, pops the claim queue or writes the KV. A file named STOP in the config
+Every payment out of the treasury is written ahead: signed first, its debit
+recorded `pending` under the transaction's own signature, then sent.
+`reconcile` settles each pending debit from `getSignatureStatuses`. The
+network fee comes out of the amount sent, so the treasury never pays a fee
+the ledger does not see.
+
+Every outside effect is injected: the X client, the RPC, the KV, `signer`
+(signs a message with a named key, returning the wire transaction),
+`transmit` (sends a wire transaction), `pin` (pump's metadata pin), the
+clock and the log. `dry_run` simulates and never signs, sends, posts, pins,
+pops the claim queue or writes the KV. A file named STOP in the config
 directory pauses launches; money ticks carry on.
 
 The keys are named "launch", "treasury" and "ops".
@@ -27,10 +39,10 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from . import buyback, distribute, launch, legs
+from . import buyback, claim_session, distribute, launch, legs
 from . import tag_launch as tag
 from . import tag_ledger
-from .base58 import decode
+from .base58 import decode, encode
 from .message import compile_legacy, signed_transaction
 
 # -- the numbers ----------------------------------------------------------------------
@@ -46,13 +58,16 @@ SWEEP_BELOW_LAMPORTS = 300_000_000         # OPS tops up the launch wallet below
 SWEEP_TARGET_LAMPORTS = 500_000_000        # filling it up to 0.50 SOL
 SWEEP_MIN_LAMPORTS = 10_000_000            # and not bothering below 0.01 SOL
 OPS_RESERVE_LAMPORTS = tag_ledger.TREASURY_RESERVE_LAMPORTS   # OPS keeps rent + a fee
+TX_FEE_LAMPORTS = tag_ledger.TX_FEE_LAMPORTS
 MAX_CLAIMS_PER_TICK = 50
 CREATE_LANDING_SECONDS = 600               # an unconfirmed create that has not appeared by then never will
+STATUS_BATCH = 256                         # getSignatureStatuses takes at most this many
 
 SINCE_KEY = "mentions_since_id"
 LAST_BURN_KEY = "last_burn_at"
 UNCONFIRMED_KEY = "unconfirmed_creates"   # mint -> what tag_coins needs if it lands
 QUEUE_KEY = "claim:queue"
+PAYMENT_FAILED = "payment failed, will retry on next claim"
 
 KEY_ADDRESSES = {
     "launch": legs.CHARLIE_LAUNCH_WALLET,
@@ -101,11 +116,18 @@ def sign_with(message: bytes, keypairs) -> bytes:
     return signed_transaction(message, [by_address[a].sign(message) for a in signers])
 
 
-def key_sender(rpc, keys: dict):
-    """The live `sender`: sign with `keys[name]` (plus any cosigners) and send."""
-    def send(name: str, message: bytes, cosigners=()) -> str:
-        return send_wire(rpc, sign_with(message, (keys[name], *cosigners)))
-    return send
+def key_signer(keys: dict):
+    """The live `signer`: sign with `keys[name]` plus any cosigners."""
+    def sign(name: str, message: bytes, cosigners=()) -> bytes:
+        return sign_with(message, (keys[name], *cosigners))
+    return sign
+
+
+def wire_signature(wire: bytes) -> str:
+    """The transaction's ID: its first signature (the fee payer's)."""
+    if not wire or wire[0] < 1 or wire[0] >= 0x80:
+        raise ValueError("not a wire transaction with 1 to 127 signatures")
+    return encode(wire[1:65])
 
 
 # -- the image -------------------------------------------------------------------------------
@@ -163,19 +185,21 @@ def transfer_message(source: str, destination: str, lamports: int, recent_blockh
 
 class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
-                 dry_run: bool, now=tag.now_utc, bot_id: str = "", sender=None, pin=None,
+                 dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
-                 log=None):
+                 claim_secret: str = "", log=None):
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
         self.now = now
         self.bot_id = str(bot_id)
-        self.sender = sender or key_sender(rpc, self.keys)
+        self.signer = signer or key_signer(self.keys)
+        self.transmit = transmit or (lambda wire: send_wire(rpc, wire))
         self.pin = pin
         self.confirm = confirm or (lambda signature: buyback.confirm(rpc, signature))
         self.distribute_run = distribute_run
         self.stop_file = Path(stop_file) if stop_file else None
+        self.claim_secret = claim_secret
         self._log = log or (lambda line: print(line, flush=True))
 
     # -- plumbing --
@@ -190,10 +214,13 @@ class Bot:
     def _ts(self) -> int:
         return tag.epoch(self.now())
 
-    def _send(self, name: str, message: bytes, cosigners=()) -> str:
+    def _sign(self, name: str, message: bytes, cosigners=()) -> bytes:
         if self.dry_run:
-            raise RuntimeError("dry run: nothing is sent")   # never reached; callers check first
-        return self.sender(name, message, cosigners)
+            raise RuntimeError("dry run: nothing is signed")   # never reached; callers check first
+        return self.signer(name, message, cosigners)
+
+    def _send(self, name: str, message: bytes, cosigners=()) -> str:
+        return self.transmit(self._sign(name, message, cosigners))
 
     def _simulate(self, message: bytes, cosigner=None) -> dict:
         wire = launch.partially_signed(message, cosigner) if cosigner else None
@@ -217,6 +244,8 @@ class Bot:
                 self.log("error", tweet=tweet.get("id"), reason=row["reason"])
             if row:
                 rows.append(row)
+            if tweet.get("id"):
+                self.ledger.set_state(SINCE_KEY, str(tweet["id"]))
         if page.get("newest_id"):
             self.ledger.set_state(SINCE_KEY, str(page["newest_id"]))
         return rows
@@ -276,26 +305,35 @@ class Bot:
             self.log("would_launch", tweet=key, user=user_id, ticker=request.ticker, mint=mint,
                      units=simulated.get("unitsConsumed"))
             return {"tweet": key, "outcome": "simulated", "mint": mint}
+        # Written ahead: the tweet is seen and the mint is checked on chain
+        # after any crash from here on.
+        unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
+        unconfirmed[mint] = {"key": key, "user_id": user_id, "handle": handle, "tweet_id": tweet_id,
+                             "at": ts, "ticker": request.ticker}
+        self.ledger.set_state(UNCONFIRMED_KEY, unconfirmed)
+        self.book.record(key, user_id, ts, "launching", ticker=request.ticker, mint=mint)
         try:
             signature = self._send("launch", built.create, (built.mint,))
             self.confirm(signature)
         except Exception as exc:  # noqa: BLE001
             self.book.record(key, user_id, ts, "failed", code="create_failed", ticker=request.ticker, mint=mint)
-            unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
-            unconfirmed[mint] = {"key": key, "user_id": user_id, "handle": handle, "tweet_id": tweet_id,
-                                 "at": ts, "ticker": request.ticker}
-            self.ledger.set_state(UNCONFIRMED_KEY, unconfirmed)
             self.log("create_failed", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
             return {"tweet": key, "outcome": "failed", "code": "create_failed", "mint": mint}
         self.ledger.add_coin(mint, user_id, handle, tweet_id, ts)
+        self._forget_unconfirmed(mint)
         self.log("created", tweet=key, mint=mint, signature=signature)
         return self._finish(key, user_id, ts, request.ticker, mint)
 
+    def _forget_unconfirmed(self, mint: str) -> None:
+        unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
+        if unconfirmed.pop(mint, None) is not None:
+            self.ledger.set_state(UNCONFIRMED_KEY, unconfirmed)
+
     def _check_unconfirmed(self) -> None:
-        """A create whose send or confirm failed may still have landed. One
-        whose mint now exists becomes a tag coin with its split pending; one
-        still absent after CREATE_LANDING_SECONDS is finally failed, which
-        is not held against the requester (only `refused` counts)."""
+        """A create recorded `launching` or `create_failed` may have landed.
+        One whose mint now exists becomes a tag coin with its split pending;
+        one still absent after CREATE_LANDING_SECONDS is finally failed,
+        which is not held against the requester (only `refused` counts)."""
         unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
         if not unconfirmed or self.dry_run:
             return
@@ -354,10 +392,14 @@ class Bot:
     # -- money --
 
     def tick_money(self) -> dict:
-        """Every money step, each on its own: one failing never stops the next."""
+        """Every money step, each on its own: one failing never stops the next.
+        The site sees every credit (the first mirror) before anything burns."""
         out = {}
-        for name, step in (("distribute", self._distribute), ("scan", self._scan), ("claims", self._claims),
-                           ("burn", self._burn), ("sweep", self._sweep), ("mirror", self._mirror)):
+        for name, step in (("distribute", self._distribute), ("scan", self._scan),
+                           ("reconcile", self.reconcile), ("mirror", self._mirror),
+                           ("claims", self._claims), ("approved", self._pay_approved),
+                           ("burn", self._burn), ("sweep", self._sweep),
+                           ("settle", self.reconcile), ("mirror_after", self._mirror)):
             try:
                 out[name] = step()
             except Exception as exc:  # noqa: BLE001
@@ -381,15 +423,93 @@ class Bot:
     def _scan(self) -> list[dict]:
         rows = self.ledger.scan(self.rpc, legs.CHARLIE_PAYOUT_TREASURY, now=self._ts())
         for row in rows:
-            self.log("credit", user=row["user_id"], mint=row["mint"], lamports=row["lamports"])
+            if row["kind"] == "credit":
+                self.log("credit", user=row["user_id"], mint=row["mint"], lamports=row["lamports"])
+            else:
+                self.log(row["kind"], signature=row["signature"], lamports=row.get("lamports"),
+                         reason=row.get("reason"))
         return rows
 
     def _status(self, xid: str, state: str, lamports: int, signature=None, reason=None) -> dict:
         status = {"state": state, "lamports": int(lamports), "signature": signature, "reason": reason,
                   "at": self._ts()}
-        self.kv.set_json(f"claim:status:{xid}", status)
+        if not self.dry_run:
+            self.kv.set_json(f"claim:status:{xid}", status)
         self.log("claim", user=xid, state=state, lamports=lamports, signature=signature, reason=reason)
         return status
+
+    # -- paying out of the treasury, written ahead --
+
+    def _pay_out(self, destination: str, amount: int, debits, kind: str) -> tuple[str | None, str | None]:
+        """Send `amount` less the network fee from the treasury, with every
+        `(user_id, lamports)` in `debits` written pending BEFORE the send.
+        Returns `(signature, None)`, or `(None, why)` when nothing was sent."""
+        message = transfer_message(legs.CHARLIE_PAYOUT_TREASURY, destination, amount - TX_FEE_LAMPORTS,
+                                   blockhash(self.rpc))
+        checked = buyback.simulate(self.rpc, message)
+        if checked.get("err") is not None:
+            return None, f"simulation: {checked.get('err')}"
+        if self.dry_run:
+            return None, "dry run"
+        wire = self._sign("treasury", message)
+        signature = wire_signature(wire)
+        self.ledger.debit_pending(kind, debits, wallet=destination, signature=signature, at=self._ts())
+        try:
+            self.transmit(wire)
+        except Exception as exc:  # noqa: BLE001 -- it may still land; reconcile decides
+            self.log("send_uncertain", kind=kind, signature=signature, reason=f"{type(exc).__name__}: {exc}")
+            return signature, None
+        try:
+            self.confirm(signature)
+        except Exception as exc:  # noqa: BLE001
+            self.log("confirm_uncertain", kind=kind, signature=signature, reason=f"{type(exc).__name__}: {exc}")
+        return signature, None
+
+    def reconcile(self) -> list[dict]:
+        """Settle every pending debit from the chain: confirmed becomes final;
+        failed, or unseen after PENDING_EXPIRY (its blockhash is dead), is
+        deleted, which restores the credit. A burn stamps `last_burn_at` only
+        once final."""
+        pending = self.ledger.pending()
+        signatures = list(pending)
+        ts = self._ts()
+        settled = []
+        for start in range(0, len(signatures), STATUS_BATCH):
+            batch = signatures[start:start + STATUS_BATCH]
+            result = self.rpc.call("getSignatureStatuses", [batch, {"searchTransactionHistory": True}])
+            values = list((result or {}).get("value") or [])
+            values += [None] * (len(batch) - len(values))
+            for signature, status in zip(batch, values):
+                entry = pending[signature]
+                if status and status.get("err") is not None:
+                    outcome = "failed"
+                elif status and status.get("confirmationStatus") in ("confirmed", "finalized"):
+                    outcome = "final"
+                elif status is None and ts - entry["at"] > tag_ledger.PENDING_EXPIRY_SECONDS:
+                    outcome = "expired"
+                else:
+                    continue
+                self._settle(signature, entry, outcome, ts)
+                settled.append({"signature": signature, "kind": entry["kind"], "outcome": outcome})
+        return settled
+
+    def _settle(self, signature: str, entry: dict, outcome: str, ts: int) -> None:
+        if outcome == "final":
+            self.ledger.finalize(signature)
+        else:
+            self.ledger.drop_pending(signature)
+        self.log("settled", kind=entry["kind"], signature=signature, outcome=outcome)
+        if entry["kind"] == "burn":
+            if outcome == "final":
+                self.ledger.set_state(LAST_BURN_KEY, ts)
+            return
+        for user_id, lamports, _wallet in entry["rows"]:
+            if outcome == "final":
+                self._status(user_id, "paid", lamports - TX_FEE_LAMPORTS, signature)
+            else:
+                self._status(user_id, "refused", 0, signature, reason=PAYMENT_FAILED)
+
+    # -- claims --
 
     def _claims(self) -> list[dict]:
         if self.dry_run:
@@ -400,13 +520,19 @@ class Bot:
             item = self.kv.pop(QUEUE_KEY)
             if item is None:
                 break
-            done.append(self.claim(str(item.get("xid") or ""), str(item.get("wallet") or "")))
+            fields = claim_session.verify_claim(item, self.claim_secret, now=self._ts())
+            if fields is None:
+                self.log("claim_dropped", reason="unsigned, altered or stale")
+                continue
+            done.append(self.claim(fields["xid"], fields["wallet"]))
         return done
 
     def claim(self, xid: str, wallet: str, *, caps: bool = True) -> dict:
-        """Decide and, when the decision is to pay, pay one claim."""
+        """Decide and, when the decision is to pay, pay one claim (written ahead)."""
         if not xid or not valid_wallet(wallet):
             return self._status(xid or "unknown", "refused", 0, reason="that wallet cannot receive claims")
+        if self.ledger.has_pending(xid):
+            return self._status(xid, "queued", 0, reason="a payment is still confirming")
         ts = self._ts()
         bound, pending, ready_at = self.ledger.wallet(xid)
         decision = tag_ledger.claim_decision(
@@ -415,36 +541,42 @@ class Bot:
             treasury_lamports=self.rpc.balance(legs.CHARLIE_PAYOUT_TREASURY),
             paid_today=self.ledger.claimed_since(ts - tag_ledger.DAY), caps=caps)
         self.ledger.apply_wallet(xid, decision)
+        if decision.state == "held":
+            self.ledger.hold(xid, decision.lamports, wallet, ts)
+            return self._status(xid, "held", decision.lamports, reason=decision.reason)
         if decision.state != "pay":
             return self._status(xid, decision.state, decision.lamports, reason=decision.reason)
-        message = transfer_message(legs.CHARLIE_PAYOUT_TREASURY, wallet, decision.lamports, blockhash(self.rpc))
-        checked = buyback.simulate(self.rpc, message)
-        if checked.get("err") is not None:
-            return self._status(xid, "held", decision.lamports, reason="the payment did not simulate")
-        signature = self._send("treasury", message)
-        # Debit on send, before confirming: an unconfirmed payment may still
-        # land, and paying twice is worse than a claim the owner re-checks.
-        self.ledger.debit(xid, "claim", decision.lamports, wallet=wallet, signature=signature, at=ts)
-        try:
-            self.confirm(signature)
-        except Exception:  # noqa: BLE001
-            return self._status(xid, "held", decision.lamports, signature,
-                                reason="sent but not confirmed; the owner checks it")
-        return self._status(xid, "paid", decision.lamports, signature)
+        signature, why = self._pay_out(wallet, decision.lamports, [(xid, decision.lamports)], "claim")
+        if signature is None:
+            return self._status(xid, "refused", 0, reason=f"the payment could not be made ({why}); claim again")
+        self.ledger.close_held(xid, "paid")
+        status = self._status(xid, "queued", decision.lamports - TX_FEE_LAMPORTS, signature, reason="sending")
+        for row in self.reconcile():
+            if row["signature"] == signature:
+                return self.kv.get_json(f"claim:status:{xid}") or status
+        return status
 
-    def pay_held(self, xid: str) -> dict:
-        """The owner's command for a held claim: pay the bound wallet without
-        the per-claim and per-day caps. Rent and the treasury reserve still apply."""
-        bound = self.ledger.wallet(xid)[0]
-        if bound is None:
-            return {"state": "refused", "reason": "no wallet is bound"}
+    def _pay_approved(self) -> list[dict]:
+        """Held claims the owner approved, paid without the caps through the
+        same written-ahead path. `--approve-held` only marks them."""
         if self.dry_run:
-            self.log("would_pay_held", user=xid, wallet=bound, lamports=self.ledger.balance(xid))
-            return {"state": "simulated", "lamports": self.ledger.balance(xid)}
-        return self.claim(xid, bound, caps=False)
+            for user_id, wallet in self.ledger.approved():
+                self.log("would_pay_approved", user=user_id, wallet=wallet, lamports=self.ledger.balance(user_id))
+            return []
+        done = []
+        for user_id, wallet in self.ledger.approved():
+            status = self.claim(user_id, wallet, caps=False)
+            if status["state"] == "refused":
+                self.ledger.close_held(user_id, "dropped")
+            done.append(status)
+        return done
+
+    # -- the burn and the top-up --
 
     def _burn(self) -> dict | None:
         ts = self._ts()
+        if self.ledger.pending_burn():
+            return None
         last = self.ledger.state(LAST_BURN_KEY)
         if last is not None and ts - int(last) < BURN_EVERY_SECONDS:
             return None
@@ -457,17 +589,11 @@ class Bot:
         if treasury - total < tag_ledger.TREASURY_RESERVE_LAMPORTS:
             self.log("burn_held", lamports=total, treasury=treasury)
             return {"state": "held", "lamports": total}
-        message = transfer_message(legs.CHARLIE_PAYOUT_TREASURY, legs.TOLL_DESTINATION, total, blockhash(self.rpc))
-        checked = buyback.simulate(self.rpc, message)
-        if checked.get("err") is not None or self.dry_run:
-            self.log("would_burn" if self.dry_run else "burn_refused", lamports=total, err=checked.get("err"))
+        signature, why = self._pay_out(legs.TOLL_DESTINATION, total, list(owed.items()), "burn")
+        if signature is None:
+            self.log("would_burn" if self.dry_run else "burn_refused", lamports=total, reason=why)
             return {"state": "simulated" if self.dry_run else "refused", "lamports": total}
-        signature = self._send("treasury", message)
-        for uid, amount in owed.items():
-            self.ledger.debit(uid, "burn", amount, wallet=legs.TOLL_DESTINATION, signature=signature, at=ts)
-        self.ledger.set_state(LAST_BURN_KEY, ts)
         self.log("burn", lamports=total, users=len(owed), signature=signature)
-        self.confirm(signature)
         return {"state": "sent", "lamports": total, "signature": signature, "users": len(owed)}
 
     def _sweep(self) -> dict | None:

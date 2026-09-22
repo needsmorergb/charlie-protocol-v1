@@ -80,3 +80,35 @@ def read_cookies(header: str | None) -> dict[str, str]:
         if sep and name and name not in found:
             found[name] = value.strip().strip('"')
     return found
+
+
+# -- the claim queue ------------------------------------------------------------------
+#
+# The site pushes each claim onto a queue the bot pops. The bot pays only
+# items this secret signed, so write access to the store alone cannot queue a
+# payment. An item is stale after CLAIM_SECONDS.
+
+CLAIM_SECONDS = 3600
+CLAIM_FIELDS = ("xid", "handle", "wallet", "at")
+
+
+def sign_claim(xid: str, handle: str, wallet: str, at: int, secret) -> dict:
+    """The queue item: the four fields and `sig` over them (with `exp`)."""
+    fields = {"xid": str(xid), "handle": str(handle), "wallet": str(wallet), "at": int(at)}
+    return {**fields, "sig": sign({**fields, "exp": fields["at"] + CLAIM_SECONDS}, secret)}
+
+
+def verify_claim(item, secret, *, now: float) -> dict | None:
+    """The signed fields of a queue item, or None when it is unsigned,
+    signed with another secret, altered, or older than CLAIM_SECONDS."""
+    if not isinstance(item, dict) or not secret:
+        return None
+    payload = verify(item.get("sig"), secret, now=now)
+    if not payload:
+        return None
+    at = payload.get("at")
+    if not isinstance(at, int) or isinstance(at, bool) or payload.get("exp") != at + CLAIM_SECONDS:
+        return None
+    if not all(isinstance(payload.get(k), str) and payload.get(k) for k in ("xid", "wallet")):
+        return None
+    return {k: payload.get(k) for k in CLAIM_FIELDS}

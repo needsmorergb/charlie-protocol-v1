@@ -218,7 +218,7 @@ def submit(cfg: Config, kv: KV, cookies: dict, body: bytes, *, now: float,
     if claimable <= 0:
         return _json(400, {"error": "There is nothing to claim for this account yet."})
     at = int(now)
-    kv.push(QUEUE_KEY, {"xid": xid, "handle": who["handle"], "wallet": wallet, "at": at})
+    kv.push(QUEUE_KEY, claim_session.sign_claim(xid, who["handle"], wallet, at, cfg.secret))
     kv.set_json(status_key(xid), {"state": "queued", "lamports": claimable, "signature": None,
                                   "reason": None, "at": at})
     return _json(200, {"queued": True})

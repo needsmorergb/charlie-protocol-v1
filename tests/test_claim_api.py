@@ -216,7 +216,12 @@ class TestSubmit(unittest.TestCase):
     def test_queues(self):
         response = self._post()
         self.assertEqual((response.status, response.body), (200, {"queued": True}))
-        self.assertEqual(self.kv.pop("claim:queue"), {"xid": "42", "handle": "alice", "wallet": WALLET, "at": NOW})
+        item = self.kv.pop("claim:queue")
+        self.assertEqual({k: item[k] for k in ("xid", "handle", "wallet", "at")},
+                         {"xid": "42", "handle": "alice", "wallet": WALLET, "at": NOW})
+        self.assertEqual(claim_session.verify_claim(item, SECRET, now=NOW),
+                         {"xid": "42", "handle": "alice", "wallet": WALLET, "at": NOW})
+        self.assertIsNone(claim_session.verify_claim(item, "another-secret", now=NOW))
         self.assertEqual(self.kv.get_json("claim:status:42"),
                          {"state": "queued", "lamports": 7_000_000, "signature": None, "reason": None, "at": NOW})
 
