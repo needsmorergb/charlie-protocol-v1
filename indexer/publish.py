@@ -723,6 +723,10 @@ NON_FIGURE_EMITTERS = {
         "stores the bot's own cursors (since_id, scan position) as JSON in its "
         "local SQLite; nothing public"
     ),
+    "indexer.moderation:anthropic_moderator": (
+        "serializes a tag's image to the Anthropic Messages API for a SAFE/"
+        "UNSAFE verdict before pinning; transport, not a derived figure"
+    ),
     "indexer.xapi:XClient._user_post": (
         "serializes a request body to the X API (a reply's text from "
         "tag_launch.reply_text); transport, not a derived figure"

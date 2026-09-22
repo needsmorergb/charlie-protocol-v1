@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from indexer import tag_bot
+from indexer import moderation, tag_bot
 from indexer import tag_launch as tag
 from indexer import tag_ledger
 from indexer.ed25519 import Keypair
@@ -95,6 +95,21 @@ def acquire_lock(db_path: str):
     return handle
 
 
+def moderator_for(config: dict, *, dry_run: bool):
+    """The image moderator, from `moderation` in the config: an object with
+    `anthropic_api_key`, or the string "off". A live bot refuses to start
+    with neither; a dry run without a key simply does not moderate."""
+    setting = config.get("moderation")
+    if setting == "off":
+        return None
+    key = setting.get("anthropic_api_key") if isinstance(setting, dict) else None
+    if key:
+        return moderation.anthropic_moderator(key)
+    if dry_run:
+        return None
+    raise ConfigError('moderation has no anthropic_api_key; set one, or "moderation": "off" to launch unmoderated')
+
+
 def file_logger(path: str):
     def log(line: str) -> None:
         stamped = f"{datetime.now(timezone.utc).isoformat(timespec='seconds')} {line}"
@@ -118,7 +133,7 @@ def build_bot(config: dict, *, dry_run: bool, config_dir: Path) -> tag_bot.Bot:
     keys = None if dry_run else load_keys(config.get("keypairs") or {})
     return tag_bot.Bot(x, rpc, kv, book, ledger, keys, dry_run=dry_run, bot_id=str(config["bot_user_id"]),
                        pin=pin_metadata, stop_file=config_dir / "STOP", claim_secret=config.get("claim_secret", ""),
-                       log=file_logger(config["log"]))
+                       moderate=moderator_for(config, dry_run=dry_run), log=file_logger(config["log"]))
 
 
 def approve_held(db_path: str, xid: str) -> int:
@@ -167,6 +182,7 @@ def main(argv=None) -> int:
             return 0 if count else 1
         if not args.dry_run and not config.get("claim_secret"):
             raise ConfigError("claim_secret is empty: set it to the site's CHARLIE_SESSION_SECRET before running live")
+        moderator_for(config, dry_run=args.dry_run)          # refuse before the lock, not after
         lock = acquire_lock(config["db_dry"] if args.dry_run else config["db"])
         bot = build_bot(config, dry_run=args.dry_run, config_dir=Path(args.config).resolve().parent)
     except (ConfigError, Locked, OSError, KeyError, ValueError) as exc:

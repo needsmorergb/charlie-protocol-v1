@@ -1386,6 +1386,22 @@ class TestCoinCorrectCopy(unittest.TestCase):
         self.assertIn('href="/enroll"', open_)
         self.assertNotIn("cannot enroll", open_)
 
+    def test_a_coin_paying_the_payout_treasury_links_to_claim(self):
+        """A coin launched from an X tag pays a row to the payout treasury;
+        its page points the requester at /claim. Other coins do not."""
+        record = _other_coin_observation()
+        self.assertNotIn('id="x-tag-claim"', site.render(record, now=2.0))
+        registry = Registry(program_id=None, grandfathered_sol_burn=frozenset())
+        record.config.shareholders = ((OTHER_SHAREHOLDER, 9_000),
+                                      (site_legs.CHARLIE_PAYOUT_TREASURY, 1_000))
+        record.split = split_of(record.config, registry)
+        rendered = site.render(record, now=2.0)
+        start = rendered.index('id="x-tag-claim"')
+        section = rendered[start:rendered.index("</section>", start)]
+        self.assertIn("launched from an X tag. the requester claims their share "
+                      "of creator fees at", section)
+        self.assertIn('href="/claim"', section)
+
     def test_a_coin_paying_the_share_is_enrolled_and_says_pump_enforces_it(self):
         rendered = site.render(_enrolled_observation(), now=2.0)
         section = self._enrolment_section(rendered)

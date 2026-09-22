@@ -112,6 +112,20 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(out["newest_id"], "50")
         self.assertIn("pagination_token=N1", opener.requests[1].full_url)
 
+    def test_a_backlog_past_the_page_cap_raises_rather_than_skip(self):
+        from unittest import mock
+        opener = FakeOpener({"/mentions": lambda: _mentions_page(["50"], next_token="MORE")})
+        with mock.patch.object(xapi, "MAX_PAGES", 3), self.assertRaises(xapi.XError):
+            xapi.XClient(bearer="B", opener=opener).mentions("1", "10")
+        self.assertEqual(len(opener.requests), 3)
+
+    def test_many_pages_are_all_followed(self):
+        pages = iter([_mentions_page([str(100 - i)], next_token=f"N{i}") for i in range(7)] + [_mentions_page(["9"])])
+        opener = FakeOpener({"/mentions": lambda: next(pages)})
+        out = xapi.XClient(bearer="B", opener=opener).mentions("1", "5")
+        self.assertEqual([t["id"] for t in out["tweets"]][0], "9")
+        self.assertEqual(len(out["tweets"]), 8)
+
     def test_http_error_carries_status(self):
         x = xapi.XClient(bearer="B", opener=FakeOpener({"/mentions": 429}))
         with self.assertRaises(xapi.XError) as caught:

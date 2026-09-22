@@ -38,7 +38,7 @@ TWEET_FIELDS = "created_at,edit_history_tweet_ids,referenced_tweets,attachments,
 USER_FIELDS = "created_at,public_metrics,verified_type,protected,profile_image_url,withheld,parody,username,name"
 MEDIA_FIELDS = "url,type"
 EXPANSIONS = "author_id,attachments.media_keys"
-MAX_PAGES = 5
+MAX_PAGES = 50        # a safety stop; a backlog deeper than this raises
 
 
 class XError(RuntimeError):
@@ -171,8 +171,11 @@ class XClient:
         authors and media the tweets reference keyed for lookup.
 
         Returns `{"tweets": [...], "users": {id: user}, "media": {key: media},
-        "newest_id": str | None}`. Follows `next_token` for up to MAX_PAGES
-        pages so a burst between polls is not skipped."""
+        "newest_id": str | None}`. Follows `next_token` to the last page, so
+        a burst between polls is never skipped: X pages newest first, and a
+        caller that advanced `since_id` past a partial read would lose the
+        older pages. A backlog deeper than MAX_PAGES raises instead, so
+        nothing is processed and `since_id` stays where it was."""
         tweets: dict[str, dict] = {}
         users: dict[str, dict] = {}
         media: dict[str, dict] = {}
@@ -201,6 +204,8 @@ class XClient:
             token = (page.get("meta") or {}).get("next_token")
             if not token:
                 break
+        else:
+            raise XError(f"more than {MAX_PAGES} pages of mentions; not advancing past unread ones", 0)
         ordered = sorted(tweets.values(), key=lambda t: _id_int(t.get("id")))
         return {"tweets": ordered, "users": users, "media": media, "newest_id": newest}
 

@@ -195,7 +195,7 @@ class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
                  dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
-                 claim_secret: str = "", log=None):
+                 claim_secret: str = "", moderate=None, log=None):
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
@@ -208,6 +208,7 @@ class Bot:
         self.distribute_run = distribute_run
         self.stop_file = Path(stop_file) if stop_file else None
         self.claim_secret = claim_secret
+        self.moderate = moderate            # image -> True when SAFE; None only when the owner turned it off
         self._log = log or (lambda line: print(line, flush=True))
 
     # -- plumbing --
@@ -278,7 +279,7 @@ class Bot:
         user = users.get(user_id)
         now = self.now()
         ts = tag.epoch(now)
-        refused = tag.tweet_refusal(tweet, now)
+        refused = tag.tweet_refusal(tweet, now, media)
         if refused is None and user is None:
             refused = tag.TagRefused("no_user", "The author could not be read.")
         refused = (refused
@@ -292,6 +293,18 @@ class Bot:
         if image is None:
             return self._refuse(key, user_id, ts, tag.TagRefused("bad_image", "The image is not usable."),
                                 request.ticker)
+        if self.moderate is not None:
+            try:
+                safe = self.moderate(image)
+            except Exception as exc:  # noqa: BLE001 -- no verdict, no launch, and not the requester's fault
+                if not self.dry_run:
+                    self.book.record(key, user_id, ts, "failed", code="moderation_unavailable",
+                                     ticker=request.ticker)
+                self.log("moderation_unavailable", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+                return {"tweet": key, "outcome": "failed", "code": "moderation_unavailable"}
+            if safe is not True:
+                return self._refuse(key, user_id, ts, tag.TagRefused(
+                    "image_refused", "That image cannot be a coin's picture."), request.ticker)
         return self._launch(key, tweet, user, request, image, ts)
 
     def _launch(self, key: str, tweet: dict, user: dict, request: tag.TagRequest, image, ts: int) -> dict:
@@ -327,7 +340,10 @@ class Bot:
             self.book.record(key, user_id, ts, "failed", code="create_failed", ticker=request.ticker, mint=mint)
             self.log("create_failed", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
             return {"tweet": key, "outcome": "failed", "code": "create_failed", "mint": mint}
+        # The coin exists. Its row reaches `split_pending` before the recovery
+        # entry goes, so a crash anywhere here still ends with the split retried.
         self.ledger.add_coin(mint, user_id, handle, tweet_id, ts)
+        self.book.record(key, user_id, ts, "failed", code="split_pending", ticker=request.ticker, mint=mint)
         self._forget_unconfirmed(mint)
         self.log("created", tweet=key, mint=mint, signature=signature)
         return self._finish(key, user_id, ts, request.ticker, mint)
@@ -342,9 +358,10 @@ class Bot:
         One whose mint now exists becomes a tag coin with its split pending;
         one still absent after CREATE_LANDING_SECONDS is finally failed,
         which is not held against the requester (only `refused` counts)."""
-        unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
-        if not unconfirmed or self.dry_run:
+        if self.dry_run:
             return
+        unconfirmed = self.ledger.state(UNCONFIRMED_KEY, {})
+        self._recover_launching(unconfirmed)
         ts = self._ts()
         for mint, row in list(unconfirmed.items()):
             current = self.book.entry(row["key"])
@@ -368,6 +385,23 @@ class Bot:
                 continue
             del unconfirmed[mint]
         self.ledger.set_state(UNCONFIRMED_KEY, unconfirmed)
+
+    def _recover_launching(self, unconfirmed: dict) -> None:
+        """A `launching` row with no recovery entry (a database from before
+        the entry was kept until split_pending): a known coin gets its split
+        retried; any other goes back through the existence check."""
+        for key, user_id, at, ticker, mint in self.book.launching():
+            if mint in unconfirmed:
+                continue
+            coin = self.ledger.coin(mint)
+            if coin is not None:
+                self.book.record(key, user_id, at, "failed", code="split_pending", ticker=ticker, mint=mint)
+                self.log("launching_recovered", tweet=key, mint=mint)
+                continue
+            unconfirmed[mint] = {"key": key, "user_id": user_id, "handle": "", "tweet_id": key,
+                                 "at": at, "ticker": ticker}
+            self.ledger.set_state(UNCONFIRMED_KEY, unconfirmed)
+            self.log("launching_rechecked", tweet=key, mint=mint)
 
     def _finish(self, key: str, user_id: str, ts: int, ticker: str, mint: str) -> dict:
         """The split, then the record and the reply; a failed split leaves

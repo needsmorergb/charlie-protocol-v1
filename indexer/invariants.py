@@ -176,7 +176,10 @@ def protocol_share(split, mint: str | None = None) -> Check:
             f"this coin is not enrolled: the split pays the protocol's collection wallet "
             f"{destination} {paid} bps but lacks what every enrolled coin carries: "
             + " and ".join(lacks[leg] for leg in missing),
-            expected=f">= {rate}, plus the incinerator and buyback treasury rows", actual=str(paid),
+            expected=(f">= {rate}, plus the incinerator row and "
+                      + ("either the buyback treasury row or Charlie's OPS row"
+                         if legs.CHARLIE_OPS_DESTINATION else "the buyback treasury row")),
+            actual=str(paid),
         )
     if paid >= rate:
         return _check(
@@ -207,6 +210,15 @@ NOT_ENROLLED = "not-enrolled"
 UNDERPAYING = "underpaying"
 EXEMPT = "exempt"
 CLOSED = "closed"
+
+
+def launched_from_x_tag(split) -> bool:
+    """True when the split pays a row to `legs.CHARLIE_PAYOUT_TREASURY`, the
+    wallet that holds an X-tag requester's share until they claim it. Read
+    from the chain's split, never from metadata a creator could write."""
+    treasury = legs.CHARLIE_PAYOUT_TREASURY
+    rows = getattr(split, "attributions", None) or ()
+    return bool(treasury) and any(a.address == treasury and a.bps > 0 for a in rows)
 
 
 def enrollment_reading(check, mint: str | None = None) -> str | None:

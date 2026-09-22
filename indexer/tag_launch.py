@@ -144,9 +144,14 @@ def dedupe_key(tweet: dict) -> str:
     return str(history[0] if history else tweet["id"])
 
 
-def tweet_refusal(tweet: dict, now: datetime) -> TagRefused | None:
+PHOTO_TYPES = ("photo",)   # the bot pins stills only (tag_bot.image_of)
+
+
+def tweet_refusal(tweet: dict, now: datetime, media: dict | None = None) -> TagRefused | None:
     """X API v2 tweet object (with `created_at`, `referenced_tweets`,
-    `attachments`, `edit_history_tweet_ids`)."""
+    `attachments`, `edit_history_tweet_ids`). With `media` (the includes,
+    keyed by media_key), at least one attached item must be a photo: media
+    keys alone are not enough."""
     if tweet.get("referenced_tweets"):
         return TagRefused("not_original", "Only an original post can launch, not a reply, quote or repost.")
     if dedupe_key(tweet) != str(tweet["id"]):
@@ -154,7 +159,10 @@ def tweet_refusal(tweet: dict, now: datetime) -> TagRefused | None:
     age = (now - _when(tweet["created_at"])).total_seconds()
     if age > MAX_TWEET_AGE_SECONDS:
         return TagRefused("stale", "The post is too old to act on.")
-    if not (tweet.get("attachments") or {}).get("media_keys"):
+    keys = (tweet.get("attachments") or {}).get("media_keys") or []
+    if not keys:
+        return TagRefused("no_image", "Attach the coin's image to the post.")
+    if media is not None and not any((media.get(k) or {}).get("type") in PHOTO_TYPES for k in keys):
         return TagRefused("no_image", "Attach the coin's image to the post.")
     return None
 
@@ -174,7 +182,8 @@ def account_refusal(user: dict, now: datetime, *, bot_id: str = "") -> TagRefuse
         return TagRefused("protected", "Protected accounts cannot launch.")
     if user.get("withheld"):
         return TagRefused("withheld", "This account is withheld.")
-    if "default_profile_images" in (user.get("profile_image_url") or ""):
+    avatar = user.get("profile_image_url")
+    if not isinstance(avatar, str) or not avatar.strip() or "default_profile_images" in avatar:
         return TagRefused("no_avatar", "Set a profile image before launching.")
     if (now - _when(user["created_at"])).days < MIN_ACCOUNT_AGE_DAYS:
         return TagRefused("too_new", f"The account must be at least {MIN_ACCOUNT_AGE_DAYS} days old.")
@@ -214,13 +223,12 @@ def content_refusal(request: TagRequest, *, taken=(), protected=()) -> TagRefuse
     short word would refuse half the dictionary."""
     if request.ticker in RESERVED_TICKERS or request.ticker in {t.upper() for t in taken}:
         return TagRefused("ticker_taken", f"${request.ticker} is taken. Pick another ticker.")
-    name = _squash(request.name)
-    for word in (*PROTECTED_NAMES, *(_squash(p) for p in protected)):
-        if not word:
-            continue
-        close = name == word if len(word) <= 4 or len(name) <= 4 else _within_two(name, word)
-        if close or (len(word) >= 5 and word in name):
-            return TagRefused("impersonation", "That name is too close to a real person, brand or project.")
+    words = [w for w in (*PROTECTED_NAMES, *(_squash(p) for p in protected)) if w]
+    for value in (_squash(request.name), _squash(request.ticker)):   # $OPENAI impersonates as well
+        for word in words:
+            close = value == word if len(word) <= 4 or len(value) <= 4 else _within_two(value, word)
+            if close or (len(word) >= 5 and word in value):
+                return TagRefused("impersonation", "That name is too close to a real person, brand or project.")
     return None
 
 
@@ -263,18 +271,30 @@ class Book:
             "SELECT COUNT(*) FROM tag_requests WHERE user_id = ? AND outcome = ? AND at > ?",
             (user_id, outcome, since)).fetchone()[0]
 
+    # A coin counts toward the limits once it exists or may: launched, being
+    # launched, created with its split still pending, or a create not yet
+    # known to have failed. A split that keeps failing must not let one
+    # account create coin after coin.
+    def _launches(self, user_id: str, since: int) -> int:
+        return self.db.execute(
+            "SELECT COUNT(*) FROM tag_requests WHERE user_id = ? AND at > ? "
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))",
+            (user_id, since)).fetchone()[0]
+
     def launched_since(self, since: int) -> int:
         return self.db.execute(
-            "SELECT COUNT(*) FROM tag_requests WHERE outcome = 'launched' AND at > ?", (since,)).fetchone()[0]
+            "SELECT COUNT(*) FROM tag_requests WHERE at > ? "
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))",
+            (since,)).fetchone()[0]
 
     def limit_refusal(self, user_id: str, now: int) -> TagRefused | None:
         if self.db.execute("SELECT 1 FROM tag_bans WHERE user_id = ?", (user_id,)).fetchone():
             return TagRefused("banned", "This account is not served.")
         if self._count(user_id, "refused", now - REFUSAL_TIMEOUT_DAYS * DAY) >= REFUSALS_BEFORE_TIMEOUT:
             return TagRefused("timeout", "Too many refused requests; try again later.")
-        if self._count(user_id, "launched", now - DAY) >= PER_DAY:
+        if self._launches(user_id, now - DAY) >= PER_DAY:
             return TagRefused("daily_limit", f"{PER_DAY} launch per account per day.")
-        if self._count(user_id, "launched", now - 30 * DAY) >= PER_THIRTY_DAYS:
+        if self._launches(user_id, now - 30 * DAY) >= PER_THIRTY_DAYS:
             return TagRefused("monthly_limit", f"{PER_THIRTY_DAYS} launches per account per 30 days.")
         if self.launched_since(now - DAY) >= DAILY_CEILING:
             return TagRefused("ceiling", "Launching is paused for today.")
@@ -299,6 +319,12 @@ class Book:
         return {r[0] for r in self.db.execute(
             "SELECT DISTINCT ticker FROM tag_requests WHERE ticker IS NOT NULL AND mint IS NOT NULL "
             "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))")}
+
+    def launching(self) -> list[tuple]:
+        """`(tweet_key, user_id, at, ticker, mint)` for rows still `launching`."""
+        return self.db.execute(
+            "SELECT tweet_key, user_id, at, ticker, mint FROM tag_requests "
+            "WHERE outcome = 'launching' AND mint IS NOT NULL ORDER BY at").fetchall()
 
     def pending_splits(self) -> list[tuple]:
         """`(tweet_key, user_id, at, ticker, mint)` for coins whose create

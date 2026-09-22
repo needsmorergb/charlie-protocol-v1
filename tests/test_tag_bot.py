@@ -246,17 +246,82 @@ class TestMentions(unittest.TestCase):
             "wallet_low": dict(balance=100_000_000),
             "bad_image": dict(image=("text/html", b"<html>")),
             "no_photo": dict(media={"3_1": {"type": "video", "url": "https://v"}}),
+            "image_refused": dict(moderate=lambda image: False),
+            "unsafe_text": dict(moderate=lambda image: "SAFE."),
         }
         for code, case in cases.items():
             with self.subTest(code=code):
                 x = FakeX([case.get("tweet", tweet())], users=case.get("users"), media=case.get("media"),
                           image=case.get("image", ("image/png", PNG)))
                 h = Harness(x=x, rpc=FakeRpc({legs.CHARLIE_LAUNCH_WALLET: case.get("balance", SOL)}))
+                h.bot.moderate = case.get("moderate")
                 h.bot.tick_mentions()
                 self.assertEqual((h.sent, h.x.replies, h.pins), ([], [], []))
-                expected = "bad_image" if code == "no_photo" else code
+                expected = {"no_photo": "no_image", "unsafe_text": "image_refused"}.get(code, code)
                 outcome = "failed" if code == "wallet_low" else "refused"
                 self.assertEqual(h.outcome()[:2], (outcome, expected))
+
+    def test_moderation_sees_the_image_before_anything_is_pinned(self):
+        h = Harness(x=FakeX([tweet()]))
+        seen = []
+        h.bot.moderate = lambda image: seen.append((image[1], image[2], list(h.pins))) or True
+        self.assertEqual(h.bot.tick_mentions()[0]["outcome"], "launched")
+        self.assertEqual(seen, [("image/png", PNG, [])])
+
+    def test_moderation_unavailable_is_not_the_requester_s_fault(self):
+        h = Harness(x=FakeX([tweet()]))
+
+        def down(image):
+            raise TimeoutError("timed out")
+        h.bot.moderate = down
+        row = h.bot.tick_mentions()[0]
+        self.assertEqual((row["outcome"], row["code"]), ("failed", "moderation_unavailable"))
+        self.assertEqual((h.sent, h.x.replies, h.pins), ([], [], []))
+        self.assertEqual(h.outcome()[:2], ("failed", "moderation_unavailable"))
+        self.assertIsNone(h.book.limit_refusal("7", TS))
+
+    def test_a_split_that_keeps_failing_still_uses_the_day_s_launch(self):
+        second = tweet(id="200", edit_history_tweet_ids=["200"], text="@CharlieSlugSOL launch Moon Cat $MCAT")
+        err = {"InstructionError": [0, "x"]}
+        h = Harness(x=FakeX([tweet(), second]), rpc=FakeRpc(sim_errors=[None, err, err]))
+        h.bot.tick_mentions()
+        self.assertEqual(h.outcome()[:2], ("failed", "split_pending"))
+        self.assertEqual(h.outcome("200")[:2], ("refused", "daily_limit"))
+        self.assertEqual(len([s for s in h.sent if s[2]]), 1)           # one create only
+
+    def test_a_crash_after_the_create_lands_still_ends_with_the_split(self):
+        h = Harness(x=FakeX([tweet()]))
+        real = h.book.record
+
+        def crash_at_split_pending(key, user_id, now, outcome, **kw):
+            if kw.get("code") == "split_pending":
+                raise Crash()
+            return real(key, user_id, now, outcome, **kw)
+        h.book.record = crash_at_split_pending
+        with self.assertRaises(Crash):
+            h.bot.tick_mentions()
+        mint = h.outcome()[3]
+        self.assertEqual(h.outcome()[0], "launching")
+        self.assertIn(mint, h.ledger.state(tag_bot.UNCONFIRMED_KEY))   # kept until split_pending is written
+        h.book.record = real
+        h.rpc.existing.add(mint)
+        h.x.tweets = []
+        h.bot = h.make_bot()
+        rows = h.bot.tick_mentions()
+        self.assertEqual([(r["outcome"], r["mint"]) for r in rows], [("launched", mint)])
+        self.assertEqual([s[2] for s in h.sent], [(mint,), ()])          # one create, one split
+
+    def test_an_orphan_launching_row_is_recovered(self):
+        h = Harness()
+        known, on_chain = encode(bytes([5] * 32)), encode(bytes([6] * 32))
+        h.book.record("100", "7", TS, "launching", ticker="MDOG", mint=known)
+        h.ledger.add_coin(known, "7", "alice", "100", TS)
+        h.book.record("101", "8", TS, "launching", ticker="ABC", mint=on_chain)
+        h.rpc.existing.add(on_chain)
+        rows = h.bot.tick_mentions()
+        self.assertEqual(sorted(r["mint"] for r in rows if r["outcome"] == "launched"), sorted([known, on_chain]))
+        self.assertEqual(h.ledger.coin(on_chain)["user_id"], "8")
+        self.assertEqual(h.book.launching(), [])
 
     def test_limits_are_refusals_too(self):
         h = Harness(x=FakeX([tweet(id="200", edit_history_tweet_ids=["200"])]))
@@ -807,6 +872,28 @@ class TestXBotCli(unittest.TestCase):
             self.assertIn("claim_secret is empty", err.getvalue())
             self.assertFalse((Path(tmp) / "book.db.lock").exists())
 
+    def test_moderation_config(self):
+        from tools import x_bot
+        self.assertIsNone(x_bot.moderator_for({"moderation": "off"}, dry_run=False))
+        self.assertTrue(callable(x_bot.moderator_for({"moderation": {"anthropic_api_key": "k"}}, dry_run=False)))
+        self.assertIsNone(x_bot.moderator_for({}, dry_run=True))
+        for setting in (None, "", "OFF", {}, {"anthropic_api_key": ""}):
+            with self.assertRaises(x_bot.ConfigError, msg=repr(setting)):
+                x_bot.moderator_for({"moderation": setting}, dry_run=False)
+
+    def test_a_live_bot_needs_moderation_or_an_explicit_off(self):
+        import contextlib
+        import io
+        from tools import x_bot
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"bot_user_id": "1", "claim_secret": "s"}', encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(x_bot.main(["--config", str(path), "--once"]), 2)
+            self.assertIn("anthropic_api_key", err.getvalue())
+            self.assertFalse((Path(tmp) / "book.db.lock").exists())
+
     def test_a_second_bot_cannot_take_the_lock(self):
         from tools import x_bot
         with tempfile.TemporaryDirectory() as tmp:
@@ -859,6 +946,71 @@ class TestImage(unittest.TestCase):
     def test_too_big_is_bad(self):
         x = FakeX(image=("image/png", PNG + b"\x00" * tag_bot.MAX_IMAGE_BYTES))
         self.assertIsNone(tag_bot.image_of(x, tweet(), x.media))
+
+
+
+class TestModeration(unittest.TestCase):
+    IMAGE = ("image.png", "image/png", PNG)
+
+    def answer(self, text):
+        return {"type": "message", "content": [{"type": "text", "text": text}]}
+
+    def test_only_exactly_safe_passes(self):
+        from indexer import moderation
+        self.assertTrue(moderation.verdict(self.answer("SAFE")))
+        self.assertTrue(moderation.verdict(self.answer(" SAFE\n")))
+        for text in ("UNSAFE", "safe", "SAFE.", "Probably SAFE", ""):
+            self.assertFalse(moderation.verdict(self.answer(text)), text)
+        with self.assertRaises(moderation.ModerationUnavailable):
+            moderation.verdict({"type": "error", "error": {"type": "overloaded_error"}})
+
+    def test_the_request(self):
+        import base64
+        import json as jsonlib
+        from indexer import moderation
+        sent = []
+
+        class Response:
+            def __init__(self, body):
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return self.body
+
+        def opener(request, timeout):
+            sent.append((request, timeout))
+            return Response(jsonlib.dumps(self.answer("UNSAFE")).encode())
+        self.assertFalse(moderation.anthropic_moderator("key-1", opener=opener)(self.IMAGE))
+        request, timeout = sent[0]
+        self.assertEqual(request.full_url, "https://api.anthropic.com/v1/messages")
+        self.assertEqual(request.get_header("X-api-key"), "key-1")
+        self.assertEqual(request.get_header("Anthropic-version"), "2023-06-01")
+        body = jsonlib.loads(request.data)
+        self.assertEqual(body["model"], "claude-haiku-4-5-20251001")
+        image, text = body["messages"][0]["content"]
+        self.assertEqual(image["source"], {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode(PNG).decode()})
+        for word in ("sexual", "minor", "gore", "hate symbols", "real, identifiable person", "brand logo",
+                     "SAFE", "UNSAFE"):
+            self.assertIn(word, text["text"])
+        self.assertEqual(timeout, moderation.TIMEOUT_SECONDS)
+
+    def test_errors_and_timeouts_are_unavailable(self):
+        import socket
+        import urllib.error
+        from indexer import moderation
+        for exc in (urllib.error.HTTPError("u", 529, "overloaded", {}, None), socket.timeout("t"),
+                    urllib.error.URLError("down")):
+            def opener(request, timeout, exc=exc):
+                raise exc
+            with self.assertRaises(moderation.ModerationUnavailable):
+                moderation.anthropic_moderator("k", opener=opener)(self.IMAGE)
 
 
 if __name__ == "__main__":

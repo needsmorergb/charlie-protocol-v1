@@ -559,6 +559,32 @@ class TestProtocolShare(unittest.TestCase):
         self.assertIn(legs_module.LAUNCH_BUYBACK_DESTINATION, check.detail)
         self.assertEqual(invariants.enrollment_reading(check), invariants.NOT_ENROLLED)
 
+    def test_the_expected_field_names_both_ways_to_carry_the_second_leg(self):
+        """The detail accepts the buyback row OR Charlie's OPS row; the
+        `expected` field must say the same, not the buyback row alone."""
+        self._with_ops()
+        rate = legs_module.TOLL_BPS
+        rows = [(self.TOLL, rate),
+                (legs_module.SOL_BURN_INCINERATOR, legs_module.min_incinerator_bps(rate))]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
+        self.assertEqual(check.status, invariants.UNCHECKED)
+        self.assertIn("incinerator row", check.expected)
+        self.assertIn("buyback treasury row", check.expected)
+        self.assertIn("Charlie's OPS row", check.expected)
+
+    def test_without_an_ops_wallet_the_expected_field_names_only_the_buyback_row(self):
+        real = legs_module.CHARLIE_OPS_DESTINATION
+        legs_module.CHARLIE_OPS_DESTINATION = None
+        self.addCleanup(setattr, legs_module, "CHARLIE_OPS_DESTINATION", real)
+        rate = legs_module.TOLL_BPS
+        rows = [(self.TOLL, rate),
+                (legs_module.SOL_BURN_INCINERATOR, legs_module.min_incinerator_bps(rate))]
+        rows.append((WALLET, 10000 - sum(bps for _addr, bps in rows)))
+        check = invariants.protocol_share(self._split(rows))
+        self.assertIn("the buyback treasury row", check.expected)
+        self.assertNotIn("OPS", check.expected)
+
     # A coin launched from an X tag carries Charlie's OPS wallet in place of
     # the buyback treasury.
     OPS = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"

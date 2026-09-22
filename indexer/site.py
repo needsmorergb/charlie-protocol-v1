@@ -959,6 +959,17 @@ def _enrolment(observation) -> str:
     return f'<section id="enrollment"><p>{body}</p></section>'
 
 
+def _tag_claim(observation) -> str:
+    """A coin launched from an X tag pays one split row to the payout
+    treasury, which holds the requester's share until they claim it. That
+    row is the signal, read from the chain's split, not from metadata a
+    coin's creator could write."""
+    if not invariants.launched_from_x_tag(getattr(observation, "split", None)):
+        return ""
+    return ('<section id="x-tag-claim"><p>launched from an X tag. the requester '
+            'claims their share of creator fees at <a href="/claim">/claim</a></p></section>')
+
+
 def _launch_mode(observation) -> str:
     """Which pump launch mode this coin is, from the chain.
 
@@ -2159,6 +2170,7 @@ def render(observation, *, now=None) -> str:
     body = (
         header
         + _enrolment(observation)
+        + _tag_claim(observation)
         + banner
         + '<section id="figures">'
         + "<h2>Figures</h2>"

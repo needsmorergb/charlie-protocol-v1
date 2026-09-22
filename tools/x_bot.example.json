@@ -9,6 +9,7 @@
     "db": "SQLite file for the Book and the ledger. Default: book.db next to this config. A lock file <db>.lock keeps it to one bot.",
     "db_dry": "SQLite file --dry-run uses instead, so a dry run never consumes live tags. Default: book-dry.db next to this config.",
     "claim_secret": "The site's CHARLIE_SESSION_SECRET. The bot pays only claim-queue items signed with it, and drops items older than 7 days. Required to run live.",
+    "moderation": "Image moderation before pinning: {\"anthropic_api_key\": ...} (Anthropic Messages API, claude-haiku-4-5). A live start without a key refuses unless this is exactly \"off\".",
     "log": "Log file, one line per event. Default: bot.log next to this config."
   },
   "x": {
@@ -30,6 +31,9 @@
     "token": "YOUR_UPSTASH_TOKEN"
   },
   "claim_secret": "THE_SAME_VALUE_AS_CHARLIE_SESSION_SECRET_ON_THE_SITE",
+  "moderation": {
+    "anthropic_api_key": "YOUR_ANTHROPIC_API_KEY"
+  },
   "db": "C:\\Users\\YOU\\.charlie-bot\\book.db",
   "db_dry": "C:\\Users\\YOU\\.charlie-bot\\book-dry.db",
   "log": "C:\\Users\\YOU\\.charlie-bot\\bot.log"
