@@ -118,6 +118,7 @@ class FakeRpc:
         self.last_valid = 1_000         # what getLatestBlockhash says
         self.height = 900               # the finalized block height
         self.on_height = None           # called when the height is read
+        self.account_data = {}          # address -> a full account dict
 
     def call(self, method, params=None):
         if method == "getLatestBlockhash":
@@ -135,7 +136,8 @@ class FakeRpc:
         raise AssertionError(f"unexpected RPC {method}")
 
     def accounts(self, addresses):
-        return [{"lamports": 1} if a in self.existing else None for a in addresses]
+        return [self.account_data.get(a) or ({"lamports": 1} if a in self.existing else None)
+                for a in addresses]
 
     def balance(self, address):
         return self.balances.get(address, 0)
@@ -1011,6 +1013,115 @@ class TestModeration(unittest.TestCase):
                 raise exc
             with self.assertRaises(moderation.ModerationUnavailable):
                 moderation.anthropic_moderator("k", opener=opener)(self.IMAGE)
+
+
+def sharing_config(mint, rows):
+    """A pump fee-sharing config account holding `rows` [(address, bps)]."""
+    import base64
+    from indexer import pump
+    data = (pump.DISC_SHARING_CONFIG + bytes([255, 1, 0]) + decode(mint) + decode(legs.CHARLIE_LAUNCH_WALLET)
+            + bytes([0]) + len(rows).to_bytes(4, "little")
+            + b"".join(decode(a) + bps.to_bytes(2, "little") for a, bps in rows))
+    return {"owner": pump.PUMP_FEE_SHARE_PROGRAM, "lamports": 1,
+            "data": [base64.b64encode(data).decode(), "base64"]}
+
+
+class TestCursor(unittest.TestCase):
+    def two(self):
+        return [tweet(), tweet(id="101", edit_history_tweet_ids=["101"], author_id="8",
+                               text="@CharlieSlugSOL launch Big Cat $BCAT https://t.co/Cd34")]
+
+    def harness(self):
+        users = {"7": user(), "8": user(id="8", username="bob")}
+        h = Harness(x=FakeX(self.two(), users=users))
+        real, self.fails = h.pin, [1]
+
+        def pin(fields, image):
+            if self.fails and "MDOG" in str(fields):             # only tweet 100
+                self.fails.pop()
+                raise RuntimeError("pinning service down")
+            return real(fields, image)
+        h.bot.pin = pin
+        return h
+
+    def test_a_tweet_that_raised_is_fetched_again(self):
+        h = self.harness()
+        rows = h.bot.tick_mentions()
+        self.assertEqual([r["outcome"] for r in rows], ["error", "launched"])
+        self.assertIsNone(h.outcome("100"))
+        self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))     # held before 100
+        self.assertEqual(len(h.sent), 2)
+        h.x.tweets = self.two()                                   # the next poll returns both again
+        rows = h.bot.tick_mentions()
+        self.assertEqual(h.x.since[-1], None)
+        self.assertEqual(h.outcome("100")[0], "launched")
+        self.assertEqual(h.outcome("101")[0], "launched")
+        self.assertEqual(len(h.sent), 4)                          # 101 was not launched twice
+        self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "101")
+
+    def test_a_tweet_that_keeps_raising_ages_out_as_stale(self):
+        h = self.harness()
+        self.fails = [1] * 100
+        h.bot.tick_mentions()
+        h.x.tweets = self.two()
+        h.bot.tick_mentions()
+        self.assertIsNone(h.outcome("100"))
+        self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))
+        h.clock[0] = NOW + timedelta(minutes=11)
+        h.x.tweets = self.two()
+        h.bot.tick_mentions()
+        self.assertEqual(h.outcome("100")[:2], ("refused", "stale"))
+        self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "101")
+
+
+class TestSplitRetry(unittest.TestCase):
+    def landed_unconfirmed(self):
+        h = Harness(x=FakeX([tweet()]))
+
+        def split_unconfirmed(wire, signature):
+            if len(h.wires) == 2:
+                raise RuntimeError("confirm timed out")
+            h.rpc.statuses[signature] = CONFIRMED
+        h.on_transmit = split_unconfirmed
+        mint = h.bot.tick_mentions()[0]["mint"]
+        self.assertEqual(h.outcome(), ("failed", "split_pending", "MDOG", mint))
+        h.on_transmit = None
+        return h, mint
+
+    def test_a_split_that_landed_is_marked_launched_without_a_resend(self):
+        from indexer import enroll
+        h, mint = self.landed_unconfirmed()
+        rows = [(r.address, r.bps) for r in tag.split_rows()]
+        h.rpc.account_data[enroll.sharing_config_address(mint)] = sharing_config(mint, rows[::-1])
+        out = h.bot.tick_mentions()
+        self.assertEqual(out[0]["outcome"], "launched")
+        self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
+        self.assertEqual(len(h.sent), 2)                          # no second split
+        self.assertEqual(h.x.replies[0][0], "100")
+        self.assertEqual(h.book.pending_splits(), [])
+
+    def test_a_config_with_other_rows_is_a_mismatch_and_never_retried(self):
+        from indexer import enroll
+        h, mint = self.landed_unconfirmed()
+        rows = [(r.address, r.bps) for r in tag.split_rows()]
+        rows[0] = (rows[0][0], rows[0][1] + 1)
+        rows[-1] = (rows[-1][0], rows[-1][1] - 1)
+        h.rpc.account_data[enroll.sharing_config_address(mint)] = sharing_config(mint, rows)
+        out = h.bot.tick_mentions()
+        self.assertEqual(out[0]["code"], "split_mismatch")
+        self.assertEqual(h.outcome(), ("failed", "split_mismatch", "MDOG", mint))
+        self.assertTrue(any("SPLIT_MISMATCH" in str(line) for line in h.lines))
+        self.assertEqual(h.book.pending_splits(), [])
+        self.assertIn("MDOG", h.book.taken_tickers())
+        h.bot.tick_mentions()
+        self.assertEqual(len(h.sent), 2)
+        self.assertEqual(h.x.replies, [])
+
+    def test_an_absent_config_is_retried(self):
+        h, mint = self.landed_unconfirmed()
+        out = h.bot.tick_mentions()
+        self.assertEqual(out[0]["outcome"], "launched")
+        self.assertEqual(len(h.sent), 3)
 
 
 if __name__ == "__main__":

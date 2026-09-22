@@ -278,13 +278,13 @@ class Book:
     def _launches(self, user_id: str, since: int) -> int:
         return self.db.execute(
             "SELECT COUNT(*) FROM tag_requests WHERE user_id = ? AND at > ? "
-            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))",
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'split_mismatch', 'create_failed'))",
             (user_id, since)).fetchone()[0]
 
     def launched_since(self, since: int) -> int:
         return self.db.execute(
             "SELECT COUNT(*) FROM tag_requests WHERE at > ? "
-            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))",
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'split_mismatch', 'create_failed'))",
             (since,)).fetchone()[0]
 
     def limit_refusal(self, user_id: str, now: int) -> TagRefused | None:
@@ -318,7 +318,7 @@ class Book:
         with the split pending, or a create not yet known to have failed."""
         return {r[0] for r in self.db.execute(
             "SELECT DISTINCT ticker FROM tag_requests WHERE ticker IS NOT NULL AND mint IS NOT NULL "
-            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'create_failed'))")}
+            "AND (outcome IN ('launched', 'launching') OR code IN ('split_pending', 'split_mismatch', 'create_failed'))")}
 
     def launching(self) -> list[tuple]:
         """`(tweet_key, user_id, at, ticker, mint)` for rows still `launching`."""

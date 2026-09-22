@@ -962,9 +962,11 @@ def _enrolment(observation) -> str:
 def _tag_claim(observation) -> str:
     """A coin launched from an X tag pays one split row to the payout
     treasury, which holds the requester's share until they claim it. That
-    row is the signal, read from the chain's split, not from metadata a
-    coin's creator could write."""
-    if not invariants.launched_from_x_tag(getattr(observation, "split", None)):
+    row, in a config whose admin is Charlie's launch wallet, is the signal,
+    read from the chain, not from metadata a coin's creator could write."""
+    config = getattr(observation, "config", None)
+    if not invariants.launched_from_x_tag(getattr(observation, "split", None),
+                                          getattr(config, "admin", None)):
         return ""
     return ('<section id="x-tag-claim"><p>launched from an X tag. the requester '
             'claims their share of creator fees at <a href="/claim">/claim</a></p></section>')

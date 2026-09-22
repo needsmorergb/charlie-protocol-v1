@@ -212,11 +212,18 @@ EXEMPT = "exempt"
 CLOSED = "closed"
 
 
-def launched_from_x_tag(split) -> bool:
+def launched_from_x_tag(split, admin: str | None) -> bool:
     """True when the split pays a row to `legs.CHARLIE_PAYOUT_TREASURY`, the
-    wallet that holds an X-tag requester's share until they claim it. Read
-    from the chain's split, never from metadata a creator could write."""
-    treasury = legs.CHARLIE_PAYOUT_TREASURY
+    wallet that holds an X-tag requester's share until they claim it, AND the
+    sharing config's admin is `legs.CHARLIE_LAUNCH_WALLET`. The treasury is a
+    public address anyone can put in a split; only the launch wallet's key can
+    create a config that names it admin, and pump keeps `admin` after a
+    revoke. (The bonding curve's `creator` names the config once a coin
+    splits, so it cannot say who launched it.) Read from the chain, never
+    from metadata a creator could write."""
+    treasury, launcher = legs.CHARLIE_PAYOUT_TREASURY, legs.CHARLIE_LAUNCH_WALLET
+    if not treasury or not launcher or admin != launcher:
+        return False
     rows = getattr(split, "attributions", None) or ()
     return bool(treasury) and any(a.address == treasury and a.bps > 0 for a in rows)
 

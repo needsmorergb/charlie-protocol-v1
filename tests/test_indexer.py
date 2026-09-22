@@ -573,6 +573,15 @@ class TestProtocolShare(unittest.TestCase):
         self.assertIn("buyback treasury row", check.expected)
         self.assertIn("Charlie's OPS row", check.expected)
 
+    def test_launched_from_x_tag_needs_the_treasury_row_and_the_launch_wallet_as_admin(self):
+        rows = [(legs_module.CHARLIE_PAYOUT_TREASURY, 1000), (WALLET, 9000)]
+        split = self._split(rows)
+        launcher = legs_module.CHARLIE_LAUNCH_WALLET
+        self.assertTrue(invariants.launched_from_x_tag(split, launcher))
+        self.assertFalse(invariants.launched_from_x_tag(split, WALLET))
+        self.assertFalse(invariants.launched_from_x_tag(split, None))
+        self.assertFalse(invariants.launched_from_x_tag(self._split([(WALLET, 10000)]), launcher))
+
     def test_without_an_ops_wallet_the_expected_field_names_only_the_buyback_row(self):
         real = legs_module.CHARLIE_OPS_DESTINATION
         legs_module.CHARLIE_OPS_DESTINATION = None

@@ -39,7 +39,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from . import buyback, claim_session, distribute, launch, legs
+from . import buyback, claim_session, distribute, enroll, launch, legs, pump
 from . import tag_launch as tag
 from . import tag_ledger
 from .base58 import decode, encode
@@ -245,17 +245,23 @@ class Bot:
         self._check_unconfirmed()
         rows = [self._retry_split(*pending) for pending in self.book.pending_splits()]
         page = self.x.mentions(self.bot_id, self.ledger.state(SINCE_KEY))
+        # The cursor stops at the first tweet that raised before it was
+        # recorded, so the next poll fetches it again. Tweets after it are
+        # still acted on now; recorded ones are skipped next time (`seen`).
+        # One that keeps raising ages out as `stale`, which is recorded.
+        held = False
         for tweet in page.get("tweets") or []:
             try:
                 row = self._one(tweet, page.get("users") or {}, page.get("media") or {})
             except Exception as exc:  # noqa: BLE001 -- one bad tag never stops the rest
                 row = {"tweet": tweet.get("id"), "outcome": "error", "reason": f"{type(exc).__name__}: {exc}"}
                 self.log("error", tweet=tweet.get("id"), reason=row["reason"])
+                held = True
             if row:
                 rows.append(row)
-            if tweet.get("id"):
+            if tweet.get("id") and not held:
                 self.ledger.set_state(SINCE_KEY, str(tweet["id"]))
-        if page.get("newest_id"):
+        if page.get("newest_id") and not held:
             self.ledger.set_state(SINCE_KEY, str(page["newest_id"]))
         return rows
 
@@ -412,6 +418,10 @@ class Bot:
             self.book.record(key, user_id, ts, "failed", code="split_pending", ticker=ticker, mint=mint)
             self.log("split_pending", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
             return {"tweet": key, "outcome": "failed", "code": "split_pending", "mint": mint}
+        return self._announce(key, user_id, ts, ticker, mint, signature)
+
+    def _announce(self, key: str, user_id: str, ts: int, ticker: str, mint: str, signature) -> dict:
+        """The coin has its split: record it launched and reply."""
         self.book.record(key, user_id, ts, "launched", ticker=ticker, mint=mint)
         self.log("launched", tweet=key, mint=mint, signature=signature)
         coin = self.ledger.coin(mint) or {}
@@ -432,7 +442,40 @@ class Bot:
         self.confirm(signature)
         return signature
 
+    def split_state(self, mint: str) -> str:
+        """What the chain says of the coin's fee-sharing config: `absent`,
+        `ours` (its rows are exactly `tag.split_rows()`), or `mismatch`."""
+        address = enroll.sharing_config_address(mint)
+        account = self.rpc.accounts([address])[0]
+        if not account:
+            return "absent"
+        try:
+            config = pump.decode_sharing_config(address, account)
+        except pump.DecodeError:
+            return "mismatch"
+        ours = sorted((r.address, r.bps) for r in tag.split_rows())
+        return "ours" if sorted(config.shareholders) == ours else "mismatch"
+
     def _retry_split(self, key: str, user_id: str, at: int, ticker: str, mint: str) -> dict:
+        """A split that may have landed unconfirmed is never rebuilt blind:
+        `create=True` cannot succeed twice. The config on chain decides."""
+        try:
+            state = self.split_state(mint)
+        except Exception as exc:  # noqa: BLE001 -- unread: leave it pending for the next tick
+            self.log("split_unread", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
+            return {"tweet": key, "outcome": "failed", "code": "split_pending", "mint": mint}
+        if state == "mismatch":
+            if not self.dry_run:
+                self.book.record(key, user_id, at, "failed", code="split_mismatch", ticker=ticker, mint=mint)
+            self.log("SPLIT_MISMATCH", tweet=key, mint=mint,
+                     reason="the coin's fee-sharing config does not hold the tag split; not retried, owner to act")
+            return {"tweet": key, "outcome": "failed", "code": "split_mismatch", "mint": mint}
+        if state == "ours":
+            if self.dry_run:
+                self.log("would_mark_launched", tweet=key, mint=mint)
+                return {"tweet": key, "outcome": "simulated", "mint": mint}
+            self.log("split_found", tweet=key, mint=mint)
+            return self._announce(key, user_id, at, ticker, mint, None)
         if self.dry_run:
             checked = buyback.simulate(self.rpc, tag.split_message(mint, blockhash(self.rpc)))
             self.log("would_retry_split", tweet=key, mint=mint, err=checked.get("err"))
