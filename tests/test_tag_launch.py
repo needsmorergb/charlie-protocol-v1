@@ -215,7 +215,7 @@ class TestWords(unittest.TestCase):
         text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), "MintAddr")
         self.assertIn("$MDOG", text)
         self.assertIn("MintAddr", text)
-        self.assertIn("to claim", text)
+        self.assertIn("yours to claim", text)
         # X counts any link as 23 characters; a real mint is 44.
         weighted = tag.reply_text(tag.TagRequest("Moon Dog", "ABCDEFGHIJ"), "M" * 44)
         self.assertLessEqual(len(re.sub(r"https?://\S+", "x" * 23, weighted)), 280)

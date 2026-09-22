@@ -386,12 +386,11 @@ def reply_text(request: TagRequest, mint: str) -> str:
     """The only thing the bot says on success. Nothing from the tweet but
     the ticker reaches it. One link only, the coin page; the claim is
     reached from that page rather than linked here."""
-    return (f"${request.ticker} is live.\n\n"
-            f"CA: {mint}\n"
-            f"{SITE}/coin/{mint}\n\n"
-            "Your share of its creator fees is held for this X account. Sign in with X "
-            "on the coin page to claim. Unclaimed fees burn after 7 days.\n\n"
-            "Not affiliated with any person or brand.")
+    return (f"${request.ticker} is live \N{SNAIL}\n\n"
+            f"CA: {mint}\n\n"
+            "your share of its creator fees is yours to claim. sign in with X on the "
+            "coin page. unclaimed fees burn after 7 days.\n\n"
+            f"{SITE}/coin/{mint}")
 
 
 def now_utc() -> datetime:
