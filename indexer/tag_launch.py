@@ -435,7 +435,7 @@ def reply_text(request: TagRequest, mint: str) -> str:
     return (f"${request.ticker} is live \N{SNAIL}\n\n"
             f"CA: {mint}\n\n"
             "your share of its creator fees is yours to claim. sign in with X on the "
-            "coin page. unclaimed fees burn after 7 days.\n\n"
+            "coin page. after 7 days, unclaimed fees go to the $CHARLIE buy-and-burn.\n\n"
             f"{SITE}/coin/{mint}")
 
 

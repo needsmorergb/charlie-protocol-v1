@@ -44,6 +44,7 @@ from . import tag_launch as tag
 from . import tag_ledger
 from .base58 import decode, encode
 from .message import compile_legacy, signed_transaction
+from .xapi import XError
 
 # -- the numbers ----------------------------------------------------------------------
 
@@ -167,8 +168,13 @@ def image_of(x, tweet: dict, media: dict) -> tuple[str, str, bytes] | None:
             continue
         try:
             declared, data = x.fetch(item["url"], limit=MAX_IMAGE_BYTES)
-        except Exception:  # noqa: BLE001 -- any fetch failure is a bad image
-            return None
+        except XError as exc:
+            # Too large, or gone (4xx other than 429): the image is bad.
+            # Anything else is the network or X, so it raises and the
+            # mention stays retryable instead of counting against the user.
+            if "larger than" in str(exc) or (400 <= exc.status < 500 and exc.status != 429):
+                return None
+            raise
         ctype = sniff(data or b"")
         declared = (declared or "").split(";")[0].strip().lower()
         if ctype is None or len(data) > MAX_IMAGE_BYTES or (declared and declared not in IMAGE_TYPES):

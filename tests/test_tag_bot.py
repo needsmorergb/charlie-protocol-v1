@@ -98,6 +98,8 @@ class FakeX:
                 "newest_id": tweets[-1]["id"] if tweets else None}
 
     def fetch(self, url, *, limit=5_000_000):
+        if isinstance(self.image, Exception):
+            raise self.image
         return self.image
 
     def post_reply(self, tweet_id, text):
@@ -948,6 +950,16 @@ class TestImage(unittest.TestCase):
     def test_too_big_is_bad(self):
         x = FakeX(image=("image/png", PNG + b"\x00" * tag_bot.MAX_IMAGE_BYTES))
         self.assertIsNone(tag_bot.image_of(x, tweet(), x.media))
+
+    def test_a_gone_image_is_bad_but_a_network_failure_is_retried(self):
+        from indexer.xapi import XError
+        x = FakeX(image=XError("X answered HTTP 404: gone", 404))
+        self.assertIsNone(tag_bot.image_of(x, tweet(), x.media))
+        for exc in (XError("X did not answer: timed out", 0), XError("X answered HTTP 503", 503),
+                    XError("X answered HTTP 429", 429)):
+            x = FakeX(image=exc)
+            with self.assertRaises(XError):
+                tag_bot.image_of(x, tweet(), x.media)
 
 
 
