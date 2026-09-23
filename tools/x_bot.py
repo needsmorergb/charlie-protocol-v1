@@ -28,7 +28,7 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
-from indexer import codex_auth, moderation, tag_bot
+from indexer import codex_auth, mint_pool, moderation, tag_bot
 from indexer import tag_launch as tag
 from indexer import tag_ledger
 from indexer.ed25519 import Keypair
@@ -162,9 +162,11 @@ def build_bot(config: dict, *, dry_run: bool, config_dir: Path) -> tag_bot.Bot:
     book = tag.Book(config["db_dry"] if dry_run else config["db"])
     ledger = tag_ledger.Ledger(book.db)
     keys = None if dry_run else load_keys(config.get("keypairs") or {})
+    pool = mint_pool.from_file(os.path.expanduser(config["mint_pool"])) if config.get("mint_pool") else None
     return tag_bot.Bot(x, rpc, kv, book, ledger, keys, dry_run=dry_run, bot_id=str(config["bot_user_id"]),
                        pin=pin_metadata, stop_file=config_dir / "STOP", claim_secret=config.get("claim_secret", ""),
-                       moderate=moderator_for(config, dry_run=dry_run), log=file_logger(config["log"]))
+                       moderate=moderator_for(config, dry_run=dry_run), mint_keys=pool,
+                       log=file_logger(config["log"]))
 
 
 def approve_held(db_path: str, xid: str) -> int:

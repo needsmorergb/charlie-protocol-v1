@@ -23,7 +23,9 @@ enrollment on chain is the proof. Nothing here changes that.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 from . import ed25519
 from .base58 import decode
@@ -61,6 +63,29 @@ def parse(text: str, suffix: str | None = None) -> list[ed25519.Keypair]:
         if pair.address in seen:
             raise PoolError(f"{ENV} lists {pair.address} twice")
         seen.add(pair.address)
+    return pool
+
+
+def from_file(path, suffix: str | None = None) -> list[ed25519.Keypair]:
+    """Keypairs from the grinder's file (`tools/vanity_mint.py`): a JSON list
+    of {"address", "keypair"}. Each keypair must derive to its address and
+    carry the suffix; errors name the entry, never its value."""
+    if suffix is None:
+        suffix = SUFFIX
+    entries = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(entries, list):
+        raise PoolError(f"{path} is not a list of keypairs")
+    pool: list[ed25519.Keypair] = []
+    for index, entry in enumerate(entries):
+        try:
+            pair = ed25519.Keypair.from_secret_bytes(bytes(entry["keypair"]))
+        except Exception as exc:  # noqa: BLE001 -- say which entry, never its value
+            raise PoolError(f"{path} entry {index + 1} is not a keypair: {type(exc).__name__}") from None
+        if pair.address != entry.get("address") or not pair.address.endswith(suffix):
+            raise PoolError(f"{path} entry {index + 1} is {pair.address}, not its listed address with {suffix}")
+        pool.append(pair)
+    if len({pair.address for pair in pool}) != len(pool):
+        raise PoolError(f"{path} lists an address twice")
     return pool
 
 
