@@ -40,7 +40,7 @@ import base64
 import json
 from pathlib import Path
 
-from . import buyback, claim_session, distribute, enroll, launch, legs, pump
+from . import buyback, claim_session, distribute, enroll, launch, legs, mint_pool, pump
 from . import tag_launch as tag
 from . import tag_ledger
 from .base58 import decode, encode
@@ -204,7 +204,7 @@ class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
                  dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
-                 claim_secret: str = "", moderate=None, log=None):
+                 claim_secret: str = "", moderate=None, mint_keys=None, log=None):
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
@@ -220,6 +220,7 @@ class Bot:
         self._claim_failures: dict[str, int] = {}
         self._claims_backlog = False
         self.moderate = moderate            # image -> True when SAFE; None only when the owner turned it off
+        self.mint_keys = list(mint_keys or ())   # the 1nc1n pool, shared with the /launch door
         self._log = log or (lambda line: print(line, flush=True))
 
     # -- plumbing --
@@ -323,9 +324,20 @@ class Bot:
                     "image_refused", "That image cannot be a coin's picture."), request.ticker)
         return self._launch(key, tweet, user, request, image, ts)
 
+    def _new_mint(self):
+        """The next unused 1nc1n key, shared with the /launch door (the chain
+        says which are spent, so the two never launch the same key), or a
+        random mint once the pool is empty."""
+        if self.mint_keys:
+            try:
+                return mint_pool.pick(self.mint_keys, self.rpc)
+            except mint_pool.PoolError as exc:
+                self.log("mint_pool_empty", reason=str(exc))
+        return launch.new_mint()
+
     def _launch(self, key: str, tweet: dict, user: dict, request: tag.TagRequest, image, ts: int) -> dict:
         user_id, handle, tweet_id = str(user["id"]), user.get("username") or "", str(tweet["id"])
-        mint_key = launch.new_mint()            # first: the metadata links the coin's own page
+        mint_key = self._new_mint()             # first: the metadata links the coin's own page
         if self.dry_run:
             uri = PLACEHOLDER_URI
             self.log("would_pin", tweet=key, ticker=request.ticker, bytes=len(image[2]))

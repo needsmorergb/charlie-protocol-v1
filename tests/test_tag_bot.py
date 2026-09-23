@@ -1191,5 +1191,53 @@ class TestSplitRetry(unittest.TestCase):
         self.assertEqual(len(h.sent), 3)
 
 
+class TestSharedMintPool(unittest.TestCase):
+    """Tag launches take the /launch door's pre-ground keys; the chain says which are spent."""
+
+    def keys(self, n):
+        from indexer import launch
+        return [launch.new_mint() for _ in range(n)]
+
+    def test_the_next_unused_key_is_the_coin(self):
+        spent, fresh = self.keys(2)
+        rpc = FakeRpc()
+        rpc.existing.add(spent.address)
+        h = Harness(x=FakeX([tweet()]), rpc=rpc)
+        h.bot.mint_keys = [spent, fresh]
+        rows = h.bot.tick_mentions()
+        self.assertEqual(rows[0]["outcome"], "launched")
+        self.assertEqual(rows[0]["mint"], fresh.address)
+        self.assertEqual(h.pins[0][0]["website"], f"{tag.SITE}/coin/{fresh.address}")
+
+    def test_an_empty_pool_falls_back_to_a_random_mint(self):
+        (spent,) = self.keys(1)
+        rpc = FakeRpc()
+        rpc.existing.add(spent.address)
+        h = Harness(x=FakeX([tweet()]), rpc=rpc)
+        h.bot.mint_keys = [spent]
+        rows = h.bot.tick_mentions()
+        self.assertEqual(rows[0]["outcome"], "launched")
+        self.assertNotEqual(rows[0]["mint"], spent.address)
+        self.assertTrue(any("mint_pool_empty" in line for line in h.lines))
+
+    def test_the_grinder_file(self):
+        import json as jsonlib
+        from indexer import mint_pool
+        a, b = self.keys(2)
+        entry = lambda k: {"address": k.address, "keypair": list(k.seed + k.public)}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pool-keypairs.json"
+            path.write_text(jsonlib.dumps([entry(a), entry(b)]))
+            self.assertEqual([k.address for k in mint_pool.from_file(path, suffix="")], [a.address, b.address])
+            with self.assertRaises(mint_pool.PoolError):          # random keys lack the 1nc1n mark
+                mint_pool.from_file(path)
+            path.write_text(jsonlib.dumps([dict(entry(a), address=b.address)]))
+            with self.assertRaises(mint_pool.PoolError):          # a keypair that is not its address
+                mint_pool.from_file(path, suffix="")
+            path.write_text(jsonlib.dumps([entry(a), entry(a)]))
+            with self.assertRaises(mint_pool.PoolError):
+                mint_pool.from_file(path, suffix="")
+
+
 if __name__ == "__main__":
     unittest.main()

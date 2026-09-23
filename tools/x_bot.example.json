@@ -10,6 +10,7 @@
     "db_dry": "SQLite file --dry-run uses instead, so a dry run never consumes live tags. Default: book-dry.db next to this config.",
     "claim_secret": "The site's CHARLIE_SESSION_SECRET. The bot pays only claim-queue items signed with it, and drops items older than 7 days. Required to run live.",
     "moderation": "Image moderation before pinning. {\"codex_auth\": <path>, \"model\": \"gpt-5.6-luna\"} uses a ChatGPT subscription through OpenAI's Codex backend; create the file with `python -m tools.x_bot --codex-login` (the bot's own sign-in, never ~/.codex). Or {\"anthropic_api_key\": ...} (Anthropic Messages API, claude-haiku-4-5). A live start with neither refuses unless this is exactly \"off\".",
+    "mint_pool": "Optional. The grinder's 1nc1n key file (tools/vanity_mint.py output), shared with the /launch door. Each launch takes the next key not yet on chain; when none is left, a random mint. Unset: always random.",
     "log": "Log file, one line per event. Default: bot.log next to this config."
   },
   "x": {
