@@ -249,18 +249,19 @@ class TestBuild(unittest.TestCase):
 
 
 class TestWords(unittest.TestCase):
-    def test_the_reply_names_the_mint_and_the_claim(self):
-        text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), "MintAddr")
+    def test_the_reply_names_the_ticker_and_the_claim(self):
+        text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100"))
         self.assertIn("$MDOG", text)
-        self.assertIn("MintAddr", text)
         self.assertIn("yours to claim", text)
-        # X counts any link as 23 characters; a real mint is 44.
-        weighted = tag.reply_text(tag.TagRequest("Moon Dog", "ABCDEFGHIJ"), "M" * 44)
+        self.assertNotIn("CA:", text)
+        # X counts any link as 23 characters.
+        weighted = tag.reply_text(tag.TagRequest("Moon Dog", "ABCDEFGHIJ"), tag.coin_link("9" * 19))
         self.assertLessEqual(len(re.sub(r"https?://\S+", "x" * 23, weighted)), 280)
 
-    def test_the_reply_carries_one_link_the_coin_page(self):
-        text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), "MintAddr")
-        self.assertEqual(re.findall(r"https?://\S+", text), [f"{tag.SITE}/coin/MintAddr"])
+    def test_the_reply_carries_one_link_with_no_address(self):
+        text = tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("2102897602891321416"))
+        self.assertEqual(re.findall(r"https?://\S+", text), [f"{tag.SITE}/t/2102897602891321416"])
+        self.assertIsNone(re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", text))
 
     def test_metadata_credits_the_requester(self):
         fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100", "MintAddr")

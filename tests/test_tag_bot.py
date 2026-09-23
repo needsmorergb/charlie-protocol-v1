@@ -230,7 +230,8 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(h.ledger.coin(mint), {"mint": mint, "user_id": "7", "handle": "alice",
                                                "tweet_id": "100", "at": TS})
-        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), mint))])
+        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100")))])
+        self.assertEqual(h.kv.get_json(claim_session.coin_link_key("100")), mint)
         self.assertEqual(h.pins[0][0]["twitter"], "https://x.com/alice/status/100")
         self.assertEqual(h.pins[0][0]["website"], f"{tag.SITE}/coin/{mint}")     # the coin that launched
         self.assertEqual(h.pins[0][1], "image/png")

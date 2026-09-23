@@ -68,6 +68,7 @@ SHARED = (
     "api/claim.py",
     "api/enroll.py",
     "api/launch.py",
+    "api/t.py",
     "api/verify.py",
     "indexer/__init__.py",
     "indexer/__main__.py",

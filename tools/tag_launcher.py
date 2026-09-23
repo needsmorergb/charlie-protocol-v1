@@ -260,7 +260,7 @@ def _split(rpc, keypair: Keypair, request: tag.TagRequest | None, mint: str, out
     if record is not None:
         record.split_done(mint, request.ticker if request else None)
     if request is not None:
-        out["reply"] = tag.reply_text(request, mint)
+        out["reply"] = tag.reply_text(request, f"{tag.SITE}/coin/{mint}")
     print(json.dumps(out, indent=2))
     return 0
 

@@ -429,15 +429,21 @@ def metadata_fields(request: TagRequest, handle: str, tweet_id: str, mint: str) 
     }
 
 
-def reply_text(request: TagRequest, mint: str) -> str:
+def coin_link(tweet_id) -> str:
+    """A link to the coin page that carries no address: X refuses posts
+    with a crypto address from a newly authorised app (measured 2026-09-23),
+    so the bot's reply names the tag's tweet id and the site redirects."""
+    return f"{SITE}/t/{tweet_id}"
+
+
+def reply_text(request: TagRequest, link: str) -> str:
     """The only thing the bot says on success. Nothing from the tweet but
-    the ticker reaches it. One link only, the coin page; the claim is
-    reached from that page rather than linked here."""
+    the ticker reaches it. One link only, to the coin page; the claim is
+    reached from that page rather than linked here. No address."""
     return (f"${request.ticker} is live \N{SNAIL}\n\n"
-            f"CA: {mint}\n\n"
             "your share of its creator fees is yours to claim. sign in with X on the "
             "coin page. after 7 days, unclaimed fees go to the $CHARLIE buy-and-burn.\n\n"
-            f"{SITE}/coin/{mint}")
+            f"{link}")
 
 
 def now_utc() -> datetime:
