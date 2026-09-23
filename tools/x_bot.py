@@ -3,6 +3,8 @@
     python -m tools.x_bot --dry-run --once          # one simulated pass, nothing sent
     python -m tools.x_bot                           # the loop: mentions every 60 s, money every 30 min
     python -m tools.x_bot --approve-held <x id>     # approve a held claim; the running bot pays it
+    python -m tools.x_bot --codex-login             # sign the image moderator in to ChatGPT, once
+    python -m tools.x_bot --codex-login             # sign the image moderator in to ChatGPT, once
 
 The config lives OUTSIDE the repo, by default in %USERPROFILE%\\.charlie-bot\\config.json
 (see tools/x_bot.example.json for every key). The keys are loaded only when
@@ -23,10 +25,11 @@ import json
 import os
 import sys
 import time
+import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
-from indexer import moderation, tag_bot
+from indexer import codex_auth, moderation, tag_bot
 from indexer import tag_launch as tag
 from indexer import tag_ledger
 from indexer.ed25519 import Keypair
@@ -95,19 +98,48 @@ def acquire_lock(db_path: str):
     return handle
 
 
+def codex_auth_path(config: dict, config_dir: Path) -> Path:
+    """Where the moderator's own ChatGPT sign-in lives (never ~/.codex)."""
+    setting = config.get("moderation")
+    path = setting.get("codex_auth") if isinstance(setting, dict) else None
+    return Path(os.path.expanduser(path)) if path else Path(config_dir) / "codex-auth.json"
+
+
 def moderator_for(config: dict, *, dry_run: bool):
     """The image moderator, from `moderation` in the config: an object with
-    `anthropic_api_key`, or the string "off". A live bot refuses to start
-    with neither; a dry run without a key simply does not moderate."""
+    `codex_auth` (a ChatGPT sign-in file from --codex-login; optional `model`)
+    or `anthropic_api_key`, or the string "off". A live bot refuses to start
+    with none of them, or with a codex_auth file that is missing; a dry run
+    without one simply does not moderate."""
     setting = config.get("moderation")
     if setting == "off":
         return None
-    key = setting.get("anthropic_api_key") if isinstance(setting, dict) else None
-    if key:
-        return moderation.anthropic_moderator(key)
+    setting = setting if isinstance(setting, dict) else {}
+    if setting.get("codex_auth"):
+        store = codex_auth.TokenStore(setting["codex_auth"])
+        try:
+            store.load()
+        except codex_auth.CodexAuthError as exc:
+            if dry_run:
+                return None
+            raise ConfigError(f"moderation: {exc}") from None
+        return moderation.codex_moderator(store, model=setting.get("model") or moderation.CODEX_MODEL)
+    if setting.get("anthropic_api_key"):
+        return moderation.anthropic_moderator(setting["anthropic_api_key"])
     if dry_run:
         return None
-    raise ConfigError('moderation has no anthropic_api_key; set one, or "moderation": "off" to launch unmoderated')
+    raise ConfigError('moderation has neither codex_auth (sign in with --codex-login) nor anthropic_api_key; '
+                      'set one, or "moderation": "off" to launch unmoderated')
+
+
+def codex_login(path: Path, *, login=None) -> None:
+    """Sign the moderator in to ChatGPT and keep the grant at `path`."""
+    def say(line: str) -> None:
+        print(line, flush=True)
+        webbrowser.open(codex_auth.VERIFY_URL)
+    tokens = (login or (lambda: codex_auth.device_login(say=say)))()
+    codex_auth.TokenStore(path).save(tokens)
+    print(f"signed in; the moderator's ChatGPT sign-in is saved to {path}")
 
 
 def file_logger(path: str):
@@ -173,7 +205,17 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="simulate on its own database; never send, post, pin or write the KV")
     ap.add_argument("--once", action="store_true", help="one mentions tick and one money tick, then exit")
     ap.add_argument("--approve-held", metavar="XID", help="approve a held claim; the running bot pays it without the caps")
+    ap.add_argument("--codex-login", action="store_true",
+                    help="sign the image moderator in to ChatGPT (device code) and save the grant")
     args = ap.parse_args(argv)
+    if args.codex_login:
+        try:
+            loose = json.loads(args.config.read_text(encoding="utf-8")) if args.config.exists() else {}
+            codex_login(codex_auth_path(loose, args.config.resolve().parent))
+        except (codex_auth.CodexAuthError, OSError, ValueError) as exc:
+            print(f"x_bot: {exc}", file=sys.stderr)
+            return 2
+        return 0
     try:
         config = load_config(args.config)
         if args.approve_held:
