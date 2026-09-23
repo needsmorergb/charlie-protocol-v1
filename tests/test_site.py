@@ -68,6 +68,8 @@ DEPLOY_ONLY_REWRITE_SOURCES = {
     "/preview/enroll",
     "/preview/coins",
     "/preview/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+    # claim.html is hand-authored in the deploy repository only.
+    "/claim",
 }
 
 
@@ -1383,6 +1385,27 @@ class TestCoinCorrectCopy(unittest.TestCase):
         self.assertIn("cannot enroll", revoked)
         self.assertIn('href="/enroll"', open_)
         self.assertNotIn("cannot enroll", open_)
+
+    def test_a_coin_paying_the_payout_treasury_links_to_claim(self):
+        """A coin launched from an X tag pays a row to the payout treasury;
+        with Charlie's launch wallet as config admin, its page points the
+        requester at /claim. Other coins do not."""
+        record = _other_coin_observation()
+        self.assertNotIn('id="x-tag-claim"', site.render(record, now=2.0))
+        registry = Registry(program_id=None, grandfathered_sol_burn=frozenset())
+        record.config.shareholders = ((OTHER_SHAREHOLDER, 9_000),
+                                      (site_legs.CHARLIE_PAYOUT_TREASURY, 1_000))
+        record.split = split_of(record.config, registry)
+        # The treasury is a public address anyone can add to a split: with
+        # an admin other than Charlie's launch wallet, no link.
+        self.assertNotIn('id="x-tag-claim"', site.render(record, now=2.0))
+        record.config.admin = site_legs.CHARLIE_LAUNCH_WALLET
+        rendered = site.render(record, now=2.0)
+        start = rendered.index('id="x-tag-claim"')
+        section = rendered[start:rendered.index("</section>", start)]
+        self.assertIn("launched from an X tag. the requester claims their share "
+                      "of creator fees at", section)
+        self.assertIn('href="/claim"', section)
 
     def test_a_coin_paying_the_share_is_enrolled_and_says_pump_enforces_it(self):
         rendered = site.render(_enrolled_observation(), now=2.0)

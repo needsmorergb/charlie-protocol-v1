@@ -74,6 +74,14 @@ class TestTweet(unittest.TestCase):
         for code, t in cases.items():
             self.assertEqual(tag.tweet_refusal(t, NOW).code, code)
 
+    def test_with_media_one_attachment_must_be_a_photo(self):
+        photo = {"3_1": {"type": "photo", "url": "https://pbs/x.png"}}
+        self.assertIsNone(tag.tweet_refusal(tweet(), NOW, photo))
+        for media in ({}, {"3_1": {"type": "video"}}, {"3_1": {"type": "animated_gif"}}, {"9_9": photo["3_1"]}):
+            self.assertEqual(tag.tweet_refusal(tweet(), NOW, media).code, "no_image", media)
+        both = tweet(attachments={"media_keys": ["3_2", "3_1"]})
+        self.assertIsNone(tag.tweet_refusal(both, NOW, {"3_2": {"type": "video"}, **photo}))
+
     def test_an_edit_shares_its_originals_key(self):
         self.assertEqual(tag.dedupe_key(tweet(id="101", edit_history_tweet_ids=["100", "101"])), "100")
 
@@ -95,6 +103,13 @@ class TestAccount(unittest.TestCase):
         for code, u in cases.items():
             self.assertEqual(tag.account_refusal(u, NOW).code, code)
 
+    def test_a_missing_avatar_fails_closed(self):
+        for u in (user(profile_image_url=""), user(profile_image_url=None), user(profile_image_url="  ")):
+            self.assertEqual(tag.account_refusal(u, NOW).code, "no_avatar")
+        u = user()
+        del u["profile_image_url"]
+        self.assertEqual(tag.account_refusal(u, NOW).code, "no_avatar")
+
     def test_a_verified_badge_stands_in_for_followers(self):
         u = user(verified_type="blue", public_metrics={"followers_count": 3, "tweet_count": 500})
         self.assertIsNone(tag.account_refusal(u, NOW))
@@ -112,6 +127,11 @@ class TestContent(unittest.TestCase):
     def test_impersonation(self):
         for name in ("Elon Musk", "El0n Musk", "Coinbase", "Solana Official", "Anthropic"):
             self.assertEqual(tag.content_refusal(tag.TagRequest(name, "ABC")).code, "impersonation", name)
+
+    def test_the_ticker_is_screened_too(self):
+        for ticker in ("OPENAI", "NVIDIA", "COINBASE", "CLAUDE", "SOLANA2"):
+            self.assertEqual(tag.content_refusal(tag.TagRequest("Moon Dog", ticker)).code, "impersonation", ticker)
+        self.assertIsNone(tag.content_refusal(tag.TagRequest("Moon Dog", "MDOG")))
 
     def test_short_protected_words_need_an_exact_match(self):
         for name in ("Moon Dog", "Cat", "Metal", "Apple Pie Dog"[:3]):
@@ -137,6 +157,24 @@ class TestBook(unittest.TestCase):
     def test_failures_that_never_launched_do_not_count(self):
         self.book.record("100", "7", self.t, "failed")
         self.assertIsNone(self.book.limit_refusal("7", self.t + 60))
+
+    def test_a_coin_whose_split_keeps_failing_still_counts(self):
+        self.book.record("100", "7", self.t, "failed", code="split_pending", ticker="MDOG", mint="m")
+        self.assertEqual(self.book.limit_refusal("7", self.t + 3600).code, "daily_limit")
+        self.book.record("100", "7", self.t, "launching", ticker="MDOG", mint="m")
+        self.assertEqual(self.book.limit_refusal("7", self.t + 3600).code, "daily_limit")
+        self.book.record("100", "7", self.t, "failed", code="create_lost", ticker="MDOG", mint="m")
+        self.assertIsNone(self.book.limit_refusal("7", self.t + 3600))
+
+    def test_the_ceiling_counts_split_pending_coins(self):
+        for i in range(tag.DAILY_CEILING):
+            self.book.record(str(i), f"u{i}", self.t, "failed", code="split_pending", mint=f"m{i}")
+        self.assertEqual(self.book.limit_refusal("new", self.t).code, "ceiling")
+
+    def test_launching_rows_are_listed_for_recovery(self):
+        self.book.record("100", "7", self.t, "launching", ticker="MDOG", mint="m")
+        self.book.record("101", "7", self.t, "launched", ticker="ABC", mint="n")
+        self.assertEqual(self.book.launching(), [("100", "7", self.t, "MDOG", "m")])
 
     def test_repeat_refusals_time_out_and_bans_stick(self):
         for i in range(3):
@@ -228,6 +266,194 @@ class TestWords(unittest.TestCase):
         fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100")
         self.assertEqual(fields["twitter"], "https://x.com/alice/status/100")
         self.assertIn("@alice", fields["description"])
+
+
+
+class TestLauncherCli(unittest.TestCase):
+    """tools/tag_launcher.py, with every chain step faked."""
+
+    MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
+
+    def run_cli(self, argv, *, balance=10 ** 9, split_check=None):
+        import contextlib
+        import io
+        from unittest import mock
+        from tools import tag_launcher
+
+        class Rpc:
+            def __init__(self, *_a, **_k):
+                pass
+
+            def balance(self, address):
+                return balance
+
+        class Key:
+            address = legs.CHARLIE_LAUNCH_WALLET
+
+        out, calls = io.StringIO(), []
+
+        def simulate(rpc, wire):
+            calls.append("simulate")
+            if len(calls) > 1 and split_check:
+                split_check(out.getvalue())
+            return {"err": None, "unitsConsumed": 1}
+
+        def send(rpc, wire):
+            calls.append("send")
+            return f"sig{len(calls)}"
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(tag_launcher, "RpcClient", Rpc))
+            stack.enter_context(mock.patch.object(tag_launcher.Keypair, "from_file", lambda path: Key()))
+            stack.enter_context(mock.patch.object(tag_launcher, "_simulate", simulate))
+            stack.enter_context(mock.patch.object(tag_launcher, "_send", send))
+            stack.enter_context(mock.patch.object(tag_launcher, "_blockhash", lambda rpc: BLOCKHASH))
+            stack.enter_context(mock.patch.object(tag_launcher.buyback, "confirm", lambda rpc, sig: None))
+            stack.enter_context(mock.patch.object(tag, "sign_create", lambda built, key: b"\x01" + bytes(64)))
+            stack.enter_context(mock.patch.object(tag, "sign_split", lambda message, key: b"\x01" + bytes(64)))
+            stack.enter_context(mock.patch.object(tag_launcher, "_pin",
+                                                  lambda *a: self.fail("pinned")))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            err = io.StringIO()
+            stack.enter_context(contextlib.redirect_stderr(err))
+            try:
+                code = tag_launcher.main(argv)
+            except SystemExit as exc:
+                code = ("exit", exc.code)
+        return code, out.getvalue(), err.getvalue(), calls
+
+    def test_resume_split_skips_the_launch_gate_and_needs_no_name(self):
+        low = tag.WALLET_FLOOR_LAMPORTS // 10         # far below a new launch, above a split
+        code, out, _err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send"], balance=low)
+        self.assertEqual(code, 0)
+        self.assertIn('"split_signature"', out)
+        self.assertEqual(calls, ["simulate", "send"])
+
+    def test_resume_split_still_needs_the_price_of_a_split(self):
+        code, _out, err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send"], balance=1_000)
+        self.assertEqual((code, calls), (2, []))
+        self.assertIn("wallet_low", err)
+
+    def db(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        return str(Path(tmp.name) / "book.db")
+
+    def rows(self, db):
+        import sqlite3
+        con = sqlite3.connect(db)
+        try:
+            return (con.execute("SELECT mint, user_id, handle, tweet_id FROM tag_coins").fetchall(),
+                    con.execute("SELECT tweet_key, user_id, outcome, code, ticker, mint FROM tag_requests").fetchall())
+        finally:
+            con.close()
+
+    def send_argv(self, db, *extra):
+        return ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+                "--db", db, *extra]
+
+    def test_the_mint_is_printed_and_recorded_once_the_create_confirms_before_the_split(self):
+        db, seen = self.db(), []
+
+        def split_check(printed):
+            self.assertIn('"created"', printed)
+            self.assertIn('"create_signature": "sig2"', printed)
+            coins, requests = self.rows(db)
+            seen.append((coins, requests))
+        code, out, _err, calls = self.run_cli(
+            self.send_argv(db, "--user-id", "42", "--handle", "alice", "--tweet-id", "123"),
+            split_check=split_check)
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["simulate", "send", "simulate", "send"])
+        ((coins, requests),) = seen
+        ((mint, user_id, handle, tweet_id),) = coins                     # in the ledger before the split
+        self.assertEqual((user_id, handle, tweet_id), ("42", "alice", "123"))
+        self.assertEqual(requests, [("123", "42", "failed", "split_pending", "MDOG", mint)])
+        coins, requests = self.rows(db)
+        self.assertEqual(requests, [("123", "42", "launched", None, "MDOG", mint)])
+        self.assertEqual(len(coins), 1)
+
+    def test_send_needs_the_requester(self):
+        db = self.db()
+        for extra in ((), ("--user-id", "42"), ("--handle", "alice"), ("--user-id", "al", "--handle", "alice")):
+            code, _out, _err, calls = self.run_cli(self.send_argv(db, *extra))
+            self.assertEqual((code, calls), (("exit", 2), []), extra)
+
+    def test_send_needs_the_bots_database(self):
+        from unittest import mock
+        from tools import x_bot
+        with mock.patch.object(x_bot, "DEFAULT_CONFIG", Path(self.db()).parent / "absent.json"):
+            code, _out, err, calls = self.run_cli(
+                ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+                 "--user-id", "42", "--handle", "alice"])
+        self.assertEqual((code, calls), (("exit", 2), []))
+        self.assertIn("--db", err)
+
+    def test_the_db_comes_from_the_bots_config(self):
+        import json
+        import tempfile
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        config = Path(tmp.name) / "config.json"
+        config.write_text(json.dumps({"bot_user_id": "999"}), encoding="utf-8")
+        code, _out, _err, _calls = self.run_cli(
+            ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+             "--config", str(config), "--user-id", "42", "--handle", "alice"])
+        self.assertEqual(code, 0)
+        coins, requests = self.rows(str(Path(tmp.name) / "book.db"))
+        self.assertEqual(len(coins), 1)
+        self.assertEqual(requests[0][0], f"manual:{coins[0][0]}")
+
+    def test_the_cli_refuses_while_the_bot_holds_the_lock(self):
+        from tools import x_bot
+        db = self.db()
+        lock = x_bot.acquire_lock(db)
+        try:
+            code, _out, err, calls = self.run_cli(self.send_argv(db, "--user-id", "42", "--handle", "alice"))
+        finally:
+            lock.close()
+        self.assertEqual((code, calls), (2, []))
+        self.assertIn("bot_running", err)
+
+    def test_a_tweet_already_in_the_book_is_refused(self):
+        db = self.db()
+        book = tag.Book(db)
+        book.record("123", "42", 1, "launched", ticker="MDOG", mint=self.MINT)
+        book.db.close()
+        code, _out, err, calls = self.run_cli(
+            self.send_argv(db, "--user-id", "42", "--handle", "alice", "--tweet-id", "123"))
+        self.assertEqual((code, calls), (2, []))
+        self.assertIn("already_recorded", err)
+
+    def test_resume_split_records_the_coin_when_given_the_requester(self):
+        db = self.db()
+        code, _out, _err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send", "--db", db,
+             "--user-id", "42", "--handle", "alice", "--tweet-id", "123", "--name", "Moon Dog", "--ticker", "MDOG"])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["simulate", "send"])
+        coins, requests = self.rows(db)
+        self.assertEqual(coins, [(self.MINT, "42", "alice", "123")])
+        self.assertEqual(requests, [("123", "42", "launched", None, "MDOG", self.MINT)])
+
+    def test_resume_split_needs_both_to_record(self):
+        code, _out, _err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send", "--db", self.db(), "--user-id", "42"])
+        self.assertEqual((code, calls), (("exit", 2), []))
+
+    def test_names_and_tickers_follow_the_tag_grammar(self):
+        for name, ticker in (("Moon$Dog", "MDOG"), ("Moon Dog", "M"), ("Moon Dog", "TOOLONGTICK"),
+                             ("x" * 40, "MDOG"), ("Moon Dog", "MD-G"), ("-Moon", "MDOG")):
+            code, _out, _err, calls = self.run_cli(
+                ["--name", name, "--ticker", ticker, "--uri", URI, "--keypair", "k.json", "--send"])
+            self.assertEqual((code, calls), (("exit", 2), []), (name, ticker))
+
+    def test_a_new_launch_needs_a_name_and_ticker(self):
+        code, _out, _err, calls = self.run_cli(["--ticker", "MDOG", "--uri", URI])
+        self.assertEqual((code, calls), (("exit", 2), []))
 
 
 if __name__ == "__main__":

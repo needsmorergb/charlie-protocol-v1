@@ -700,4 +700,39 @@ NON_FIGURE_EMITTERS = {
         "test's own sweep -- it renders what the target already computed and emits "
         "nothing of its own"
     ),
+    "indexer.claim_session:sign": (
+        "serializes a signed session cookie for /api/claim; carries an X user id "
+        "and handle, never a derived figure"
+    ),
+    "indexer.kv:KV.command": (
+        "serializes a Redis command for the claim store's REST API; transport, "
+        "not publication"
+    ),
+    "indexer.kv:KV.set_json": (
+        "stores claim state the bot and /api/claim share; the amounts come from "
+        "tag_ledger's own sums, not a published figure"
+    ),
+    "indexer.kv:KV.push": (
+        "queues a claim request for the bot; transport, not publication"
+    ),
+    "indexer.tag_bot:Bot.__init__": (
+        "its default log writes one operator line per bot event to the local "
+        "console; nothing public"
+    ),
+    "indexer.tag_bot:Bot._requeue": (
+        "serializes a claim request only to count its retries and to put it "
+        "back on the bot's own queue; transport, not publication"
+    ),
+    "indexer.tag_ledger:Ledger.set_state": (
+        "stores the bot's own cursors (since_id, scan position) as JSON in its "
+        "local SQLite; nothing public"
+    ),
+    "indexer.moderation:anthropic_moderator": (
+        "serializes a tag's image to the Anthropic Messages API for a SAFE/"
+        "UNSAFE verdict before pinning; transport, not a derived figure"
+    ),
+    "indexer.xapi:XClient._user_post": (
+        "serializes a request body to the X API (a reply's text from "
+        "tag_launch.reply_text); transport, not a derived figure"
+    ),
 }
