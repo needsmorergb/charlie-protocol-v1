@@ -112,6 +112,18 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(out["newest_id"], "50")
         self.assertIn("pagination_token=N1", opener.requests[1].full_url)
 
+    def test_a_query_reads_recent_search_and_pages_by_next_token(self):
+        pages = iter([_mentions_page(["50"], newest="50", next_token="N1"), _mentions_page(["30"])])
+        opener = FakeOpener({"/search/recent": lambda: next(pages)})
+        out = xapi.XClient(bearer="B", opener=opener).mentions("1", "10", query="@Bot launch -is:retweet")
+        self.assertEqual([t["id"] for t in out["tweets"]], ["30", "50"])
+        first = urlsplit(opener.requests[0].full_url)
+        self.assertEqual(first.path, "/2/tweets/search/recent")
+        self.assertIn("query=%40Bot%20launch%20-is%3Aretweet", first.query)
+        self.assertIn("since_id=10", first.query)
+        self.assertIn("next_token=N1", opener.requests[1].full_url)
+        self.assertNotIn("pagination_token", opener.requests[1].full_url)
+
     def test_a_backlog_past_the_page_cap_raises_rather_than_skip(self):
         from unittest import mock
         opener = FakeOpener({"/mentions": lambda: _mentions_page(["50"], next_token="MORE")})

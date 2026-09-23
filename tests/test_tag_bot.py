@@ -92,8 +92,9 @@ class FakeX:
         self.image = image
         self.replies, self.since = [], []
 
-    def mentions(self, user_id, since_id):
+    def mentions(self, user_id, since_id, query=None):
         self.since.append(since_id)
+        self.query = query
         tweets, self.tweets = self.tweets, []
         return {"tweets": tweets, "users": self.users, "media": self.media,
                 "newest_id": tweets[-1]["id"] if tweets else None}
@@ -238,6 +239,7 @@ class TestMentions(unittest.TestCase):
         h.x.tweets = [tweet()]                          # seen: never twice
         self.assertEqual(h.bot.tick_mentions(), [])
         self.assertEqual(h.x.since[-1], "100")
+        self.assertEqual(h.x.query, "@CharlieSlugSOL launch -is:retweet")
 
     def test_each_refusal_is_recorded_and_silent(self):
         cases = {

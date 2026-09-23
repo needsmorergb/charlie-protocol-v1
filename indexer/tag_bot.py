@@ -67,6 +67,8 @@ CREATE_LANDING_SECONDS = 600               # an unconfirmed create that has not 
 STATUS_BATCH = 256                         # getSignatureStatuses takes at most this many
 
 SINCE_KEY = "mentions_since_id"
+# Tags are read through recent search, not the mentions timeline (see XClient.mentions).
+TAG_QUERY = f"@{tag.BOT_HANDLE} launch -is:retweet"
 LAST_BURN_KEY = "last_burn_at"
 UNCONFIRMED_KEY = "unconfirmed_creates"   # mint -> what tag_coins needs if it lands
 QUEUE_KEY = "claim:queue"
@@ -256,7 +258,7 @@ class Bot:
             return []
         self._check_unconfirmed()
         rows = [self._retry_split(*pending) for pending in self.book.pending_splits()]
-        page = self.x.mentions(self.bot_id, self.ledger.state(SINCE_KEY))
+        page = self.x.mentions(self.bot_id, self.ledger.state(SINCE_KEY), query=TAG_QUERY)
         # The cursor stops at the first tweet that raised before it was
         # recorded, so the next poll fetches it again. Tweets after it are
         # still acted on now; recorded ones are skipped next time (`seen`).
