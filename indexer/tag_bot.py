@@ -108,10 +108,11 @@ def blockhash(rpc) -> str:
     return latest_blockhash(rpc)[0]
 
 
-def pin_uri(pin, request: tag.TagRequest, image: tuple[str, str, bytes], handle: str, tweet_id: str) -> str:
+def pin_uri(pin, request: tag.TagRequest, image: tuple[str, str, bytes], handle: str, tweet_id: str,
+            mint: str) -> str:
     """Pin the metadata with `pin` (`api.launch.pin_metadata`) and return a
     URI the launch builder accepts."""
-    pinned = pin(tag.metadata_fields(request, handle, tweet_id), image)
+    pinned = pin(tag.metadata_fields(request, handle, tweet_id, mint), image)
     uri = (pinned or {}).get("metadataUri") or ""
     launch.validate_metadata(request.name, request.ticker, uri)
     return uri
@@ -324,12 +325,13 @@ class Bot:
 
     def _launch(self, key: str, tweet: dict, user: dict, request: tag.TagRequest, image, ts: int) -> dict:
         user_id, handle, tweet_id = str(user["id"]), user.get("username") or "", str(tweet["id"])
+        mint_key = launch.new_mint()            # first: the metadata links the coin's own page
         if self.dry_run:
             uri = PLACEHOLDER_URI
             self.log("would_pin", tweet=key, ticker=request.ticker, bytes=len(image[2]))
         else:
-            uri = pin_uri(self.pin, request, image, handle, tweet_id)
-        built = tag.build(request, uri, blockhash(self.rpc))
+            uri = pin_uri(self.pin, request, image, handle, tweet_id, mint_key.address)
+        built = tag.build(request, uri, blockhash(self.rpc), mint=mint_key)
         mint = built.mint.address
         simulated = self._simulate(built.create, built.mint)
         if simulated.get("err") is not None:

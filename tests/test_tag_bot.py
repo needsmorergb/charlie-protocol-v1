@@ -231,6 +231,7 @@ class TestMentions(unittest.TestCase):
                                                "tweet_id": "100", "at": TS})
         self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), mint))])
         self.assertEqual(h.pins[0][0]["twitter"], "https://x.com/alice/status/100")
+        self.assertEqual(h.pins[0][0]["website"], f"{tag.SITE}/coin/{mint}")     # the coin that launched
         self.assertEqual(h.pins[0][1], "image/png")
         self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "100")
         self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
