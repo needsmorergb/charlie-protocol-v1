@@ -4,7 +4,6 @@
     python -m tools.x_bot                           # the loop: mentions every 60 s, money every 30 min
     python -m tools.x_bot --approve-held <x id>     # approve a held claim; the running bot pays it
     python -m tools.x_bot --codex-login             # sign the image moderator in to ChatGPT, once
-    python -m tools.x_bot --codex-login             # sign the image moderator in to ChatGPT, once
 
 The config lives OUTSIDE the repo, by default in %USERPROFILE%\\.charlie-bot\\config.json
 (see tools/x_bot.example.json for every key). The keys are loaded only when
