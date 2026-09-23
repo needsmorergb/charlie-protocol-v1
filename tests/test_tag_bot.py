@@ -546,6 +546,35 @@ class TestMoney(unittest.TestCase):
         burn.assert_not_called()
         self.assertIsNotNone(h.kv.pop(tag_bot.QUEUE_KEY))
 
+    def test_a_claim_already_written_ahead_is_not_requeued(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.queue()
+        h.ledger.debit_pending("claim", [("7", 1)], wallet=WALLET, signature="s", at=0, last_valid=10**9)
+        with mock.patch.object(tag_bot.Bot, "claim", side_effect=RuntimeError("kv down")):
+            h.bot.tick_money()
+        self.assertIsNone(h.kv.pop(tag_bot.QUEUE_KEY))
+
+    def test_a_claim_failing_every_tick_is_dropped_after_its_retries(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.queue()
+        with mock.patch.object(tag_bot.Bot, "claim", side_effect=RuntimeError("rpc down")),                 mock.patch.object(tag_bot.Bot, "_burn", return_value=[]) as burn:
+            for _ in range(tag_bot.CLAIM_RETRIES):
+                h.bot.tick_money()
+            self.assertIsNone(h.kv.pop(tag_bot.QUEUE_KEY))
+            self.assertEqual(h.kv.get_json("claim:status:7")["state"], "refused")
+            h.bot.tick_money()
+            burn.assert_called_once()
+        self.assertEqual(h.ledger.balance("7"), 2 * SOL)
+
+    def test_a_backlog_past_the_tick_limit_holds_the_burn(self):
+        h = Harness()
+        with mock.patch.object(tag_bot, "MAX_CLAIMS_PER_TICK", 0),                 mock.patch.object(tag_bot.Bot, "_burn") as burn:
+            out = h.bot.tick_money()
+        self.assertIn("skipped", out["burn"])
+        burn.assert_not_called()
+
     def test_the_debit_is_pending_before_the_send(self):
         h = Harness()
         self.credit(h, 2 * SOL)

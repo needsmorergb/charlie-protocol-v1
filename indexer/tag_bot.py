@@ -37,6 +37,7 @@ The keys are named "launch", "treasury" and "ops".
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 from . import buyback, claim_session, distribute, enroll, launch, legs, pump
@@ -61,6 +62,7 @@ SWEEP_MIN_LAMPORTS = 10_000_000            # and not bothering below 0.01 SOL
 OPS_RESERVE_LAMPORTS = tag_ledger.TREASURY_RESERVE_LAMPORTS   # OPS keeps rent + a fee
 TX_FEE_LAMPORTS = tag_ledger.TX_FEE_LAMPORTS
 MAX_CLAIMS_PER_TICK = 50
+CLAIM_RETRIES = 3          # ticks a failing claim is retried before it is dropped (credit untouched)
 CREATE_LANDING_SECONDS = 600               # an unconfirmed create that has not appeared by then never will
 STATUS_BATCH = 256                         # getSignatureStatuses takes at most this many
 
@@ -214,6 +216,8 @@ class Bot:
         self.distribute_run = distribute_run
         self.stop_file = Path(stop_file) if stop_file else None
         self.claim_secret = claim_secret
+        self._claim_failures: dict[str, int] = {}
+        self._claims_backlog = False
         self.moderate = moderate            # image -> True when SAFE; None only when the owner turned it off
         self._log = log or (lambda line: print(line, flush=True))
 
@@ -498,10 +502,10 @@ class Bot:
                            ("claims", self._claims), ("approved", self._pay_approved),
                            ("burn", self._burn), ("sweep", self._sweep),
                            ("settle", self.reconcile), ("mirror_after", self._mirror)):
-            if name == "burn" and "error" in (out.get("claims") or {}):
-                # A claim that could not be processed is back in the queue; its
-                # credit must not burn before the next tick pays it.
-                out[name] = {"skipped": "a claim could not be processed this tick"}
+            if name == "burn" and ("error" in (out.get("claims") or {}) or self._claims_backlog):
+                # A claim still waiting in the queue (back after an error, or
+                # past this tick's limit) must not see its credit burn first.
+                out[name] = {"skipped": "claims are still waiting in the queue"}
                 self.log("burn_skipped", reason=out[name]["skipped"])
                 continue
             try:
@@ -651,9 +655,11 @@ class Bot:
             self.log("would_process_claims")
             return []
         done = []
+        self._claims_backlog = True     # until the queue is seen empty
         for _ in range(MAX_CLAIMS_PER_TICK):
             item = self.kv.pop(QUEUE_KEY)
             if item is None:
+                self._claims_backlog = False
                 break
             fields = claim_session.verify_claim(item, self.claim_secret, now=self._ts())
             if fields is None:
@@ -662,11 +668,29 @@ class Bot:
             try:
                 done.append(self.claim(fields["xid"], fields["wallet"]))
             except Exception:
-                # Nothing durable was written for it: put it back for the next
-                # tick, and let the error stop this tick's burn (tick_money).
-                self.kv.push(QUEUE_KEY, item)
+                # The error stops this tick's burn (tick_money). A claim whose
+                # payment is already written ahead is done: reconcile settles
+                # it, and running it again would overwrite its status. Any
+                # other goes back for the next tick, a few times at most; a
+                # dropped claim leaves the credit untouched to claim again.
+                self._requeue(fields["xid"], item)
                 raise
         return done
+
+    def _requeue(self, xid: str, item) -> None:
+        if self.ledger.has_pending(xid):
+            self.log("claim_in_flight", user=xid)
+            return
+        key = json.dumps(item, sort_keys=True)
+        tries = self._claim_failures[key] = self._claim_failures.get(key, 0) + 1
+        if tries >= CLAIM_RETRIES:
+            self._claim_failures.pop(key, None)
+            self._status(xid, "refused", 0, reason="the claim could not be processed; claim again")
+            return
+        try:
+            self.kv.push(QUEUE_KEY, item)
+        except Exception as exc:  # noqa: BLE001 -- the credit is untouched; they claim again
+            self.log("claim_lost", user=xid, reason=f"{type(exc).__name__}: {exc}")
 
     def claim(self, xid: str, wallet: str, *, caps: bool = True, most: int | None = None) -> dict:
         """Decide and, when the decision is to pay, pay one claim (written ahead)."""
