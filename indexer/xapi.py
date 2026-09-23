@@ -166,9 +166,12 @@ class XClient:
 
     # -- reads --
 
-    def mentions(self, user_id: str, since_id: str | None) -> dict:
+    def mentions(self, user_id: str, since_id: str | None, *, query: str | None = None) -> dict:
         """Mentions of `user_id` newer than `since_id`, oldest first, with the
-        authors and media the tweets reference keyed for lookup.
+        authors and media the tweets reference keyed for lookup. With `query`,
+        the tweets come from recent search instead: X's mentions timeline was
+        measured (2026-09-23) lagging more than five minutes behind a tag that
+        search already returned, which is longer than a tag stays fresh.
 
         Returns `{"tweets": [...], "users": {id: user}, "media": {key: media},
         "newest_id": str | None}`. Follows `next_token` to the last page, so
@@ -191,10 +194,12 @@ class XClient:
             }
             if since_id:
                 params["since_id"] = str(since_id)
+            if query:
+                params["query"] = query
             if token:
-                params["pagination_token"] = token
-            page = self._bearer_get(f"{API}/users/{quote(str(user_id), safe='')}/mentions?"
-                                    + urlencode(params, quote_via=quote))
+                params["next_token" if query else "pagination_token"] = token
+            path = "tweets/search/recent" if query else f"users/{quote(str(user_id), safe='')}/mentions"
+            page = self._bearer_get(f"{API}/{path}?" + urlencode(params, quote_via=quote))
             shaped = shape_mentions(page)
             for tweet in shaped["tweets"]:
                 tweets[str(tweet.get("id"))] = tweet
