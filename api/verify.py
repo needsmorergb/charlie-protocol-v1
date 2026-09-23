@@ -17,6 +17,7 @@ is described, and every figure stays behind `publish.Publisher`'s gate.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -26,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from indexer import site  # noqa: E402
+from indexer import launch, site  # noqa: E402
 from indexer.base58 import decode, encode  # noqa: E402
 from indexer.legs import Registry  # noqa: E402
 from indexer.observe import observe  # noqa: E402
@@ -52,6 +53,23 @@ def valid_mint(value: str) -> str | None:
     if len(raw) != 32 or encode(raw) != value:
         return None
     return value
+
+
+def with_metadata(body: str, rpc, mint: str) -> str:
+    """The record plus the coin's own name, symbol and uri, which the coin
+    page shows (and labels as the coin's, not ours). A failed read leaves
+    the record as it was."""
+    try:
+        meta = launch.read_metadata(rpc, mint)
+    except Exception:  # noqa: BLE001 -- the record stands without it
+        meta = None
+    if not meta:
+        return body
+    data = json.loads(body)
+    for field in ("name", "symbol", "uri"):
+        if meta.get(field) and not data.get(field):
+            data[field] = meta[field]
+    return json.dumps(data, indent=2, sort_keys=True)
 
 
 def _endpoints():
@@ -82,7 +100,7 @@ class handler(BaseHTTPRequestHandler):
             try:
                 rpc = RpcClient(_endpoints()) if _endpoints() else RpcClient()
                 record = observe(rpc, mint, Registry(), now=time.time(), evidence=None)
-                return self._send(200, site.record_json(record), "application/json")
+                return self._send(200, with_metadata(site.record_json(record), rpc, mint), "application/json")
             except Exception:
                 traceback.print_exc()
                 return self._send(503, '{"error": "could not read the chain"}',

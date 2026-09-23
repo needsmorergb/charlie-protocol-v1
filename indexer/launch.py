@@ -133,6 +133,34 @@ def metadata_address(mint: str) -> str:
                 MPL_TOKEN_METADATA)
 
 
+def decode_metadata(data: bytes) -> dict | None:
+    """Name, symbol and uri from a Token Metadata account: key (1),
+    update authority (32), mint (32), then three u32-length strings, each
+    padded with NULs. None for anything shorter or malformed."""
+    at, out = 65, {}
+    for field in ("name", "symbol", "uri"):
+        if len(data) < at + 4:
+            return None
+        size = int.from_bytes(data[at:at + 4], "little")
+        at += 4
+        if size > 512 or len(data) < at + size:
+            return None
+        out[field] = data[at:at + size].decode("utf-8", "replace").rstrip("\x00").strip()
+        at += size
+    return out
+
+
+def read_metadata(rpc, mint: str) -> dict | None:
+    """The coin's own name, symbol and metadata uri, read off the chain.
+    None when the account is missing or unreadable; never raises for that."""
+    import base64
+    account = (rpc.accounts([metadata_address(mint)]) or [None])[0]
+    try:
+        return decode_metadata(base64.b64decode(account["data"][0]))
+    except (TypeError, KeyError, IndexError, ValueError):
+        return None
+
+
 def create_accounts_for(mint: str, user: str) -> list[tuple[str, bool, bool]]:
     """`create`'s 14 accounts, `(address, is_signer, is_writable)`, in the
     EXACT order the IDL lists. The program reads them positionally."""
