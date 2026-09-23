@@ -336,19 +336,113 @@ class TestLauncherCli(unittest.TestCase):
         self.assertEqual((code, calls), (2, []))
         self.assertIn("wallet_low", err)
 
-    def test_the_mint_is_printed_once_the_create_confirms_before_the_split(self):
-        seen = []
+    def db(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        return str(Path(tmp.name) / "book.db")
+
+    def rows(self, db):
+        import sqlite3
+        con = sqlite3.connect(db)
+        try:
+            return (con.execute("SELECT mint, user_id, handle, tweet_id FROM tag_coins").fetchall(),
+                    con.execute("SELECT tweet_key, user_id, outcome, code, ticker, mint FROM tag_requests").fetchall())
+        finally:
+            con.close()
+
+    def send_argv(self, db, *extra):
+        return ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+                "--db", db, *extra]
+
+    def test_the_mint_is_printed_and_recorded_once_the_create_confirms_before_the_split(self):
+        db, seen = self.db(), []
 
         def split_check(printed):
-            seen.append(printed)
             self.assertIn('"created"', printed)
             self.assertIn('"create_signature": "sig2"', printed)
-        code, _out, _err, calls = self.run_cli(
-            ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send"],
+            coins, requests = self.rows(db)
+            seen.append((coins, requests))
+        code, out, _err, calls = self.run_cli(
+            self.send_argv(db, "--user-id", "42", "--handle", "alice", "--tweet-id", "123"),
             split_check=split_check)
         self.assertEqual(code, 0)
-        self.assertEqual(len(seen), 1)
         self.assertEqual(calls, ["simulate", "send", "simulate", "send"])
+        ((coins, requests),) = seen
+        ((mint, user_id, handle, tweet_id),) = coins                     # in the ledger before the split
+        self.assertEqual((user_id, handle, tweet_id), ("42", "alice", "123"))
+        self.assertEqual(requests, [("123", "42", "failed", "split_pending", "MDOG", mint)])
+        coins, requests = self.rows(db)
+        self.assertEqual(requests, [("123", "42", "launched", None, "MDOG", mint)])
+        self.assertEqual(len(coins), 1)
+
+    def test_send_needs_the_requester(self):
+        db = self.db()
+        for extra in ((), ("--user-id", "42"), ("--handle", "alice"), ("--user-id", "al", "--handle", "alice")):
+            code, _out, _err, calls = self.run_cli(self.send_argv(db, *extra))
+            self.assertEqual((code, calls), (("exit", 2), []), extra)
+
+    def test_send_needs_the_bots_database(self):
+        from unittest import mock
+        from tools import x_bot
+        with mock.patch.object(x_bot, "DEFAULT_CONFIG", Path(self.db()).parent / "absent.json"):
+            code, _out, err, calls = self.run_cli(
+                ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+                 "--user-id", "42", "--handle", "alice"])
+        self.assertEqual((code, calls), (("exit", 2), []))
+        self.assertIn("--db", err)
+
+    def test_the_db_comes_from_the_bots_config(self):
+        import json
+        import tempfile
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        config = Path(tmp.name) / "config.json"
+        config.write_text(json.dumps({"bot_user_id": "999"}), encoding="utf-8")
+        code, _out, _err, _calls = self.run_cli(
+            ["--name", "Moon Dog", "--ticker", "MDOG", "--uri", URI, "--keypair", "k.json", "--send",
+             "--config", str(config), "--user-id", "42", "--handle", "alice"])
+        self.assertEqual(code, 0)
+        coins, requests = self.rows(str(Path(tmp.name) / "book.db"))
+        self.assertEqual(len(coins), 1)
+        self.assertEqual(requests[0][0], f"manual:{coins[0][0]}")
+
+    def test_the_cli_refuses_while_the_bot_holds_the_lock(self):
+        from tools import x_bot
+        db = self.db()
+        lock = x_bot.acquire_lock(db)
+        try:
+            code, _out, err, calls = self.run_cli(self.send_argv(db, "--user-id", "42", "--handle", "alice"))
+        finally:
+            lock.close()
+        self.assertEqual((code, calls), (2, []))
+        self.assertIn("bot_running", err)
+
+    def test_a_tweet_already_in_the_book_is_refused(self):
+        db = self.db()
+        book = tag.Book(db)
+        book.record("123", "42", 1, "launched", ticker="MDOG", mint=self.MINT)
+        book.db.close()
+        code, _out, err, calls = self.run_cli(
+            self.send_argv(db, "--user-id", "42", "--handle", "alice", "--tweet-id", "123"))
+        self.assertEqual((code, calls), (2, []))
+        self.assertIn("already_recorded", err)
+
+    def test_resume_split_records_the_coin_when_given_the_requester(self):
+        db = self.db()
+        code, _out, _err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send", "--db", db,
+             "--user-id", "42", "--handle", "alice", "--tweet-id", "123", "--name", "Moon Dog", "--ticker", "MDOG"])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["simulate", "send"])
+        coins, requests = self.rows(db)
+        self.assertEqual(coins, [(self.MINT, "42", "alice", "123")])
+        self.assertEqual(requests, [("123", "42", "launched", None, "MDOG", self.MINT)])
+
+    def test_resume_split_needs_both_to_record(self):
+        code, _out, _err, calls = self.run_cli(
+            ["--resume-split", self.MINT, "--keypair", "k.json", "--send", "--db", self.db(), "--user-id", "42"])
+        self.assertEqual((code, calls), (("exit", 2), []))
 
     def test_names_and_tickers_follow_the_tag_grammar(self):
         for name, ticker in (("Moon$Dog", "MDOG"), ("Moon Dog", "M"), ("Moon Dog", "TOOLONGTICK"),
