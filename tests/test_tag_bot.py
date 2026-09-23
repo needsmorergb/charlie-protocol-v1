@@ -279,9 +279,10 @@ class TestMentions(unittest.TestCase):
             raise TimeoutError("timed out")
         h.bot.moderate = down
         row = h.bot.tick_mentions()[0]
-        self.assertEqual((row["outcome"], row["code"]), ("failed", "moderation_unavailable"))
+        self.assertEqual(row["outcome"], "error")
         self.assertEqual((h.sent, h.x.replies, h.pins), ([], [], []))
-        self.assertEqual(h.outcome()[:2], ("failed", "moderation_unavailable"))
+        self.assertFalse(h.book.seen("100"))                       # retried next poll
+        self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))       # cursor held
         self.assertIsNone(h.book.limit_refusal("7", TS))
 
     def test_a_split_that_keeps_failing_still_uses_the_day_s_launch(self):

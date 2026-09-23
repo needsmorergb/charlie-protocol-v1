@@ -218,9 +218,16 @@ def submit(cfg: Config, kv: KV, cookies: dict, body: bytes, *, now: float,
     if claimable <= 0:
         return _json(400, {"error": "There is nothing to claim for this account yet."})
     at = int(now)
-    kv.push(QUEUE_KEY, claim_session.sign_claim(xid, who["handle"], wallet, at, cfg.secret))
+    # Status first, then the queue item: the bot writes its own status only
+    # after popping the item, so it can never be overwritten by "queued".
     kv.set_json(status_key(xid), {"state": "queued", "lamports": claimable, "signature": None,
                                   "reason": None, "at": at})
+    try:
+        kv.push(QUEUE_KEY, claim_session.sign_claim(xid, who["handle"], wallet, at, cfg.secret))
+    except Exception:
+        kv.set_json(status_key(xid), {"state": "refused", "lamports": 0, "signature": None,
+                                      "reason": "the claim could not be queued; try again", "at": at})
+        raise
     return _json(200, {"queued": True})
 
 

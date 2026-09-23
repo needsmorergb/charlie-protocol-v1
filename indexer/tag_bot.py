@@ -309,11 +309,10 @@ class Bot:
             try:
                 safe = self.moderate(image)
             except Exception as exc:  # noqa: BLE001 -- no verdict, no launch, and not the requester's fault
-                if not self.dry_run:
-                    self.book.record(key, user_id, ts, "failed", code="moderation_unavailable",
-                                     ticker=request.ticker)
+                # Nothing is recorded: the raise holds the mention cursor, so
+                # the tag is tried again next poll (and ages out as `stale`).
                 self.log("moderation_unavailable", tweet=key, reason=f"{type(exc).__name__}: {exc}")
-                return {"tweet": key, "outcome": "failed", "code": "moderation_unavailable"}
+                raise
             if safe is not True:
                 return self._refuse(key, user_id, ts, tag.TagRefused(
                     "image_refused", "That image cannot be a coin's picture."), request.ticker)
