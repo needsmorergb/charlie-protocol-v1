@@ -20,6 +20,10 @@
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 20
     },
+    "api/coins.py": {
+      "includeFiles": "{indexer/**}",
+      "maxDuration": 20
+    },
     "api/t.py": {
       "includeFiles": "{indexer/**}",
       "maxDuration": 10

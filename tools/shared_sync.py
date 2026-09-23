@@ -66,6 +66,7 @@ RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 # measured belongs to production.
 SHARED = (
     "api/claim.py",
+    "api/coins.py",
     "api/enroll.py",
     "api/launch.py",
     "api/t.py",
