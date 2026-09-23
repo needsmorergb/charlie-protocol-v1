@@ -20,6 +20,13 @@ OAUTH_COOKIE = "cx_oauth"
 SESSION_COOKIE = "cx_session"
 OAUTH_SECONDS = 600
 SESSION_SECONDS = 3600
+COIN_LINK_PREFIX = "tag:coin:"
+
+
+def coin_link_key(tweet_id) -> str:
+    """The store key holding the mint a tag launched, by the tag's tweet id.
+    The bot writes it; `/t/<tweet id>` reads it and redirects to the coin page."""
+    return f"{COIN_LINK_PREFIX}{tweet_id}"
 
 
 def _b64(raw: bytes) -> str:

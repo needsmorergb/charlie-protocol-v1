@@ -1196,6 +1196,7 @@ class TestVercelJson(unittest.TestCase):
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
             "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
+            "/t/:tweet([0-9]+)",   # the X-tag reply's address-free link (api/t.py)
         } | DEPLOY_ONLY_REWRITE_SOURCES)
 
     def test_destinations_and_sources_built_from_artifact_name_and_route_prefix(self):

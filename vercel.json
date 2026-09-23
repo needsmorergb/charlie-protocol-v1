@@ -19,6 +19,10 @@
     "api/claim.py": {
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 20
+    },
+    "api/t.py": {
+      "includeFiles": "{indexer/**}",
+      "maxDuration": 10
     }
   },
   "rewrites": [
@@ -108,6 +112,10 @@
     {
       "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
       "destination": "/api/verify?mint=:mint"
+    },
+    {
+      "source": "/t/:tweet([0-9]+)",
+      "destination": "/api/t?tweet=:tweet"
     },
     {
       "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",

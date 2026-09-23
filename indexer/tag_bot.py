@@ -450,10 +450,14 @@ class Bot:
         self.book.record(key, user_id, ts, "launched", ticker=ticker, mint=mint)
         self.log("launched", tweet=key, mint=mint, signature=signature)
         coin = self.ledger.coin(mint) or {}
+        target = coin.get("tweet_id") or key
         reply = None
         try:
-            reply = self.x.post_reply(coin.get("tweet_id") or key,
-                                      tag.reply_text(tag.TagRequest(ticker, ticker), mint))
+            self.kv.set_json(claim_session.coin_link_key(target), mint)
+        except Exception as exc:  # noqa: BLE001 -- the reply still goes; the link waits for a backfill
+            self.log("coin_link_failed", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
+        try:
+            reply = self.x.post_reply(target, tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target)))
         except Exception as exc:  # noqa: BLE001 -- the coin is live either way
             self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
         return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply}
