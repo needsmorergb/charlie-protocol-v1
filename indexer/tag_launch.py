@@ -415,15 +415,16 @@ def sign_split(message: bytes, wallet: Keypair) -> bytes:
 # -- what the coin and the reply say ---------------------------------------------------
 
 
-def metadata_fields(request: TagRequest, handle: str, tweet_id: str) -> dict[str, str]:
-    """Fields for pump's metadata pin (`api.launch.pin_metadata`)."""
+def metadata_fields(request: TagRequest, handle: str, tweet_id: str, mint: str) -> dict[str, str]:
+    """Fields for pump's metadata pin (`api.launch.pin_metadata`). The website is
+    the coin's own page, so the mint is chosen before anything is pinned."""
     return {
         "name": request.name,
         "symbol": request.ticker,
         "description": (f"Requested by @{handle} on X and launched by Charlie Protocol. "
                         "Not affiliated with any person or brand."),
         "twitter": f"https://x.com/{handle}/status/{tweet_id}",
-        "website": SITE,
+        "website": f"{SITE}/coin/{mint}",
         "showName": "true",
     }
 

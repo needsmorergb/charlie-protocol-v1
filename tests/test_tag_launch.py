@@ -263,8 +263,9 @@ class TestWords(unittest.TestCase):
         self.assertEqual(re.findall(r"https?://\S+", text), [f"{tag.SITE}/coin/MintAddr"])
 
     def test_metadata_credits_the_requester(self):
-        fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100")
+        fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100", "MintAddr")
         self.assertEqual(fields["twitter"], "https://x.com/alice/status/100")
+        self.assertEqual(fields["website"], f"{tag.SITE}/coin/MintAddr")
         self.assertIn("@alice", fields["description"])
 
 

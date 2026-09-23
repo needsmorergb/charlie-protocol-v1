@@ -52,10 +52,10 @@ _send = tag_bot.send_wire
 _blockhash = tag_bot.blockhash
 
 
-def _pin(request: tag.TagRequest, image: Path, handle: str, tweet_id: str) -> str:
+def _pin(request: tag.TagRequest, image: Path, handle: str, tweet_id: str, mint: str) -> str:
     from api.launch import pin_metadata
     ctype = mimetypes.guess_type(image.name)[0] or "image/png"
-    return tag_bot.pin_uri(pin_metadata, request, (image.name, ctype, image.read_bytes()), handle, tweet_id)
+    return tag_bot.pin_uri(pin_metadata, request, (image.name, ctype, image.read_bytes()), handle, tweet_id, mint)
 
 
 def request_of(name: str, ticker: str) -> tag.TagRequest | None:
@@ -204,16 +204,17 @@ def _main(ap, args) -> int:
                   file=sys.stderr)
             return 2
 
+    mint_key = launch.new_mint()               # first: the metadata links the coin's own page
     if args.uri:
         uri = args.uri
     elif args.send:
         if not (args.image and args.handle and args.tweet_id):
             ap.error("--send needs --uri, or --image with --handle and --tweet-id to pin one")
-        uri = _pin(request, args.image, args.handle, args.tweet_id)
+        uri = _pin(request, args.image, args.handle, args.tweet_id, mint_key.address)
     else:
         uri = PLACEHOLDER_URI
 
-    built = tag.build(request, uri, _blockhash(rpc))
+    built = tag.build(request, uri, _blockhash(rpc), mint=mint_key)
     rows = [{"address": r.address, "bps": r.bps} for r in tag.split_rows()]
     out = {"mint": built.mint.address, "name": request.name, "ticker": request.ticker, "uri": uri,
            "launch_wallet": legs.CHARLIE_LAUNCH_WALLET, "split": rows,
