@@ -1156,11 +1156,13 @@ class TestVercelJson(unittest.TestCase):
 
     def _rules(self, data):
         rewrites = data["rewrites"]
+        # The coin page and /verify/<mint> REDIRECT to the hand-authored
+        # coin.html (owner, 2026-09-23: the generated page is retired), so
+        # those two rules are looked up among the redirects.
+        redirects = data["redirects"]
         json_rewrite = _find_rule(rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=JSON_ROUTE_SUFFIX)
-        html_rewrite = _find_rule(
-            rewrites, source_prefix=site.COIN_ROUTE_PREFIX, destination_suffix=LIVE_ROUTE_SUFFIX
-        )
-        verify_rewrite = _find_rule(rewrites, source_prefix="/verify/")
+        html_rewrite = _find_rule(redirects, source_prefix=site.COIN_ROUTE_PREFIX)
+        verify_rewrite = _find_rule(redirects, source_prefix="/verify/")
         coins_rewrite = _find_rule(rewrites, source_exact="/coins")
         return json_rewrite, html_rewrite, verify_rewrite, coins_rewrite
 
@@ -1194,8 +1196,6 @@ class TestVercelJson(unittest.TestCase):
             # rule forbids: never link a route that has not been written.
             "/verify",
             site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+).json",
-            site.COIN_ROUTE_PREFIX + ":mint([1-9A-HJ-NP-Za-km-z]+)",
-            "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
             "/t/:tweet([0-9]+)",   # the X-tag reply's address-free link (api/t.py)
         } | DEPLOY_ONLY_REWRITE_SOURCES)
 
@@ -1206,18 +1206,17 @@ class TestVercelJson(unittest.TestCase):
         # no committed .json, so the "View the raw observation JSON" link on
         # its own page pointed at a file that had never been written.
         self.assertEqual(json_rewrite["destination"], LIVE_ROUTE + "?mint=:mint&format=json")
-        # The page route goes to the live function, NOT straight at a file.
-        # A static destination 404s for every coin without a committed page,
-        # which is almost every coin under the submit model; the function
-        # serves the committed page when there is one and observes the chain
-        # when there is not.
-        self.assertEqual(html_rewrite["destination"], LIVE_ROUTE + "?mint=:mint")
+        # The page route goes to the hand-authored coin page, which reads
+        # any mint from its query and fetches the record above. The old
+        # generated page (the live function's HTML) is no longer routed.
+        self.assertEqual(html_rewrite["destination"], "/coin.html?mint=:mint")
+        self.assertIs(html_rewrite["permanent"], False)
         self.assertTrue(json_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
         self.assertTrue(html_rewrite["source"].startswith(site.COIN_ROUTE_PREFIX))
         # D-22: /verify/:mint resolves to the SAME destination the coin-page
         # rule gives -- one artifact per coin, not two.
-        self.assertEqual(verify_rewrite["destination"], LIVE_ROUTE + "?mint=:mint")
         self.assertEqual(verify_rewrite["destination"], html_rewrite["destination"])
+        self.assertNotIn(LIVE_ROUTE + "?mint=:mint", {r["destination"] for r in data["rewrites"]})
         self.assertTrue(verify_rewrite["source"].startswith("/verify/"))
         # Either the generated page one, or the deploy target's hand-authored
         # directory page. Both are real directories; which one `/coins` serves
