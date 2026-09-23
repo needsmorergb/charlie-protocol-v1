@@ -25,6 +25,30 @@
       "maxDuration": 10
     }
   },
+  "redirects": [
+    {
+      "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
+      "destination": "/coin.html?mint=:mint",
+      "permanent": false
+    },
+    {
+      "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
+      "destination": "/coin.html?mint=:mint",
+      "permanent": false
+    },
+    {
+      "source": "/verify",
+      "has": [
+        {
+          "type": "query",
+          "key": "mint",
+          "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
+        }
+      ],
+      "destination": "/coin.html?mint=:mint",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/_vercel/insights/script.js",
@@ -53,17 +77,6 @@
     {
       "source": "/preview/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
       "destination": "/preview/coin.html"
-    },
-    {
-      "source": "/verify",
-      "has": [
-        {
-          "type": "query",
-          "key": "mint",
-          "value": "(?<mint>[1-9A-HJ-NP-Za-km-z]+)"
-        }
-      ],
-      "destination": "/api/verify?mint=:mint"
     },
     {
       "source": "/coins",
@@ -110,16 +123,8 @@
       "destination": "/api/verify?mint=:mint&format=json"
     },
     {
-      "source": "/coin/:mint([1-9A-HJ-NP-Za-km-z]+)",
-      "destination": "/api/verify?mint=:mint"
-    },
-    {
       "source": "/t/:tweet([0-9]+)",
       "destination": "/api/t?tweet=:tweet"
-    },
-    {
-      "source": "/verify/:mint([1-9A-HJ-NP-Za-km-z]+)",
-      "destination": "/api/verify?mint=:mint"
     }
   ],
   "headers": [

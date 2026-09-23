@@ -33,6 +33,9 @@ VERCEL_JSON_PATH = Path(__file__).resolve().parents[1] / "vercel.json"
 # implementation for -- so the fixture is a path that genuinely has to work,
 # not a base58-shaped string invented for the test.
 LIVE_ROUTE = "/api/verify?mint=:mint"
+# The hand-authored coin page. /coin/<mint> and /verify/<mint> redirect to it
+# (owner, 2026-09-23: the generated coin page is retired).
+COIN_PAGE = "/coin.html?mint=:mint"
 
 MINT = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 
@@ -79,7 +82,9 @@ def _source_to_regex(source: str) -> re.Pattern:
 
 
 def _load_rewrites():
-    return json.loads(VERCEL_JSON_PATH.read_text(encoding="utf-8"))["rewrites"]
+    """Redirects, then rewrites: Vercel tries every redirect before any rewrite."""
+    data = json.loads(VERCEL_JSON_PATH.read_text(encoding="utf-8"))
+    return data.get("redirects", []) + data["rewrites"]
 
 
 def _has_satisfied(rule, query: dict) -> bool:
@@ -144,13 +149,13 @@ class TestEachPathResolvesToItsOwnRule(unittest.TestCase):
         self.rewrites = _load_rewrites()
 
     def test_coin_page_path(self):
-        """Resolves to the live function, which serves the committed page when
-        one exists. Pointing this straight at a file 404'd every coin that has
-        no committed page, which is nearly all of them.
+        """Redirects to the hand-authored coin page, which reads any mint from
+        its query and fetches the record from the live function.
         """
         rule = _first_match(self.rewrites, "/coin/" + MINT)
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], LIVE_ROUTE)
+        self.assertEqual(rule["destination"], COIN_PAGE)
+        self.assertIs(rule["permanent"], False)
 
     def test_coin_record_path_never_takes_the_page_rule(self):
         """The page rule's character class excludes '.', so a record path
@@ -266,7 +271,7 @@ class TestPastedCaRouting(unittest.TestCase):
     def test_a_pasted_ca_reaches_the_coin_page(self):
         rule = _first_match(self.rewrites, "/verify", {"mint": MINT})
         self.assertIsNotNone(rule)
-        self.assertEqual(rule["destination"], LIVE_ROUTE)
+        self.assertEqual(rule["destination"], COIN_PAGE)
 
     def test_the_bare_page_still_wins_with_no_query(self):
         rule = _first_match(self.rewrites, "/verify")
