@@ -498,6 +498,12 @@ class Bot:
                            ("claims", self._claims), ("approved", self._pay_approved),
                            ("burn", self._burn), ("sweep", self._sweep),
                            ("settle", self.reconcile), ("mirror_after", self._mirror)):
+            if name == "burn" and "error" in (out.get("claims") or {}):
+                # A claim that could not be processed is back in the queue; its
+                # credit must not burn before the next tick pays it.
+                out[name] = {"skipped": "a claim could not be processed this tick"}
+                self.log("burn_skipped", reason=out[name]["skipped"])
+                continue
             try:
                 out[name] = step()
             except Exception as exc:  # noqa: BLE001
@@ -653,7 +659,13 @@ class Bot:
             if fields is None:
                 self.log("claim_dropped", reason="unsigned, altered or stale")
                 continue
-            done.append(self.claim(fields["xid"], fields["wallet"]))
+            try:
+                done.append(self.claim(fields["xid"], fields["wallet"]))
+            except Exception:
+                # Nothing durable was written for it: put it back for the next
+                # tick, and let the error stop this tick's burn (tick_money).
+                self.kv.push(QUEUE_KEY, item)
+                raise
         return done
 
     def claim(self, xid: str, wallet: str, *, caps: bool = True, most: int | None = None) -> dict:

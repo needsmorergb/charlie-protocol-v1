@@ -535,6 +535,17 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(h.wires, [])
         self.assertEqual(h.ledger.pending()["same"]["rows"], [("8", 1, WALLET)])
 
+    def test_a_claim_that_fails_midway_is_requeued_and_nothing_burns(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.queue()
+        with mock.patch.object(tag_bot.Bot, "claim", side_effect=RuntimeError("rpc down")),                 mock.patch.object(tag_bot.Bot, "_burn") as burn:
+            out = h.bot.tick_money()
+        self.assertIn("error", out["claims"])
+        self.assertIn("skipped", out["burn"])
+        burn.assert_not_called()
+        self.assertIsNotNone(h.kv.pop(tag_bot.QUEUE_KEY))
+
     def test_the_debit_is_pending_before_the_send(self):
         h = Harness()
         self.credit(h, 2 * SOL)
