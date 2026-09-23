@@ -731,6 +731,18 @@ NON_FIGURE_EMITTERS = {
         "serializes a tag's image to the Anthropic Messages API for a SAFE/"
         "UNSAFE verdict before pinning; transport, not a derived figure"
     ),
+    "indexer.moderation:codex_moderator": (
+        "serializes a tag's image to OpenAI's Codex backend (ChatGPT sign-in) "
+        "for a SAFE/UNSAFE verdict before pinning; transport, not a derived figure"
+    ),
+    "indexer.codex_auth:_post": (
+        "serializes an OAuth request (device sign-in, token refresh) for the "
+        "moderator's ChatGPT sign-in; transport, not publication"
+    ),
+    "indexer.codex_auth:TokenStore.save": (
+        "stores the moderator's own OAuth tokens in a local file outside the "
+        "repo; nothing public"
+    ),
     "indexer.xapi:XClient._user_post": (
         "serializes a request body to the X API (a reply's text from "
         "tag_launch.reply_text); transport, not a derived figure"
