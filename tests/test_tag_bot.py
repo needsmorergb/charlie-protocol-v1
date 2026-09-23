@@ -5,6 +5,7 @@ import hashlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -521,6 +522,18 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(h.ledger.pending(), {})
         self.assertEqual(h.ledger.wallet("7")[0], WALLET)
         self.assertEqual(h.kv.get_json("claim:credit:7")["wallet"], WALLET)
+
+    def test_an_identical_payment_in_flight_is_not_a_second_payment(self):
+        h = Harness()
+        self.credit(h, 2 * SOL)
+        h.ledger.debit_pending("claim", [("8", 1)], wallet=WALLET, signature="same", at=0, last_valid=10**9)
+        with mock.patch.object(tag_bot, "wire_signature", return_value="same"):
+            status = h.bot.claim("7", WALLET)
+        status = status[0] if isinstance(status, tuple) else status
+        self.assertEqual(status["state"], "refused")
+        self.assertIn("identical payment", status["reason"])
+        self.assertEqual(h.wires, [])
+        self.assertEqual(h.ledger.pending()["same"]["rows"], [("8", 1, WALLET)])
 
     def test_the_debit_is_pending_before_the_send(self):
         h = Harness()

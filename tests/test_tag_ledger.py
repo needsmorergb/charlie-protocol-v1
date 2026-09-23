@@ -321,6 +321,24 @@ class TestLedger(unittest.TestCase):
         self.assertEqual(self.ledger.db.execute("SELECT state FROM tag_held").fetchall(), [("paid",)])
         self.assertEqual((self.ledger.approved(), self.ledger.held_lamports("7")), ([], 0))
 
+    def test_the_hold_is_linked_in_the_same_write_as_its_debit(self):
+        self.ledger.credit("a", MINT, 30_000_000, T0)
+        self.ledger.hold("7", 30_000_000, WALLET, T0)
+        self.ledger.approve_held("7")
+        self.ledger.debit_pending("claim", [("7", 30_000_000)], wallet=WALLET, signature="p1", at=T0,
+                                  last_valid=500, held="7")
+        self.assertEqual(self.ledger.approved(), [])
+        self.assertEqual(self.ledger.db.execute("SELECT signature FROM tag_held").fetchall(), [("p1",)])
+
+    def test_a_signature_already_on_the_books_is_refused(self):
+        self.ledger.credit("a", MINT, 60_000_000, T0)
+        self.ledger.debit_pending("claim", [("7", 3_000_000)], wallet=WALLET, signature="p1", at=T0,
+                                  last_valid=500)
+        with self.assertRaises(ValueError):
+            self.ledger.debit_pending("claim", [("8", 3_000_000)], wallet=WALLET, signature="p1", at=T0,
+                                      last_valid=500)
+        self.assertEqual(self.ledger.pending()["p1"]["rows"], [("7", 3_000_000, WALLET)])
+
     def test_an_old_database_gains_the_new_columns(self):
         import sqlite3
         db = sqlite3.connect(":memory:")

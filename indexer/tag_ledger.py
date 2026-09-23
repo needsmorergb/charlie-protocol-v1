@@ -398,15 +398,27 @@ CREATE TABLE IF NOT EXISTS tag_state (
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (str(user_id), kind, int(lamports), wallet, signature, at, state))
 
+    def signature_known(self, signature: str) -> bool:
+        return self.db.execute("SELECT 1 FROM tag_debits WHERE signature = ? LIMIT 1",
+                               (signature,)).fetchone() is not None
+
     def debit_pending(self, kind: str, rows, *, wallet: str, signature: str, at: int,
-                      last_valid: int | None) -> None:
+                      last_valid: int | None, held: str | None = None) -> None:
         """The write-ahead intent: every `(user_id, lamports)` of one signed
         transaction, pending, in one database transaction, before it is sent.
         `last_valid` is its blockhash's lastValidBlockHeight: past it, a
-        signature still unknown can never land."""
+        signature still unknown can never land. `held` names a user whose open
+        hold this payment covers; it is linked in the same transaction. A
+        signature already on the books is refused: an identical transaction
+        lands once, so it can never stand for a second payment."""
         if kind not in ("claim", "burn"):
             raise ValueError(f"unknown debit kind {kind!r}")
         with self.db:
+            if self.signature_known(signature):
+                raise ValueError(f"signature {signature} is already on the books")
+            if held is not None:
+                self.db.execute("UPDATE tag_held SET signature = ? WHERE user_id = ? "
+                                "AND state IN ('held', 'approved') AND signature IS NULL", (signature, str(held)))
             self.db.executemany(
                 "INSERT INTO tag_debits (user_id, kind, lamports, wallet, signature, at, state, last_valid) "
                 "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",

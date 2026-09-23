@@ -552,10 +552,13 @@ class Bot:
             return None, "dry run"
         wire = self._sign("treasury", message)
         signature = wire_signature(wire)
+        if self.ledger.signature_known(signature):
+            # Same payer, destination, amount and blockhash: the very same
+            # transaction. It lands once, so it must not stand for two debits.
+            return None, "an identical payment is already in flight"
+        # Any open hold is linked in the same write, and paid only once final.
         self.ledger.debit_pending(kind, debits, wallet=destination, signature=signature, at=self._ts(),
-                                  last_valid=last_valid)
-        if holder is not None:      # any open hold is paid only once this is final
-            self.ledger.link_held(holder, signature)
+                                  last_valid=last_valid, held=holder)
         try:
             self.transmit(wire)
         except Exception as exc:  # noqa: BLE001 -- it may still land; reconcile decides
