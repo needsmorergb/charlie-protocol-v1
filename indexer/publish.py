@@ -719,6 +719,10 @@ NON_FIGURE_EMITTERS = {
         "its default log writes one operator line per bot event to the local "
         "console; nothing public"
     ),
+    "indexer.tag_bot:Bot._requeue": (
+        "serializes a claim request only to count its retries and to put it "
+        "back on the bot's own queue; transport, not publication"
+    ),
     "indexer.tag_ledger:Ledger.set_state": (
         "stores the bot's own cursors (since_id, scan position) as JSON in its "
         "local SQLite; nothing public"
