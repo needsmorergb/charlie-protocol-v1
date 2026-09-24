@@ -16,9 +16,11 @@ exist" will publish a green state it never actually computed.
 from __future__ import annotations
 
 import json
+import os
 import random
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -32,6 +34,20 @@ USER_AGENT = "charlie-protocol-indexer/0.1"
 # whichever of them answered while every workflow read through the gateway.
 GATEWAY = "https://crowd-api-gateway.vercel.app/"
 DEFAULT_ENDPOINTS = (GATEWAY,)
+
+# The gateway answers 401 without a client key once GATEWAY_API_KEYS is set
+# on it. The key is sent only to the gateway's own host: CHARLIE_RPC_URLS can
+# name a third-party node, and a key it receives is a key it can spend.
+GATEWAY_KEY_ENV = "CROWD_API_KEY"
+
+
+def _auth_headers(url: str) -> dict:
+    key = os.environ.get(GATEWAY_KEY_ENV, "").strip()
+    if not key:
+        return {}
+    if urllib.parse.urlsplit(url).hostname != urllib.parse.urlsplit(GATEWAY).hostname:
+        return {}
+    return {"authorization": f"Bearer {key}"}
 
 # The public nodes, as an explicit opt-in (`--rpc`) for a machine that
 # cannot reach the gateway. Never a silent fallback: a read that failed on
@@ -278,6 +294,7 @@ class RpcClient:
                 "content-type": "application/json",
                 "accept": "application/json",
                 "user-agent": USER_AGENT,
+                **_auth_headers(url),
             },
             method="POST",
         )

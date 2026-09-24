@@ -79,6 +79,7 @@ jobs:
           TREASURY_KEYPAIR: ${{ secrets.LAUNCH_TREASURY_KEYPAIR }}
           PRIORITY_FEE: ${{ vars.BURN_PRIORITY_FEE || '0' }}
           MINTS: ${{ steps.mints.outputs.mints }}
+          CROWD_API_KEY: ${{ secrets.CROWD_API_KEY }}
         run: |
           if [ -z "$TREASURY_KEYPAIR" ]; then
             echo "::error::LAUNCH_TREASURY_KEYPAIR is not set; nothing to sign with."
@@ -108,6 +109,7 @@ jobs:
         if: ${{ inputs.dry_run && steps.mints.outputs.mints != '' }}
         env:
           MINTS: ${{ steps.mints.outputs.mints }}
+          CROWD_API_KEY: ${{ secrets.CROWD_API_KEY }}
         run: |
           treasury="$(python -c 'from indexer import legs; print(legs.LAUNCH_BUYBACK_DESTINATION)')"
           for mint in $MINTS; do

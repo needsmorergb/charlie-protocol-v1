@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -53,13 +54,20 @@ GATEWAY = "https://crowd-api-gateway.vercel.app/"
 def gateway_check() -> tuple[int, str]:
     """crowd-api answers a real JSON-RPC call, and its admin reload refuses an
     unauthenticated caller. Both on the public URL the site depends on.
+
+    With CROWD_API_KEY set, the call carries the site's client key, and the
+    same call without one must be refused -- a gateway that answers anyone
+    is spending the provider quota on whoever finds the URL.
     """
+    key = os.environ.get("CROWD_API_KEY", "").strip()
     payload = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo",
         "params": [MEASURED, {"encoding": "base64"}],
     }).encode()
-    req = urllib.request.Request(GATEWAY, data=payload,
-                                 headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(GATEWAY, data=payload, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             body = json.loads(r.read().decode())
@@ -67,6 +75,18 @@ def gateway_check() -> tuple[int, str]:
         return 0, f"gateway unreachable: {exc}"
     if "result" not in body:
         return 0, f"gateway returned no result: {body}"
+
+    if key:
+        anonymous = urllib.request.Request(GATEWAY, data=payload,
+                                           headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(anonymous, timeout=30):
+                return 0, "gateway answered a JSON-RPC call without a client key"
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                return 0, f"keyless JSON-RPC call returned {e.code}, wanted 401"
+        except Exception as exc:
+            return 0, f"gateway unreachable: {exc}"
 
     # A valid empty JSON body, so the request reaches the auth check instead
     # of dying in Fastify's body parser -- an unparseable body returns 400
