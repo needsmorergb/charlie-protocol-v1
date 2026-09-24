@@ -1077,7 +1077,8 @@ class TestSharedTokens(unittest.TestCase):
         # substring count. The declaration line itself is what "extracted, not
         # duplicated" actually means: exactly one `:root` block, never two
         # concatenated by an extraction mistake.
-        self.assertEqual(site._STYLE.count("--paper: #FAF7F0;"), 1)
+        self.assertEqual(site._STYLE.count("--paper: #060806;"), 1)
+        self.assertNotIn("#FAF7F0", site._STYLE)
 
 
 class TestCounterSourcesVisible(unittest.TestCase):

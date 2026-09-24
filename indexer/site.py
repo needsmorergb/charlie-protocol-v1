@@ -1384,15 +1384,28 @@ def _sections(observation) -> str:
 # page and the landing page share one palette and one spacing scale rather
 # than two that could drift -- `_STYLE` and `_LANDING_STYLE` both begin with
 # this same string, asserted (not asserted-by-eye) in tests/test_site.py.
+#
+# The values are the live site's (the hand-authored pages in
+# charlie-protocol-site, e.g. web/coin.html): near-black ground, light type,
+# the ember green. The old names stay so every rule that reads them follows:
+# --paper is the page ground, --ink the type, --panel a raised block.
 _TOKENS = """
 :root {
-  --paper: #FAF7F0;
-  --panel: #EFEAE0;
-  --accent: #1D4E89;
-  --destructive: #A3271F;
-  --unchecked: #7A5A12;
-  --ink: #1A1A1A;
-  --pass-glyph: #6B6558;
+  --paper: #060806;
+  --panel: #101610;
+  --accent: #8FE13F;
+  --destructive: #FF5A4E;
+  --unchecked: #E8B44A;
+  --ink: #F5F9F4;
+  --pass-glyph: #C9D4C8;
+  --bg-input: #040604;
+  --border-subtle: rgba(143,225,63,.12);
+  --border-glass: rgba(255,255,255,.08);
+  --text-secondary: #9BA89A;
+  --text-muted: #5D685C;
+  --font-display: 'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
   --sp-xs: 4px;
   --sp-sm: 8px;
   --sp-md: 16px;
@@ -1413,7 +1426,7 @@ _VERIFY_FORM_CSS = """
 .verify-form input {
   flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
   font-family: inherit; font-size: 16px;
-  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+  border: 1px solid var(--border-glass); background: var(--bg-input); color: var(--ink);
 }
 .verify-form button {
   padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 16px;
@@ -2026,6 +2039,74 @@ def _no_split_breakdown(observation) -> str:
     )
 
 
+# The live site's chrome, laid over every generated page: its fonts, its
+# sticky header and nav, and the rules that make an older page sheet read in
+# the site's type. Last in the <head>, so it wins over the page's own sheet.
+# Links are root-absolute because /api/verify serves these pages too.
+_FONTS_HTML = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800'
+    '&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">'
+)
+
+_SITE_HEADER = (
+    '<header class="site-header"><div class="header-inner">'
+    '<a href="/" class="brand-lockup"><span class="flame-box">'
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12'
+    'c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0'
+    'c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><span>Charlie Protocol</span></a>'
+    '<nav class="site-nav" aria-label="Site">'
+    '<a href="/" class="nav-link">Home</a>'
+    '<a href="/launch" class="nav-link">Launch Coin</a>'
+    '<a href="/enroll" class="nav-link">Enroll Coin</a>'
+    '<a href="/coins" class="nav-link">Directory</a>'
+    '<a href="/phases" class="nav-link">Phases</a>'
+    '</nav></div></header>'
+)
+
+_SITE_LOOK = """
+html, body { background: var(--paper); }
+body { margin: 0 !important; padding: 0 !important; max-width: none !important;
+  color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.site-page { max-width: 62rem; margin: 0 auto; padding: var(--sp-2xl) var(--sp-lg) var(--sp-3xl);
+  overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--ink); }
+code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); }
+a { color: var(--accent); }
+a:hover { color: var(--ink); }
+table { border-color: var(--border-glass); }
+th { overflow-wrap: normal; word-break: normal; }
+th, td { border-color: var(--border-glass); }
+hr { border: 0; border-top: 1px solid var(--border-subtle); }
+.verify-form button, button.primary { background: var(--accent); border-color: var(--accent);
+  color: var(--paper); font-weight: 700; border-radius: 4px; }
+.verify-form button:hover, .verify-form button:focus-visible, button.primary:hover {
+  background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.verify-form input { border-radius: 4px; font-family: var(--font-mono); }
+.site-header { position: sticky; top: 0; z-index: 1000; background: rgba(11,14,11,.88);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-glass); padding: 12px var(--sp-lg); }
+.header-inner { max-width: 62rem; margin: 0 auto; display: flex; align-items: center;
+  justify-content: space-between; gap: var(--sp-md); flex-wrap: wrap; }
+.brand-lockup { display: inline-flex; align-items: center; gap: var(--sp-sm); font-family: var(--font-display);
+  font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+.brand-lockup:hover { color: var(--ink); }
+.flame-box { display: inline-flex; color: #FF8A1F; filter: drop-shadow(0 0 8px rgba(255,138,31,.6)); }
+.site-nav { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
+.nav-link { font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 6px 12px;
+  border-radius: 4px; text-decoration: none; }
+.nav-link:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+@media (max-width: 640px) {
+  .site-header { padding: 8px var(--sp-md); }
+  .site-nav { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .nav-link { flex: none; white-space: nowrap; }
+  .site-page { padding: var(--sp-xl) var(--sp-md) var(--sp-2xl); }
+}
+"""
+
+
 def _document(title: str, body: str, *, style: str = _STYLE, description: str = "") -> str:
     """Wraps `body` (already-built HTML) in the page shell -- the one place
     `<!doctype html>`/`<head>`/`<style>` are assembled, shared by the coin
@@ -2058,7 +2139,8 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
         f'<meta name="twitter:title" content="{esc(title)}">'
         f'<meta name="twitter:description" content="{esc(summary)}">'
         f'<meta name="twitter:image" content="{SITE_ORIGIN}{META_IMAGE_SRC}">'
-        f"<style>{style}</style>"
+        f"{_FONTS_HTML}"
+        f"<style>{style}{_SITE_LOOK}</style>"
         "<script>"
         "window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"
         "window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };"
@@ -2066,7 +2148,7 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
         '<script defer src="https://va.vercel-scripts.com/v1/script.js"></script>'
         '<script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script>'
         "</head>"
-        f"<body>{body}</body>"
+        f"<body>{_SITE_HEADER}<div class=\"site-page\">{body}</div></body>"
         "</html>"
     )
 
@@ -2603,7 +2685,7 @@ _INDEX_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 .verify-form input {
   flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
   font-family: inherit; font-size: 15px;
-  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+  border: 1px solid var(--border-glass); background: var(--bg-input); color: var(--ink);
 }
 .verify-form button {
   padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 15px;
