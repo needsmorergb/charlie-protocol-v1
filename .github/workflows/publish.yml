@@ -49,6 +49,7 @@ jobs:
       - name: Re-render every committed coin page
         env:
           CHARLIE_RPC_URLS: https://crowd-api-gateway.vercel.app/
+          CROWD_API_KEY: ${{ secrets.CROWD_API_KEY }}
         run: |
           python -m indexer refresh --evidence state/evidence.db --out web
 
@@ -64,6 +65,7 @@ jobs:
         continue-on-error: true
         env:
           CHARLIE_RPC_URLS: https://crowd-api-gateway.vercel.app/
+          CROWD_API_KEY: ${{ secrets.CROWD_API_KEY }}
         run: |
           python -m indexer site --write --landing --require-counters \
             --evidence state/evidence.db \

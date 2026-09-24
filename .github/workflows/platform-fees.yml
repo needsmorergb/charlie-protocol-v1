@@ -45,6 +45,7 @@ jobs:
     if: vars.PLATFORM_FEES_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     env:
       CHARLIE_RPC_URLS: ${{ secrets.CHARLIE_RPC_URLS }}
+      CROWD_API_KEY: ${{ secrets.CROWD_API_KEY }}
       # Tier 2 runs only once a pool is named. Unset, only the SOL quote is
       # claimed.
       USDC_POOL: ${{ vars.PLATFORM_FEE_USDC_POOL }}
