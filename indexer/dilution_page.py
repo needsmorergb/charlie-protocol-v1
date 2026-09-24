@@ -65,8 +65,8 @@ SOURCE_LINE = (
 
 
 _STYLE = """
-/* The site is a light paper theme (`_TOKENS`): --paper ground, --ink type,
-   --panel for raised blocks, --accent blue, --destructive red, --unchecked
+/* The site's tokens (`_TOKENS`, the live site's dark palette): --paper ground, --ink type,
+   --panel for raised blocks, --accent green, --destructive red, --unchecked
    amber, --ember the brand green. This page uses those and adds none of its
    own, so it cannot drift from the rest of the site. */
 .dil-lede{font-size:1.02rem;line-height:1.65;max-width:var(--measure)}

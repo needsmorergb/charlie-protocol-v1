@@ -1,12 +1,20 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coins -- Charlie Protocol</title><meta name="description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:title" content="Coins -- Charlie Protocol"><meta property="og:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Coins -- Charlie Protocol"><meta name="twitter:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coins -- Charlie Protocol</title><meta name="description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:title" content="Coins -- Charlie Protocol"><meta property="og:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Coins -- Charlie Protocol"><meta name="twitter:description" content="Paste a pump.fun contract address and see where its creator fees go, read from the chain, with every check that passed, failed, or was never run."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"><style>
 :root {
-  --paper: #FAF7F0;
-  --panel: #EFEAE0;
-  --accent: #1D4E89;
-  --destructive: #A3271F;
-  --unchecked: #7A5A12;
-  --ink: #1A1A1A;
-  --pass-glyph: #6B6558;
+  --paper: #060806;
+  --panel: #101610;
+  --accent: #8FE13F;
+  --destructive: #FF5A4E;
+  --unchecked: #E8B44A;
+  --ink: #F5F9F4;
+  --pass-glyph: #C9D4C8;
+  --bg-input: #040604;
+  --border-subtle: rgba(143,225,63,.12);
+  --border-glass: rgba(255,255,255,.08);
+  --text-secondary: #9BA89A;
+  --text-muted: #5D685C;
+  --font-display: 'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
   --sp-xs: 4px;
   --sp-sm: 8px;
   --sp-md: 16px;
@@ -21,7 +29,7 @@
 .verify-form input {
   flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
   font-family: inherit; font-size: 16px;
-  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+  border: 1px solid var(--border-glass); background: var(--bg-input); color: var(--ink);
 }
 .verify-form button {
   padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 16px;
@@ -49,7 +57,7 @@
 .verify-form input {
   flex: 1 1 22em; min-width: 0; padding: var(--sp-sm);
   font-family: inherit; font-size: 15px;
-  border: 1px solid var(--unchecked); background: #fff; color: var(--ink);
+  border: 1px solid var(--border-glass); background: var(--bg-input); color: var(--ink);
 }
 .verify-form button {
   padding: var(--sp-sm) var(--sp-lg); font-family: inherit; font-size: 15px;
@@ -95,4 +103,42 @@ a { color: var(--accent); }
 .index-backs { font-size: 13px; color: var(--unchecked); flex-basis: 100%; }
 .index-links { font-size: 14px; display: flex; gap: var(--sp-sm); flex: 0 0 auto; }
 .index-nav { margin-top: var(--sp-lg); display: flex; gap: var(--sp-md); }
-</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script></head><body><header><h1>Coins</h1><p class="meta">3 coins observed. Coins are measured when someone submits them, so this is not a census.</p><p class="meta">generated at 2026-09-24 10:29:51Z</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p><p class="meta">page 1 of 1 -- this order ranks nothing; rows are sorted by mint.</p></header><main><div class="index-row" data-mint="4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n"><span class="index-mint">4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n</span><span class="index-not-enrolled">not enrolled</span><span class="index-split">SOL burn 2250 bps / BURN 0 bps / OPS 7750 bps -- mixed</span><span class="index-backs">backed by: CONFIG_MINT, SPLIT_SUM</span><span class="index-links"><a href="/coin/4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n">page</a> <a href="4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n.json">record</a></span></div><div class="index-row" data-mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"><span class="index-mint">8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</span><span class="index-split">SOL burn 10000 bps / BURN 0 bps / OPS 0 bps -- sol_burn-only</span><span class="index-backs">backed by: CONFIG_MINT, SPLIT_SUM</span><span class="index-links"><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">page</a> <a href="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">record</a></span></div><div class="index-row" data-mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"><span class="index-mint">8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</span><span class="index-withheld">withheld</span><span class="index-backs">withheld by: NO_CHECK (UNCHECKED)</span><span class="index-links"><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">page</a> <a href="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">record</a></span></div></main></body></html>
+
+html, body { background: var(--paper); }
+body { margin: 0 !important; padding: 0 !important; max-width: none !important;
+  color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.site-page { max-width: 62rem; margin: 0 auto; padding: var(--sp-2xl) var(--sp-lg) var(--sp-3xl);
+  overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--ink); }
+code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); }
+a { color: var(--accent); }
+a:hover { color: var(--ink); }
+table { border-color: var(--border-glass); }
+th { overflow-wrap: normal; word-break: normal; }
+th, td { border-color: var(--border-glass); }
+hr { border: 0; border-top: 1px solid var(--border-subtle); }
+.verify-form button, button.primary { background: var(--accent); border-color: var(--accent);
+  color: var(--paper); font-weight: 700; border-radius: 4px; }
+.verify-form button:hover, .verify-form button:focus-visible, button.primary:hover {
+  background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.verify-form input { border-radius: 4px; font-family: var(--font-mono); }
+.site-header { position: sticky; top: 0; z-index: 1000; background: rgba(11,14,11,.88);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-glass); padding: 12px var(--sp-lg); }
+.header-inner { max-width: 62rem; margin: 0 auto; display: flex; align-items: center;
+  justify-content: space-between; gap: var(--sp-md); flex-wrap: wrap; }
+.brand-lockup { display: inline-flex; align-items: center; gap: var(--sp-sm); font-family: var(--font-display);
+  font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+.brand-lockup:hover { color: var(--ink); }
+.flame-box { display: inline-flex; color: #FF8A1F; filter: drop-shadow(0 0 8px rgba(255,138,31,.6)); }
+.site-nav { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
+.nav-link { font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 6px 12px;
+  border-radius: 4px; text-decoration: none; }
+.nav-link:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+@media (max-width: 640px) {
+  .site-header { padding: 8px var(--sp-md); }
+  .site-nav { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .nav-link { flex: none; white-space: nowrap; }
+  .site-page { padding: var(--sp-xl) var(--sp-md) var(--sp-2xl); }
+}
+</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script></head><body><header class="site-header"><div class="header-inner"><a href="/" class="brand-lockup"><span class="flame-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><span>Charlie Protocol</span></a><nav class="site-nav" aria-label="Site"><a href="/" class="nav-link">Home</a><a href="/launch" class="nav-link">Launch Coin</a><a href="/enroll" class="nav-link">Enroll Coin</a><a href="/coins" class="nav-link">Directory</a><a href="/phases" class="nav-link">Phases</a></nav></div></header><div class="site-page"><header><h1>Coins</h1><p class="meta">3 coins observed. Coins are measured when someone submits them, so this is not a census.</p><p class="meta">generated at 2026-09-24 14:30:03Z</p><p class="meta snapshot-note">This page is a snapshot taken at the observation time above -- it does not update itself, and nothing on it reads your clock.</p><p class="meta">page 1 of 1 -- this order ranks nothing; rows are sorted by mint.</p></header><main><div class="index-row" data-mint="4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n"><span class="index-mint">4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n</span><span class="index-not-enrolled">not enrolled</span><span class="index-split">SOL burn 2250 bps / BURN 0 bps / OPS 7750 bps -- mixed</span><span class="index-backs">backed by: CONFIG_MINT, SPLIT_SUM</span><span class="index-links"><a href="/coin/4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n">page</a> <a href="4dHdbxPANfuuvzXCTjngsqpjsUytE6KfBtQuGrT1nc1n.json">record</a></span></div><div class="index-row" data-mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"><span class="index-mint">8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</span><span class="index-split">SOL burn 10000 bps / BURN 0 bps / OPS 0 bps -- sol_burn-only</span><span class="index-backs">backed by: CONFIG_MINT, SPLIT_SUM</span><span class="index-links"><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">page</a> <a href="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">record</a></span></div><div class="index-row" data-mint="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"><span class="index-mint">8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump</span><span class="index-withheld">withheld</span><span class="index-backs">withheld by: NO_CHECK (UNCHECKED)</span><span class="index-links"><a href="/coin/8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump">page</a> <a href="8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump.json">record</a></span></div></main></div></body></html>
