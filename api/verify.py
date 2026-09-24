@@ -95,10 +95,12 @@ class handler(BaseHTTPRequestHandler):
 
         if wants_json:
             committed = self._committed(mint, ".json")
+            rpc = RpcClient(_endpoints()) if _endpoints() else RpcClient()
             if committed is not None:
-                return self._send(200, committed, "application/json")
+                # The committed record predates the metadata read, and the
+                # coin page needs the coin's own name and image either way.
+                return self._send(200, with_metadata(committed, rpc, mint), "application/json")
             try:
-                rpc = RpcClient(_endpoints()) if _endpoints() else RpcClient()
                 record = observe(rpc, mint, Registry(), now=time.time(), evidence=None)
                 return self._send(200, with_metadata(site.record_json(record), rpc, mint), "application/json")
             except Exception:

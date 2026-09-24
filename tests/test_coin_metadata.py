@@ -60,6 +60,25 @@ class TestRecordCarriesMetadata(unittest.TestCase):
         self.assertEqual(verify.with_metadata(body, Broken(), MINT), body)
         self.assertEqual(verify.with_metadata(body, FakeRpc(None), MINT), body)
 
+    def test_a_committed_record_also_gains_the_metadata(self):
+        committed = json.dumps({"mint": MINT, "split": {"sol_burn": 10000}})
+        sent = []
+        h = verify.handler.__new__(verify.handler)
+        h.path = "/api/verify?mint=" + MINT + "&format=json"
+        h._committed = lambda mint, suffix: committed if suffix == ".json" else None
+        h._send = lambda status, body, content_type="text/html": sent.append((status, body, content_type))
+        real = verify.RpcClient
+        verify.RpcClient = lambda *a, **k: FakeRpc(account())
+        try:
+            h.do_GET()
+        finally:
+            verify.RpcClient = real
+        status, body, content_type = sent[0]
+        out = json.loads(body)
+        self.assertEqual((status, content_type), (200, "application/json"))
+        self.assertEqual((out["name"], out["uri"]), ("Slime", "https://ipfs.io/ipfs/x"))
+        self.assertEqual(out["split"], {"sol_burn": 10000})
+
 
 if __name__ == "__main__":
     unittest.main()
