@@ -39,13 +39,19 @@ MEASURED = "8FhAXv2tfXUpyMbJsHDHX9zfiEb9PERzFWSY9sgLpump"
 UNMEASURED = "8KC4HMFfE6BPAPV1zzLpag6Brc5vBuqojfCj7wWApump"
 
 
-def fetch(url: str) -> tuple[int, str]:
+def fetch_final(url: str) -> tuple[int, str, str]:
+    """Status, body, and the URL the redirects ended on."""
     req = urllib.request.Request(url, headers={"User-Agent": "charlie-smoke/1"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            return r.status, r.read().decode("utf-8", "replace")
+            return r.status, r.read().decode("utf-8", "replace"), r.geturl()
     except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
+        return e.code, e.read().decode("utf-8", "replace"), e.geturl()
+
+
+def fetch(url: str) -> tuple[int, str]:
+    status, body, _ = fetch_final(url)
+    return status, body
 
 
 GATEWAY = "https://crowd-api-gateway.vercel.app/"
@@ -136,9 +142,21 @@ def enroll_check(base: str) -> tuple[int, str]:
     toll = seen.get("toll") or {}
     if not toll.get("address"):
         return 0, "enrollment is not open: the server names no toll address"
-    rest = 10_000 - int(toll["bps"]) - 2000
+    # Every split keeps the incinerator row at its minimum or above and the
+    # buyback treasury above zero; the server refuses a split without them,
+    # so a build that leaves them out tests nothing but that refusal.
+    incinerator = seen.get("incinerator") or {}
+    if not incinerator.get("address"):
+        return 0, "the server names no incinerator row"
+    # And the shared buyback treasury at any share above zero.
+    buyback = (seen.get("buyback") or {}).get("address")
+    if not buyback:
+        return 0, "the server names no buyback treasury"
+    legs = f"{incinerator['address']}:{int(incinerator['min_bps'])},{buyback}:500"
+    legs_bps = int(incinerator["min_bps"]) + 500
+    rest = 10_000 - int(toll["bps"]) - 2000 - legs_bps
     build = (f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
-             f"&shares={toll['address']}:{toll['bps']},{BURN_ADDRESS}:2000,{ENROLL_ADMIN}:{rest}")
+             f"&shares={toll['address']}:{toll['bps']},{BURN_ADDRESS}:2000,{legs},{ENROLL_ADMIN}:{rest}")
     status, body = fetch(build)
     try:
         built = json.loads(body)
@@ -157,7 +175,7 @@ def enroll_check(base: str) -> tuple[int, str]:
     # And a split WITHOUT the protocol's share must be refused, or the toll
     # is a suggestion rather than the price of enrolling.
     status, body = fetch(f"{base}/api/enroll?mint={ENROLL_MINT}&authority={ENROLL_ADMIN}"
-                         f"&shares={BURN_ADDRESS}:2000,{ENROLL_ADMIN}:8000")
+                         f"&shares={BURN_ADDRESS}:2000,{legs},{ENROLL_ADMIN}:{8000 - legs_bps}")
     if status == 200:
         return 0, "a split without the protocol's share was NOT refused"
     return 200, "ok"
@@ -169,38 +187,38 @@ def main() -> int:
     base = ap.parse_args().base.rstrip("/")
 
     # (path, expected status, substrings that MUST appear, substrings that must NOT)
+    # A token starting "url:" is matched against the URL the redirects ended on.
+    #
+    # Coin pages are one static page, coin.html, that reads /coin/<mint>.json in
+    # the browser: /verify?mint=, /verify/<mint> and /coin/<mint> all redirect
+    # to it. So the page itself can only prove it is the coin page for THAT
+    # mint; what it will show is asserted on the JSON it reads.
     checks = [
         ("/", 200, ["Charlie Protocol"], ["NOT_FOUND"]),
-        ("/verify", 200, ["Verify a coin", 'name="mint"'], ["NOT_FOUND"]),
-        # "1 coin observed" / "2 coins observed" -- assert the stem, not a
-        # count or a plural, or this check breaks every time a coin is added.
-        ("/coins", 200, ["observed", "Coins are measured when someone submits"],
+        ("/verify", 200, ["Check a coin", 'name="mint"'], ["NOT_FOUND"]),
+        ("/coins", 200, ["Measured Coins Directory", MEASURED], ["NOT_FOUND"]),
+    ]
+    for mint in (MEASURED, UNMEASURED):
+        for route in (f"/verify?mint={mint}", f"/verify/{mint}", f"/coin/{mint}"):
+            checks.append((route, 200, [f"url:/coin.html?mint={mint}", "Reading the chain"],
+                           ["The page could not be found", "NOT_FOUND"]))
+    checks += [
+        # A committed coin keeps its evidence-backed figures -- a live read
+        # cannot reach those, so losing them would be a silent downgrade.
+        (f"/coin/{MEASURED}.json", 200, ['"mint"', MEASURED, '"sol_burn_balances"'],
          ["NOT_FOUND"]),
-        (f"/verify?mint={MEASURED}", 200, [MEASURED, "Results"], ["NOT_FOUND"]),
-        (f"/verify/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
-        (f"/coin/{MEASURED}", 200, [MEASURED], ["NOT_FOUND"]),
-        (f"/coin/{MEASURED}.json", 200, ['"mint"'], ["NOT_FOUND"]),
-        # The case that shipped broken twice. A CA with no committed page must
+        # The case that shipped broken twice. A CA with no committed record must
         # come back as a real answer read from the chain at request time, not
-        # a 404 and not a "we have not measured this" apology.
-        (f"/verify?mint={UNMEASURED}", 200, [UNMEASURED, "Checks"],
-         ["The page could not be found", "No page for that coin yet"]),
-        (f"/verify/{UNMEASURED}", 200, [UNMEASURED], ["The page could not be found"]),
-        (f"/coin/{UNMEASURED}", 200, [UNMEASURED], ["The page could not be found"]),
-        # A coin that IS committed must keep its committed page: it carries
-        # evidence-backed figures a live read cannot reach, so serving the
-        # live version there would be a silent downgrade.
-        (f"/verify?mint={MEASURED}", 200, ["17.584506254 SOL"], []),
-        # Garbage must land on the paste box, never on a coin-shaped page.
-        ("/verify?mint=notavalidmint", 400, ["Verify a coin"], []),
-        # The raw-record link that every coin page carries, for a coin with no
-        # committed record. It 404'd on the page most visitors see.
-        (f"/coin/{UNMEASURED}.json", 200, ['"mint"', UNMEASURED],
+        # a 404 and not a "could not read the chain".
+        (f"/coin/{UNMEASURED}.json", 200, ['"mint"', UNMEASURED, '"checks"', '"error": null'],
          ["The page could not be found"]),
+        # Garbage must be refused onto the paste box, never answered with a
+        # coin-shaped record.
+        ("/api/verify?mint=notavalidmint&format=json", 400, ['name="mint"'], ['"checks"']),
         # Enrollment: the page, and the API behind it answering for a real
         # coin. A dev arriving from a post lands here, and a broken build step
         # would mean a wallet is asked to sign nothing at all.
-        ("/enroll", 200, ["Set your coin", "signAndSendTransaction"], ["NOT_FOUND"]),
+        ("/enroll", 200, ["Enroll your existing coin", "signAndSendTransaction"], ["NOT_FOUND"]),
         ("__enroll_api__", 200, [], []),
         ("/assets/charlie.png", 200, [], []),
         ("/assets/charlie-scanning.gif", 200, [], []),
@@ -221,11 +239,17 @@ def main() -> int:
         elif path == "__enroll_api__":
             status, body = enroll_check(base)
         else:
-            status, body = fetch(base + path)
+            status, body, final_url = fetch_final(base + path)
+        if path.startswith("__"):
+            final_url = ""
         problems = []
         if status != want_status:
             problems.append(f"status {status}, wanted {want_status}")
         for token in must:
+            if token.startswith("url:"):
+                if not final_url.endswith(token[4:]):
+                    problems.append(f"ended on {final_url or 'nothing'}, wanted {token[4:]}")
+                continue
             if token not in body:
                 problems.append(f"missing {token!r}")
         for token in must_not:
