@@ -206,6 +206,8 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="simulate on its own database; never send, post, pin or write the KV")
     ap.add_argument("--once", action="store_true", help="one mentions tick and one money tick, then exit")
     ap.add_argument("--approve-held", metavar="XID", help="approve a held claim; the running bot pays it without the caps")
+    ap.add_argument("--replay", metavar="TWEET_ID",
+                    help="rerun one missed tag with every rule but its age, then exit (stop the running bot first)")
     ap.add_argument("--codex-login", action="store_true",
                     help="sign the image moderator in to ChatGPT (device code) and save the grant")
     args = ap.parse_args(argv)
@@ -232,6 +234,10 @@ def main(argv=None) -> int:
         print(f"x_bot: {exc}", file=sys.stderr)
         return 2
     try:
+        if args.replay:
+            row = bot.replay(args.replay)
+            print(json.dumps(row))
+            return 0 if row and row.get("outcome") in ("launched", "simulated") else 1
         bot.log("start", dry_run=args.dry_run, once=args.once)
         run(bot, once=args.once)
     finally:

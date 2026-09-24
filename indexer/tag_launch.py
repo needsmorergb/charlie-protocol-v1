@@ -14,10 +14,11 @@ The split, fixed here and nowhere else:
 
 What decides whether a tag becomes a coin, in the order it is checked:
 
-1. `parse`: a strict pattern, never a language model. Anything that does not
-   match is ignored, so no text in a tweet can steer the launcher.
-2. `tweet_refusal`: an original post (no reply, quote or retweet), first
-   version only, recent, with an image.
+1. `parse`: a strict pattern, never a language model. The tag must be one
+   whole line of the post; other lines are allowed but never read. Anything
+   that does not match is ignored, so no text in a tweet can steer the launcher.
+2. `tweet_refusal`: an original post or a quote (no reply or retweet), first
+   version only, recent, with an image of its own.
 3. `account_refusal`: the author's X account is old enough, followed enough
    (or verified), has posted, has a profile image, is public, and is not a
    known bot or parody.
@@ -119,13 +120,17 @@ _TAG = re.compile(
 
 
 def parse(text: str, bot_handle: str = BOT_HANDLE) -> TagRequest | None:
-    """The request in a tweet's text, or None when the text is not exactly a
-    launch tag addressed to `bot_handle`. X appends a t.co link for attached
-    media; those are dropped first. Nothing else is tolerated."""
+    """The request in a tweet's text, or None when no line of it is exactly a
+    launch tag addressed to `bot_handle`. X appends t.co links for attached
+    media and a quoted post; those are dropped first. Other lines ("gonna try
+    this") are allowed and never read; two tag lines are ambiguous and ignored."""
     body = _MEDIA_LINKS.sub("", unicodedata.normalize("NFKC", text or "")).strip()
-    match = _TAG.match(body)
-    if match is None or match["bot"].lower() != bot_handle.lstrip("@").lower():
+    handle = bot_handle.lstrip("@").lower()
+    matches = [m for m in map(_TAG.match, (line.strip() for line in body.splitlines()))
+               if m is not None and m["bot"].lower() == handle]
+    if len(matches) != 1:
         return None
+    match = matches[0]
     name = " ".join(match["name"].split())
     return TagRequest(name=name, ticker=match["ticker"].upper())
 
@@ -147,17 +152,20 @@ def dedupe_key(tweet: dict) -> str:
 PHOTO_TYPES = ("photo",)   # the bot pins stills only (tag_bot.image_of)
 
 
-def tweet_refusal(tweet: dict, now: datetime, media: dict | None = None) -> TagRefused | None:
+def tweet_refusal(tweet: dict, now: datetime, media: dict | None = None, *,
+                  max_age: int | None = MAX_TWEET_AGE_SECONDS) -> TagRefused | None:
     """X API v2 tweet object (with `created_at`, `referenced_tweets`,
     `attachments`, `edit_history_tweet_ids`). With `media` (the includes,
     keyed by media_key), at least one attached item must be a photo: media
-    keys alone are not enough."""
-    if tweet.get("referenced_tweets"):
-        return TagRefused("not_original", "Only an original post can launch, not a reply, quote or repost.")
+    keys alone are not enough. A quote is the requester's own post (the
+    image must still be attached to it); a reply or repost is not.
+    `max_age=None` is the owner's one-off replay of a missed tag."""
+    if any((ref or {}).get("type") != "quoted" for ref in tweet.get("referenced_tweets") or []):
+        return TagRefused("not_original", "Only an original post or a quote can launch, not a reply or repost.")
     if dedupe_key(tweet) != str(tweet["id"]):
         return TagRefused("edited", "An edited post cannot launch; the first version is the request.")
     age = (now - _when(tweet["created_at"])).total_seconds()
-    if age > MAX_TWEET_AGE_SECONDS:
+    if max_age is not None and age > max_age:
         return TagRefused("stale", "The post is too old to act on.")
     keys = (tweet.get("attachments") or {}).get("media_keys") or []
     if not keys:

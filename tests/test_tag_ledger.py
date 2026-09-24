@@ -14,6 +14,7 @@ from indexer import distribute, legs
 from indexer import tag_launch as tag
 from indexer import tag_ledger as ledger_mod
 from indexer.base58 import encode
+from indexer.rpc import RpcError
 from indexer.tag_ledger import Ledger, claim_decision, inflow
 
 TREASURY = legs.CHARLIE_PAYOUT_TREASURY
@@ -199,16 +200,21 @@ class TestInflow(unittest.TestCase):
 
 
 class ScanRpc:
-    def __init__(self, txs: dict, order: list):
+    def __init__(self, txs: dict, order: list, forgotten=()):
         self.txs, self.order = txs, order          # order: newest first
+        self.forgotten = set(forgotten)            # past this node's history: `until` fails
 
     def signatures_for_address(self, address, before=None, until=None, limit=1000):
+        if until in self.forgotten:
+            raise RpcError(-32020, f"Transaction {until} not found", "getSignaturesForAddress")
         sigs = list(self.order)
         if until in sigs:
             sigs = sigs[:sigs.index(until)]
         if before in sigs:
             sigs = sigs[sigs.index(before) + 1:]
-        return [{"signature": s, "err": None, "blockTime": T0} for s in sigs[:limit]]
+        # slot = position from the oldest, so newer is higher
+        return [{"signature": s, "err": None, "blockTime": T0, "slot": 100 + len(self.order) - self.order.index(s)}
+                for s in sigs[:limit]]
 
     def transaction(self, signature):
         return self.txs.get(signature)
@@ -246,6 +252,26 @@ class TestLedger(unittest.TestCase):
         self.ledger.scan(rpc, TREASURY, now=T0)
         self.assertEqual(self.ledger.balance("7"), 4_001_000)
         self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s2")
+
+    def test_a_forgotten_cursor_is_walked_back_to_by_slot(self):
+        order = [f"s{i}" for i in range(6, 0, -1)]
+        rpc = ScanRpc({s: distribute_tx(treasury_gain=10) for s in order}, order[3:])     # s3..s1
+        self.ledger.scan(rpc, TREASURY, now=T0)
+        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s3")
+        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_SLOT_KEY), 103)
+        balance = self.ledger.balance("7")
+        # Three more land, and the node forgets s3 (a quiet spell longer than its history).
+        rpc.order, rpc.forgotten = order, {"s3"}
+        with mock.patch.object(ledger_mod, "SCAN_PAGE", 2):
+            got = self.ledger.scan(rpc, TREASURY, now=T0)
+        self.assertEqual([r["signature"] for r in got if r["kind"] == "credit"], ["s4", "s5", "s6"])
+        self.assertEqual(self.ledger.balance("7"), balance + 30)     # s3 not credited twice
+        self.assertEqual(self.ledger.state(ledger_mod.CURSOR_KEY), "s6")
+
+    def test_a_forgotten_cursor_without_a_slot_still_raises(self):
+        self.ledger.set_state(ledger_mod.CURSOR_KEY, "gone")
+        with self.assertRaises(RpcError):
+            self.ledger.scan(ScanRpc({}, ["s1"], forgotten={"gone"}), TREASURY, now=T0)
 
     def test_scan_walks_every_page_back_to_the_cursor(self):
         order = [f"s{i}" for i in range(60, 0, -1)]

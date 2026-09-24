@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 from . import distribute, legs
 from .base58 import decode
+from .rpc import RpcError
 
 # -- the numbers ----------------------------------------------------------------------
 
@@ -58,6 +59,7 @@ SYSTEM_PROGRAM = "11111111111111111111111111111111"
 DISTRIBUTE_DISCRIMINATOR = distribute.DISTRIBUTE_CREATOR_FEES
 
 CURSOR_KEY = "treasury_cursor"
+CURSOR_SLOT_KEY = "treasury_cursor_slot"   # the fallback when a node has forgotten the cursor
 
 # Wallets a claim may never pay: Charlie's own.
 CHARLIE_WALLETS = frozenset(a for a in (
@@ -355,13 +357,18 @@ CREATE TABLE IF NOT EXISTS tag_state (
         Rows: `{"kind": "credit", ...}` or `{"kind": "unattributed", ...}`
         for a treasury gain that is nobody's credit."""
         cursor = self.state(CURSOR_KEY)
-        entries, before = [], None
-        while True:
-            page = rpc.signatures_for_address(treasury, before=before, until=cursor, limit=SCAN_PAGE)
-            entries.extend(page)
-            if len(page) < SCAN_PAGE:
-                break
-            before = page[-1]["signature"]
+        try:
+            entries = self._walk(rpc, treasury, until=cursor)
+        except RpcError:
+            # A node with short history forgets the cursor after a quiet
+            # spell and refuses `until` (-32020 "not found"). Walk back by
+            # slot instead; the cursor's own slot is rescanned, which is
+            # safe because credits are idempotent.
+            slot = self.state(CURSOR_SLOT_KEY)
+            if cursor is None or slot is None:
+                raise
+            entries = [e for e in self._walk(rpc, treasury, until=None, after_slot=slot)
+                       if e["signature"] != cursor]
         if not entries:
             return []
         known = set(self.tag_mints())
@@ -382,7 +389,27 @@ CREATE TABLE IF NOT EXISTS tag_state (
             if rest > 0:
                 rows.append({"kind": "unattributed", "signature": signature, "lamports": rest, "reason": why})
         self.set_state(CURSOR_KEY, entries[0]["signature"])
+        self.set_state(CURSOR_SLOT_KEY, entries[0].get("slot"))
         return rows
+
+    @staticmethod
+    def _walk(rpc, treasury: str, *, until: str | None, after_slot: int | None = None) -> list[dict]:
+        """Newest-first signatures back to `until` (exclusive), or back to the
+        first one below `after_slot`."""
+        entries, before = [], None
+        while True:
+            page = rpc.signatures_for_address(treasury, before=before, until=until, limit=SCAN_PAGE)
+            if after_slot is not None:
+                kept = [e for e in page if (e.get("slot") or 0) >= after_slot]
+                entries.extend(kept)
+                if len(kept) < len(page):
+                    break
+            else:
+                entries.extend(page)
+            if len(page) < SCAN_PAGE:
+                break
+            before = page[-1]["signature"]
+        return entries
 
     # -- debits --
 
