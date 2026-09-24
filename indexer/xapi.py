@@ -214,6 +214,12 @@ class XClient:
         ordered = sorted(tweets.values(), key=lambda t: _id_int(t.get("id")))
         return {"tweets": ordered, "users": users, "media": media, "newest_id": newest}
 
+    def lookup(self, ids) -> dict:
+        """The given tweets by id, shaped like `mentions` (for a replay)."""
+        params = {"ids": ",".join(str(i) for i in ids), "expansions": EXPANSIONS,
+                  "tweet.fields": TWEET_FIELDS, "user.fields": USER_FIELDS, "media.fields": MEDIA_FIELDS}
+        return shape_mentions(self._bearer_get(f"{API}/tweets?" + urlencode(params, quote_via=quote)))
+
     # -- writes --
 
     def post_reply(self, tweet_id: str, text: str) -> str:

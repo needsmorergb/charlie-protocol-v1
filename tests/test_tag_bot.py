@@ -351,6 +351,22 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.bot.tick_mentions(), [])
         self.assertIsNone(h.outcome())
 
+    def test_a_quote_with_a_line_of_its_own_launches(self):
+        quote = tweet(text="gonna try this\n\n@CharlieSlugSOL launch Moon Dog $MDOG https://t.co/A https://t.co/B",
+                      referenced_tweets=[{"type": "quoted", "id": "9"}])
+        h = Harness(x=FakeX([quote]))
+        self.assertEqual(h.bot.tick_mentions()[0]["outcome"], "launched")
+
+    def test_a_replay_launches_a_missed_stale_tag_once(self):
+        old = tweet(created_at="2026-09-22T11:00:00Z")
+        x = FakeX()
+        x.lookup = lambda ids: {"tweets": [old] if ids == ["100"] else [], "users": x.users, "media": x.media}
+        h = Harness(x=x)
+        self.assertEqual(h.bot.replay("100")["outcome"], "launched")
+        self.assertIsNone(h.bot.replay("100"))                     # recorded: never twice
+        self.assertIsNone(h.bot.replay("555"))
+        self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))       # the mention cursor is not touched
+
     def test_a_failed_split_is_pending_and_retried_next_tick(self):
         h = Harness(x=FakeX([tweet()]), rpc=FakeRpc(sim_errors=[None, {"InstructionError": [0, "x"]}]))
         rows = h.bot.tick_mentions()

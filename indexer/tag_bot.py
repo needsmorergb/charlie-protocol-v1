@@ -288,9 +288,24 @@ class Bot:
         self.log("refused", tweet=key, user=user_id, code=refused.code)
         return {"tweet": key, "outcome": outcome, "code": refused.code}
 
-    def _one(self, tweet: dict, users: dict, media: dict) -> dict | None:
+    def replay(self, tweet_id: str) -> dict | None:
+        """The owner's one-off rerun of a tag the bot missed: every rule
+        applies except the tweet's age. A tag already recorded is not rerun.
+        The mention cursor is not touched."""
+        page = self.x.lookup([tweet_id])
+        tweets = page.get("tweets") or []
+        if not tweets:
+            self.log("replay_missing", tweet=tweet_id)
+            return None
+        self.log("replay", tweet=tweet_id)
+        return self._one(tweets[0], page.get("users") or {}, page.get("media") or {}, max_age=None)
+
+    def _one(self, tweet: dict, users: dict, media: dict, *, max_age=tag.MAX_TWEET_AGE_SECONDS) -> dict | None:
         request = tag.parse(tweet.get("text") or "")
         if request is None:
+            # Not recorded (it is nobody's request), but logged, so a tag
+            # worded a way the pattern does not take is visible to the owner.
+            self.log("not_a_tag", tweet=tweet.get("id"))
             return None
         key = tag.dedupe_key(tweet)
         if self.book.seen(key):
@@ -299,7 +314,7 @@ class Bot:
         user = users.get(user_id)
         now = self.now()
         ts = tag.epoch(now)
-        refused = tag.tweet_refusal(tweet, now, media)
+        refused = tag.tweet_refusal(tweet, now, media, max_age=max_age)
         if refused is None and user is None:
             refused = tag.TagRefused("no_user", "The author could not be read.")
         refused = (refused
@@ -545,7 +560,8 @@ class Bot:
             send=lambda _rpc, _key, message: self._send("launch", message),
             confirm=lambda _rpc, signature: self.confirm(signature))
         for row in rows:
-            self.log("distribute", mint=row.get("mint"), outcome=row.get("outcome"), signature=row.get("signature"))
+            self.log("distribute", mint=row.get("mint"), outcome=row.get("outcome"), signature=row.get("signature"),
+                     reason=row.get("reason"))
         return rows
 
     def _scan(self) -> list[dict]:
