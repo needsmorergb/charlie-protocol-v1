@@ -171,6 +171,13 @@ class TestWrites(unittest.TestCase):
                                       nonce="fixednonce", timestamp=1_700_000_000)
         self.assertEqual(request.get_header("Authorization"), expected)
 
+    def test_post_quote(self):
+        opener = FakeOpener({"/2/tweets": {"data": {"id": "778", "text": "hi"}}})
+        self.assertEqual(_user_client(opener).post_quote("555", "hi"), "778")
+        request = opener.last()
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"text": "hi", "quote_tweet_id": "555"})
+
     def test_post_reply_without_id_raises(self):
         with self.assertRaises(xapi.XError):
             _user_client(FakeOpener({"/2/tweets": {"errors": [{"message": "no"}]}})).post_reply("1", "x")

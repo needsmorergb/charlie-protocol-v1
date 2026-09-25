@@ -6,6 +6,7 @@
     "rpc_urls": "Mainnet RPC URLs, tried in order. Empty uses the indexer's defaults.",
     "keypairs": "Paths to the Solana key files: launch, treasury, ops. Each must be the matching legs wallet. Not read in --dry-run.",
     "upstash": "Upstash Redis REST url and token, shared with the site's /api/claim.",
+    "announce": "Optional. How a launch is announced: \"quote\" (default) quote-posts the tag on the bot's timeline, falling back to a reply if X refuses; \"reply\" only replies. Refusals are always replies.",
     "db": "SQLite file for the Book and the ledger. Default: book.db next to this config. A lock file <db>.lock keeps it to one bot.",
     "db_dry": "SQLite file --dry-run uses instead, so a dry run never consumes live tags. Default: book-dry.db next to this config.",
     "claim_secret": "The site's CHARLIE_SESSION_SECRET. The bot pays only claim-queue items signed with it, and drops items older than 7 days. Required to run live.",

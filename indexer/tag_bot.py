@@ -8,10 +8,12 @@ Two ticks, each safe to run again after a crash:
   A tag that passes is launched: metadata pinned, create simulated, the tweet
   recorded `launching` with its mint BEFORE the create is sent (so a restart
   can never launch it twice), then signed, sent and confirmed, then the
-  split. Refusals are recorded and silent. A create that landed without its
-  split is `split_pending` and the split is retried every tick; a create
-  whose outcome is unknown is checked on chain every tick. `since_id` is
-  saved after each tweet. Success is the only thing the bot says.
+  split. Refusals are recorded; the ones the requester can fix
+  (`tag_launch.REPLIED_CODES`) get one reply a day per account, and the
+  rest are silent. A create that landed without its split is
+  `split_pending` and the split is retried every tick; a create whose
+  outcome is unknown is checked on chain every tick. `since_id` is saved
+  after each tweet.
 - `tick_money` (every 30 minutes): the distribute crank for tag coins (the
   launch wallet pays the fees), the treasury scan into the ledger, the
   reconcile of pending payments, the mirror of every balance to the site's
@@ -68,7 +70,8 @@ STATUS_BATCH = 256                         # getSignatureStatuses takes at most 
 
 SINCE_KEY = "mentions_since_id"
 # Tags are read through recent search, not the mentions timeline (see XClient.mentions).
-TAG_QUERY = f"@{tag.BOT_HANDLE} launch -is:retweet"
+# Never the bot's own posts: a refusal reply quotes an example tag.
+TAG_QUERY = f"@{tag.BOT_HANDLE} launch -is:retweet -from:{tag.BOT_HANDLE}"
 LAST_BURN_KEY = "last_burn_at"
 UNCONFIRMED_KEY = "unconfirmed_creates"   # mint -> what tag_coins needs if it lands
 QUEUE_KEY = "claim:queue"
@@ -220,12 +223,23 @@ def transfer_message(source: str, destination: str, lamports: int, recent_blockh
 # -- the bot ---------------------------------------------------------------------------------
 
 
+# How a launch is announced. "quote" (the default) quote-posts the tag, so
+# the coin shows on Charlie's timeline and in its followers' feeds even when
+# X folds the replies under a post; a quote X refuses falls back to a reply.
+# "reply" only replies. Refusals are always replies: a quote would put
+# someone's refused tag in front of every follower.
+ANNOUNCE_MODES = ("quote", "reply")
+
+
 class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
                  dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
                  claim_secret: str = "", moderate=None, mint_keys=None, log=None,
-                 priority_micro_lamports: int = tag.PRIORITY_MICRO_LAMPORTS):
+                 priority_micro_lamports: int = tag.PRIORITY_MICRO_LAMPORTS, announce: str = "quote"):
+        if announce not in ANNOUNCE_MODES:
+            raise ValueError(f"announce must be one of {ANNOUNCE_MODES}, not {announce!r}")
+        self.announce = announce
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
@@ -301,14 +315,37 @@ class Bot:
             self.ledger.set_state(SINCE_KEY, str(page["newest_id"]))
         return rows
 
-    def _refuse(self, key: str, user_id: str, ts: int, refused: tag.TagRefused, ticker: str) -> dict:
+    def _refuse(self, key: str, user_id: str, ts: int, refused: tag.TagRefused, ticker: str | None,
+                reply_to: str | None = None) -> dict:
         # A paused wallet or the daily ceiling is not the requester's doing,
         # so it is not held against them (only `refused` counts toward a timeout).
         outcome = "failed" if refused.code in ("wallet_low", "ceiling") else "refused"
         if not self.dry_run:
             self.book.record(key, user_id, ts, outcome, code=refused.code, ticker=ticker)
         self.log("refused", tweet=key, user=user_id, code=refused.code)
-        return {"tweet": key, "outcome": outcome, "code": refused.code}
+        row = {"tweet": key, "outcome": outcome, "code": refused.code}
+        if reply_to and refused.code in tag.REPLIED_CODES:
+            row["reply"] = self._answer(key, user_id, ts, refused, reply_to)
+        return row
+
+    def _answer(self, key: str, user_id: str, ts: int, refused: tag.TagRefused, reply_to: str) -> str | None:
+        """Tell the requester why their tag did not launch: once a day per
+        account (`Book.answered_refusal`). The refusal is already recorded,
+        so a failed reply is logged and never retried."""
+        if self.book.answered_refusal(user_id, ts - tag.DAY, besides=key):
+            self.log("refusal_unanswered", tweet=key, code=refused.code, reason="answered one today")
+            return None
+        text = tag.refusal_text(refused, seed=reply_to)
+        if self.dry_run:
+            self.log("would_reply", tweet=key, code=refused.code)
+            return None
+        try:
+            reply = self.x.post_reply(reply_to, text)
+        except Exception as exc:  # noqa: BLE001 -- the refusal stands either way
+            self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+            return None
+        self.log("replied", tweet=key, reply=reply, code=refused.code)
+        return reply
 
     def replay(self, tweet_id: str) -> dict | None:
         """The owner's one-off rerun of a tag the bot missed: every rule
@@ -325,8 +362,10 @@ class Bot:
 
     def _one(self, tweet: dict, users: dict, media: dict, *, refs: dict | None = None,
              max_age=tag.MAX_TWEET_AGE_SECONDS) -> dict | None:
-        request = tag.parse(tweet.get("text") or "")
-        if request is None:
+        text = tweet.get("text") or ""
+        request = tag.parse(text)
+        missing = tag.missing_parts(text) if request is None else []
+        if request is None and not missing:
             # Not recorded (it is nobody's request), but logged, so a tag
             # worded a way the pattern does not take is visible to the owner.
             self.log("not_a_tag", tweet=tweet.get("id"))
@@ -338,20 +377,33 @@ class Bot:
         user = users.get(user_id)
         now = self.now()
         ts = tag.epoch(now)
-        refused = tag.tweet_refusal(tweet, now, media, refs=refs, max_age=max_age)
+        ticker = request.ticker if request else None
+        reply_to = str(tweet.get("id") or "") or None
+        # Silent problems first (a repost, an edit, a stale post, an account
+        # that is not served), so a reply only ever goes to someone who could
+        # launch; a missing image is told together with a malformed tag.
+        problem = tag.tweet_refusal(tweet, now, media, refs=refs, max_age=max_age)
+        no_image = problem is not None and problem.code == "no_image"
+        refused = None if no_image else problem
         if refused is None and user is None:
             refused = tag.TagRefused("no_user", "The author could not be read.")
         refused = (refused
                    or tag.account_refusal(user, now, bot_id=self.bot_id)
-                   or self.book.limit_refusal(user_id, ts)
+                   or self.book.limit_refusal(user_id, ts))
+        if refused is None and missing:
+            refused = tag.malformed(missing, no_image=no_image)
+        if refused is None and no_image:
+            refused = problem
+        refused = (refused
                    or tag.content_refusal(request, taken=self.book.taken_tickers())
                    or tag.wallet_refusal(self.rpc.balance(legs.CHARLIE_LAUNCH_WALLET)))
         if refused:
-            return self._refuse(key, user_id, ts, refused, request.ticker)
+            return self._refuse(key, user_id, ts, refused, ticker, reply_to)
         image = image_of(self.x, tweet, media, refs)
         if image is None:
-            return self._refuse(key, user_id, ts, tag.TagRefused("bad_image", "The image is not usable."),
-                                request.ticker)
+            return self._refuse(key, user_id, ts, tag.TagRefused(
+                "bad_image", "the image couldn't be read. tag again with a PNG, JPG or WebP photo under 5 MB."),
+                request.ticker, reply_to)
         if self.moderate is not None:
             try:
                 safe = self.moderate(image)
@@ -362,7 +414,7 @@ class Bot:
                 raise
             if safe is not True:
                 return self._refuse(key, user_id, ts, tag.TagRefused(
-                    "image_refused", "That image cannot be a coin's picture."), request.ticker)
+                    "image_refused", "that image can't be a coin's picture. tag again with another one."), request.ticker, reply_to)
         return self._launch(key, tweet, user, request, image, ts)
 
     def _new_mint(self):
@@ -501,14 +553,26 @@ class Bot:
             self.kv.set_json(claim_session.coin_link_key(target), mint)
         except Exception as exc:  # noqa: BLE001 -- the reply still goes; the link waits for a backfill
             self.log("coin_link_failed", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
-        try:
-            reply = self.x.post_reply(target, tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target)))
-        except Exception as exc:  # noqa: BLE001 -- the coin is live either way
-            self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
-        else:
-            self.log("replied", tweet=key, reply=reply,
-                     seconds_since_tag=round(self.now().timestamp() - posted, 1) if posted else None)
-        return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply}
+        text = tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target), seed=target)
+        since = (lambda: round(self.now().timestamp() - posted, 1) if posted else None)
+        kind = None
+        if self.announce == "quote":
+            try:
+                reply = self.x.post_quote(target, text)
+            except Exception as exc:  # noqa: BLE001 -- a reply still tells the requester
+                self.log("quote_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+            else:
+                kind = "quoted"
+                self.log("quoted", tweet=key, post=reply, seconds_since_tag=since())
+        if reply is None:
+            try:
+                reply = self.x.post_reply(target, text)
+            except Exception as exc:  # noqa: BLE001 -- the coin is live either way
+                self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+            else:
+                kind = "replied"
+                self.log("replied", tweet=key, reply=reply, seconds_since_tag=since())
+        return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply, "announced": kind}
 
     def _split(self, mint: str) -> str:
         recent = fresh_blockhash(self.rpc)
