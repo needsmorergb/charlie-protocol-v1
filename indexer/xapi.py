@@ -260,13 +260,22 @@ class XClient:
 
     # -- writes --
 
-    def post_reply(self, tweet_id: str, text: str) -> str:
-        """Reply to `tweet_id` as the bot. Returns the new tweet's id."""
-        answer = self._user_post(f"{API}/tweets", {"text": text, "reply": {"in_reply_to_tweet_id": str(tweet_id)}})
+    def _post(self, payload: dict) -> str:
+        answer = self._user_post(f"{API}/tweets", payload)
         new_id = (answer.get("data") or {}).get("id")
         if not new_id:
-            raise XError(f"X did not return the reply's id: {str(answer)[:300]}", 0)
+            raise XError(f"X did not return the post's id: {str(answer)[:300]}", 0)
         return str(new_id)
+
+    def post_reply(self, tweet_id: str, text: str) -> str:
+        """Reply to `tweet_id` as the bot. Returns the new tweet's id."""
+        return self._post({"text": text, "reply": {"in_reply_to_tweet_id": str(tweet_id)}})
+
+    def post_quote(self, tweet_id: str, text: str) -> str:
+        """Quote `tweet_id` as the bot, on its own timeline. Returns the new
+        tweet's id. Like a reply, the app may only quote posts that mention
+        the bot (measured 2026-09-25)."""
+        return self._post({"text": text, "quote_tweet_id": str(tweet_id)})
 
     def like(self, bot_user_id: str, tweet_id: str) -> None:
         self._user_post(f"{API}/users/{quote(str(bot_user_id), safe='')}/likes", {"tweet_id": str(tweet_id)})

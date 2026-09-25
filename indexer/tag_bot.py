@@ -222,12 +222,23 @@ def transfer_message(source: str, destination: str, lamports: int, recent_blockh
 # -- the bot ---------------------------------------------------------------------------------
 
 
+# How a launch is announced. "quote" (the default) quote-posts the tag, so
+# the coin shows on Charlie's timeline and in its followers' feeds even when
+# X folds the replies under a post; a quote X refuses falls back to a reply.
+# "reply" only replies. Refusals are always replies: a quote would put
+# someone's refused tag in front of every follower.
+ANNOUNCE_MODES = ("quote", "reply")
+
+
 class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
                  dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
                  claim_secret: str = "", moderate=None, mint_keys=None, log=None,
-                 priority_micro_lamports: int = tag.PRIORITY_MICRO_LAMPORTS):
+                 priority_micro_lamports: int = tag.PRIORITY_MICRO_LAMPORTS, announce: str = "quote"):
+        if announce not in ANNOUNCE_MODES:
+            raise ValueError(f"announce must be one of {ANNOUNCE_MODES}, not {announce!r}")
+        self.announce = announce
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
@@ -541,15 +552,26 @@ class Bot:
             self.kv.set_json(claim_session.coin_link_key(target), mint)
         except Exception as exc:  # noqa: BLE001 -- the reply still goes; the link waits for a backfill
             self.log("coin_link_failed", tweet=key, mint=mint, reason=f"{type(exc).__name__}: {exc}")
-        try:
-            reply = self.x.post_reply(target, tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target),
-                                                             seed=target))
-        except Exception as exc:  # noqa: BLE001 -- the coin is live either way
-            self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
-        else:
-            self.log("replied", tweet=key, reply=reply,
-                     seconds_since_tag=round(self.now().timestamp() - posted, 1) if posted else None)
-        return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply}
+        text = tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target), seed=target)
+        since = (lambda: round(self.now().timestamp() - posted, 1) if posted else None)
+        kind = None
+        if self.announce == "quote":
+            try:
+                reply = self.x.post_quote(target, text)
+            except Exception as exc:  # noqa: BLE001 -- a reply still tells the requester
+                self.log("quote_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+            else:
+                kind = "quoted"
+                self.log("quoted", tweet=key, post=reply, seconds_since_tag=since())
+        if reply is None:
+            try:
+                reply = self.x.post_reply(target, text)
+            except Exception as exc:  # noqa: BLE001 -- the coin is live either way
+                self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+            else:
+                kind = "replied"
+                self.log("replied", tweet=key, reply=reply, seconds_since_tag=since())
+        return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply, "announced": kind}
 
     def _split(self, mint: str) -> str:
         recent = fresh_blockhash(self.rpc)

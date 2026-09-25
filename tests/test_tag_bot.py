@@ -93,7 +93,7 @@ class FakeX:
         self.users = users if users is not None else {"7": user()}
         self.media = media if media is not None else {"3_1": {"type": "photo", "url": "https://pbs/x.png"}}
         self.image = image
-        self.replies, self.since = [], []
+        self.replies, self.quotes, self.since = [], [], []
 
     def mentions(self, user_id, since_id, query=None):
         self.since.append(since_id)
@@ -111,6 +111,10 @@ class FakeX:
     def post_reply(self, tweet_id, text):
         self.replies.append((tweet_id, text))
         return "reply1"
+
+    def post_quote(self, tweet_id, text):
+        self.quotes.append((tweet_id, text))
+        return "quote1"
 
 
 class FakeRpc:
@@ -234,7 +238,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(h.ledger.coin(mint), {"mint": mint, "user_id": "7", "handle": "alice",
                                                "tweet_id": "100", "at": TS})
-        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100"), seed="100"))])
+        self.assertEqual(h.x.quotes, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100"), seed="100"))])
         self.assertEqual(h.kv.get_json(claim_session.coin_link_key("100")), mint)
         self.assertEqual(h.pins[0][0]["twitter"], "https://x.com/alice/status/100")
         self.assertEqual(h.pins[0][0]["website"], f"{tag.SITE}/coin/{mint}")     # the coin that launched
@@ -245,6 +249,41 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.bot.tick_mentions(), [])
         self.assertEqual(h.x.since[-1], "100")
         self.assertEqual(h.x.query, "@CharlieSlugSOL launch -is:retweet")
+
+    def test_a_launch_is_quoted_by_default_and_never_also_replied(self):
+        h = Harness(x=FakeX([tweet()]))
+        row = h.bot.tick_mentions()[0]
+        self.assertEqual((row["announced"], row["reply"]), ("quoted", "quote1"))
+        self.assertEqual([q[0] for q in h.x.quotes], ["100"])
+        self.assertEqual(h.x.replies, [])
+        self.assertTrue(any(line.startswith("quoted") for line in h.lines))
+
+    def test_a_refused_quote_falls_back_to_a_reply(self):
+        h = Harness(x=FakeX([tweet()]))
+
+        def refuse(*a):
+            raise RuntimeError("X answered HTTP 403")
+        h.x.post_quote = refuse
+        row = h.bot.tick_mentions()[0]
+        self.assertEqual((row["outcome"], row["announced"], row["reply"]), ("launched", "replied", "reply1"))
+        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"),
+                                                              tag.coin_link("100"), seed="100"))])
+        self.assertTrue(any(line.startswith("quote_failed") for line in h.lines))
+
+    def test_reply_mode_only_replies(self):
+        h = Harness(x=FakeX([tweet()]))
+        h.bot.announce = "reply"
+        self.assertEqual(h.bot.tick_mentions()[0]["announced"], "replied")
+        self.assertEqual(([r[0] for r in h.x.replies], h.x.quotes), (["100"], []))
+
+    def test_an_unknown_announce_mode_is_refused(self):
+        with self.assertRaises(ValueError):
+            tag_bot.Bot(None, None, None, tag.Book(), None, None, dry_run=True, announce="post")
+
+    def test_a_refusal_is_a_reply_even_in_quote_mode(self):
+        h = Harness(x=FakeX([tweet(attachments={})]))
+        h.bot.tick_mentions()
+        self.assertEqual(([r[0] for r in h.x.replies], h.x.quotes), (["100"], []))
 
     def test_each_refusal_is_recorded_and_answered_only_when_fixable(self):
         cases = {
@@ -363,7 +402,7 @@ class TestMentions(unittest.TestCase):
         h.bot.moderate = down
         row = h.bot.tick_mentions()[0]
         self.assertEqual(row["outcome"], "error")
-        self.assertEqual((h.sent, h.x.replies, h.pins), ([], [], []))
+        self.assertEqual((h.sent, h.x.replies + h.x.quotes, h.pins), ([], [], []))
         self.assertFalse(h.book.seen("100"))                       # retried next poll
         self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))       # cursor held
         self.assertIsNone(h.book.limit_refusal("7", TS))
@@ -444,7 +483,7 @@ class TestMentions(unittest.TestCase):
         row = h.bot.tick_mentions()[0]
         self.assertEqual(row["outcome"], "launched")
         self.assertEqual(h.x.fetched, ["https://pbs/news.jpg"])
-        self.assertEqual(h.x.replies[0][0], "100")          # the reply goes to the tagger, not the news post
+        self.assertEqual(h.x.quotes[0][0], "100")          # the reply goes to the tagger, not the news post
 
     def test_a_replay_launches_a_missed_stale_tag_once(self):
         old = tweet(created_at="2026-09-22T11:00:00Z")
@@ -462,14 +501,14 @@ class TestMentions(unittest.TestCase):
         mint = rows[0]["mint"]
         self.assertEqual(h.outcome(), ("failed", "split_pending", "MDOG", mint))
         self.assertEqual(len(h.sent), 1)
-        self.assertEqual(h.x.replies, [])
+        self.assertEqual(h.x.replies + h.x.quotes, [])
         self.assertIsNotNone(h.ledger.coin(mint))
         self.assertIn("MDOG", h.book.taken_tickers())
         rows = h.bot.tick_mentions()
         self.assertEqual(rows[0]["outcome"], "launched")
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(len(h.sent), 2)
-        self.assertEqual(h.x.replies[0][0], "100")
+        self.assertEqual(h.x.quotes[0][0], "100")
         self.assertEqual(h.book.pending_splits(), [])
 
     def _unconfirmed_create(self):
@@ -491,7 +530,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(rows[0]["outcome"], "launched")
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(h.ledger.coin(mint)["handle"], "alice")
-        self.assertEqual(h.x.replies[0][0], "100")
+        self.assertEqual(h.x.quotes[0][0], "100")
         self.assertEqual(h.ledger.state(tag_bot.UNCONFIRMED_KEY), {})
 
     def test_an_unconfirmed_create_that_never_appears_is_finally_failed(self):
@@ -564,7 +603,7 @@ class TestMentions(unittest.TestCase):
         h = Harness(x=FakeX([tweet()]), rpc=FakeRpc(sim_errors=[{"InstructionError": [0, "x"]}]))
         h.bot.tick_mentions()
         self.assertEqual(h.outcome()[:2], ("failed", "create_simulation"))
-        self.assertEqual((h.sent, h.x.replies), ([], []))
+        self.assertEqual((h.sent, h.x.replies + h.x.quotes), ([], []))
 
     def test_dry_run_signs_sends_posts_pins_and_records_nothing(self):
         h = Harness(x=FakeX([tweet()]), dry_run=True)
@@ -1398,7 +1437,7 @@ class TestSplitRetry(unittest.TestCase):
         self.assertEqual(out[0]["outcome"], "launched")
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(len(h.sent), 2)                          # no second split
-        self.assertEqual(h.x.replies[0][0], "100")
+        self.assertEqual(h.x.quotes[0][0], "100")
         self.assertEqual(h.book.pending_splits(), [])
 
     def test_a_config_with_other_rows_is_a_mismatch_and_never_retried(self):
@@ -1416,7 +1455,7 @@ class TestSplitRetry(unittest.TestCase):
         self.assertIn("MDOG", h.book.taken_tickers())
         h.bot.tick_mentions()
         self.assertEqual(len(h.sent), 2)
-        self.assertEqual(h.x.replies, [])
+        self.assertEqual(h.x.replies + h.x.quotes, [])
 
     def test_an_absent_config_is_retried(self):
         h, mint = self.landed_unconfirmed()

@@ -168,7 +168,8 @@ def build_bot(config: dict, *, dry_run: bool, config_dir: Path) -> tag_bot.Bot:
                        moderate=moderator_for(config, dry_run=dry_run), mint_keys=pool,
                        log=file_logger(config["log"]),
                        priority_micro_lamports=int(config.get("priority_micro_lamports",
-                                                              tag.PRIORITY_MICRO_LAMPORTS)))
+                                                              tag.PRIORITY_MICRO_LAMPORTS)),
+                       announce=config.get("announce", "quote"))
 
 
 def approve_held(db_path: str, xid: str) -> int:
