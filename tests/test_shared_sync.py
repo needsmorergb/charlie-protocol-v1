@@ -32,7 +32,7 @@ from tools import shared_sync  # noqa: E402
 
 # What the deploy repository starts from: `python -m indexer <cmd>` in its
 # GitHub Actions, and the two functions Vercel serves.
-ENTRY_POINTS = ("indexer/__main__.py", "api/claim.py", "api/coins.py", "api/enroll.py", "api/launch.py", "api/t.py",
+ENTRY_POINTS = ("indexer/__main__.py", "api/buy.py", "api/claim.py", "api/coins.py", "api/enroll.py", "api/launch.py", "api/t.py",
                 "api/verify.py")
 
 # Shared but not reachable by import: Vercel reads the routing table, and the

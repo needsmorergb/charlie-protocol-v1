@@ -352,7 +352,10 @@ class MintState:
 
 
 def read_mint(rpc, mint: str) -> MintState:
-    account = rpc.accounts([mint])[0]
+    return decode_mint(mint, rpc.accounts([mint])[0])
+
+
+def decode_mint(mint: str, account: dict | None) -> MintState:
     data = _raw(account, b"", "mint", (TOKEN_PROGRAM, TOKEN_2022_PROGRAM))
     if len(data) < 82:
         raise DecodeError(f"{mint}: mint account is {len(data)} bytes, expected at least 82")

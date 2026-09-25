@@ -65,6 +65,7 @@ RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 # moment production measured anything. Code is shared; what production
 # measured belongs to production.
 SHARED = (
+    "api/buy.py",
     "api/claim.py",
     "api/coins.py",
     "api/enroll.py",
@@ -113,6 +114,7 @@ SHARED = (
     "indexer/rpc.py",
     "indexer/scan.py",
     "indexer/site.py",
+    "indexer/sitebuy.py",
     "indexer/splitter_page.py",
     "indexer/store.py",
     "indexer/xapi.py",

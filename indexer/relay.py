@@ -22,10 +22,13 @@ import base64
 from . import ed25519, enroll
 from .base58 import decode, encode
 from .message import MAX_TRANSACTION_BYTES, SIGNATURE_BYTES
+from .pump import PUMP_AMM_PROGRAM
 
 # A transaction is relayed only if it touches one of these. This is a door
-# for the two transactions the door builds, not a public send endpoint.
-OURS = (enroll.PUMP_PROGRAM, enroll.FEE_SHARE_PROGRAM)
+# for the transactions this site builds, not a public send endpoint: the
+# launch door's two, and the coin page's buy (`sitebuy`), which is pump's
+# own program before a coin graduates and PumpSwap's after.
+OURS = (enroll.PUMP_PROGRAM, enroll.FEE_SHARE_PROGRAM, PUMP_AMM_PROGRAM)
 
 
 class RelayError(ValueError):

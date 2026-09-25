@@ -126,7 +126,8 @@ def bonding_curve_v2_address(mint: str) -> str:
     return curvebuy._pda([b"bonding-curve-v2", pubkey_bytes(mint)], PUMP_PROGRAM)
 
 
-def buy_accounts(mint: str, user: str, creator: str, fee_recipient: str, buyback_fee_recipient: str) -> list:
+def buy_accounts(mint: str, user: str, creator: str, fee_recipient: str, buyback_fee_recipient: str,
+                 token_program: str = TOKEN_PROGRAM) -> list:
     """`buy`'s sixteen accounts in the IDL's order, then the two the program
     takes as remaining accounts and the IDL does not list: the coin's
     bonding-curve-v2 PDA (read) and one of the global's buyback fee
@@ -134,18 +135,20 @@ def buy_accounts(mint: str, user: str, creator: str, fee_recipient: str, buyback
     transactions carry, and proven by simulation: without the first the
     program fails 6074, without the second 6062. The user is the only
     signer. `creator_vault` is seeded with the curve's creator, which
-    `create` sets to the dev in the same transaction."""
+    `create` sets to the dev in the same transaction; a buy on a live curve
+    (`sitebuy`) passes the creator the curve itself names. `token_program`
+    owns the coin's mint and so its token accounts."""
     curve = bonding_curve_address(mint)
     return [
         (curvebuy.GLOBAL, False, False),
         (fee_recipient, False, True),
         (mint, False, False),
         (curve, False, True),
-        (associated_token_address(curve, mint, TOKEN_PROGRAM), False, True),
-        (associated_token_address(user, mint, TOKEN_PROGRAM), False, True),
+        (associated_token_address(curve, mint, token_program), False, True),
+        (associated_token_address(user, mint, token_program), False, True),
         (user, True, True),
         (SYSTEM_PROGRAM, False, False),
-        (TOKEN_PROGRAM, False, False),
+        (token_program, False, False),
         (curvebuy.creator_vault(creator), False, True),
         (curvebuy.EVENT_AUTHORITY, False, False),
         (PUMP_PROGRAM, False, False),

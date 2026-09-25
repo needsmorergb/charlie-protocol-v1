@@ -16,6 +16,10 @@
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 60
     },
+    "api/buy.py": {
+      "includeFiles": "{indexer/**}",
+      "maxDuration": 20
+    },
     "api/claim.py": {
       "includeFiles": "{indexer/**,web/**}",
       "maxDuration": 20
