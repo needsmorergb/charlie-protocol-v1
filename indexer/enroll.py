@@ -440,7 +440,8 @@ def message(mint: str, authority: str, shares, recent_blockhash: str, *,
 
 def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str, *,
                       create: bool, current=(), graduated: bool = False,
-                      quote_mint: str = WSOL_MINT, token_program: str = TOKEN_PROGRAM) -> bytes:
+                      quote_mint: str = WSOL_MINT, token_program: str = TOKEN_PROGRAM,
+                      extra=()) -> bytes:
     """One signature, whichever state the coin is in.
 
     A coin with a config gets the split set. A coin without one -- the case
@@ -453,12 +454,15 @@ def enrollment_message(mint: str, authority: str, shares, recent_blockhash: str,
     `[authority]`; that is what the mainnet simulation passed and what
     succeeded. `current` is ignored on that path because there is no current
     config to read it from.
+
+    `extra` (the tag bot's compute-budget instructions) is appended on the
+    create path; the door passes none.
     """
     quote = dict(quote_mint=quote_mint, token_program=token_program)
     if create:
         return encode_message(
             [create_instruction(mint, authority, graduated=graduated, quote_mint=quote_mint),
-             update_instruction(mint, authority, shares, current=[authority], **quote)],
+             update_instruction(mint, authority, shares, current=[authority], **quote), *extra],
             authority, recent_blockhash,
         )
     return message(mint, authority, shares, recent_blockhash, current=current, **quote)

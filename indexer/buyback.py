@@ -895,7 +895,8 @@ def _payer_of(message: bytes) -> str:
     return encode(message[4:36])
 
 
-def confirm(rpc, signature: str, *, timeout: float = 90.0, sleep=time.sleep, clock=time.monotonic) -> dict:
+def confirm(rpc, signature: str, *, timeout: float = 90.0, interval: float = 2.0,
+            sleep=time.sleep, clock=time.monotonic) -> dict:
     """Poll until the signature is confirmed or finalized. A transaction
     whose blockhash expires unconfirmed raises; it did not land."""
     deadline = clock() + timeout
@@ -909,7 +910,7 @@ def confirm(rpc, signature: str, *, timeout: float = 90.0, sleep=time.sleep, clo
                 return status
         if clock() >= deadline:
             raise BuybackError(f"{signature} was not confirmed within {timeout:.0f}s -- check an explorer before retrying")
-        sleep(2.0)
+        sleep(interval)
 
 
 def verify_recorded(rpc, signature: str, mint: str) -> dict:

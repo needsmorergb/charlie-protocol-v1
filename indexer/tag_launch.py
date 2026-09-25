@@ -401,22 +401,43 @@ class Built:
     split: bytes         # message: fee config + split; signer launch wallet
 
 
+# The priority fee on the bot's own create and split, in micro-lamports per
+# compute unit (owner's call 2026-09-24: small, about 0.0001-0.0003 SOL a
+# launch). The limit comes from the simulation, so the fee is price x units.
+PRIORITY_MICRO_LAMPORTS = 1_000_000
+MAX_COMPUTE_UNITS = 1_400_000
+COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111"
+
+
+def priority(units_consumed, micro_lamports: int = PRIORITY_MICRO_LAMPORTS) -> tuple:
+    """Compute-budget instructions for a transaction the simulation measured
+    at `units_consumed`: a limit with 20% headroom (the runtime default,
+    200k per instruction, when unmeasured) and the unit price. None or 0
+    `micro_lamports` is no priority at all."""
+    if not micro_lamports:
+        return ()
+    units = int(units_consumed * 1.2) + 5_000 if units_consumed else 200_000
+    units = min(units, MAX_COMPUTE_UNITS)
+    return ((COMPUTE_BUDGET_PROGRAM, [], bytes([2]) + units.to_bytes(4, "little")),
+            (COMPUTE_BUDGET_PROGRAM, [], bytes([3]) + int(micro_lamports).to_bytes(8, "little")))
+
+
 def build(request: TagRequest, uri: str, blockhash: str, *,
-          launcher: str | None = None, mint: Keypair | None = None) -> Built:
+          launcher: str | None = None, mint: Keypair | None = None, extra=()) -> Built:
     """Both messages. A random mint, never the /launch door's 1nc1n pool.
     The split message reuses `blockhash`; `split_message` rebuilds it with a
-    fresh one once the coin exists."""
+    fresh one once the coin exists. `extra` (see `priority`) rides the create."""
     launcher = launcher or legs.CHARLIE_LAUNCH_WALLET
     mint = mint or launch.new_mint()
     meta = launch.validate_metadata(request.name, request.ticker, uri)
     shares = split_rows()
-    create = launch.create_message(mint.address, launcher, meta, blockhash)
+    create = launch.create_message(mint.address, launcher, meta, blockhash, extra=extra)
     return Built(mint, create, split_message(mint.address, blockhash, launcher=launcher, shares=shares))
 
 
-def split_message(mint: str, blockhash: str, *, launcher: str | None = None, shares=None) -> bytes:
+def split_message(mint: str, blockhash: str, *, launcher: str | None = None, shares=None, extra=()) -> bytes:
     return enroll.enrollment_message(mint, launcher or legs.CHARLIE_LAUNCH_WALLET,
-                                     shares or split_rows(), blockhash, create=True)
+                                     shares or split_rows(), blockhash, create=True, extra=extra)
 
 
 def sign_create(built: Built, wallet: Keypair) -> bytes:
