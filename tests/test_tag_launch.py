@@ -312,6 +312,52 @@ class TestWords(unittest.TestCase):
         self.assertEqual(re.findall(r"https?://\S+", text), [f"{tag.SITE}/t/2102897602891321416"])
         self.assertIsNone(re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", text))
 
+    def test_every_reply_wording_says_the_same_things(self):
+        link = tag.coin_link("9" * 19)
+        texts = {tag.reply_text(tag.TagRequest("Moon Dog", "ABCDEFGHIJ"), link, seed=i) for i in range(12)}
+        self.assertEqual(len(texts), len(tag._REPLIES))
+        for text in texts:
+            self.assertIn("$ABCDEFGHIJ", text)
+            self.assertIn("sign", text)
+            self.assertIn("with X", text)
+            self.assertIn("7 days", text)
+            self.assertIn("$CHARLIE buy-and-burn", text)
+            self.assertEqual(re.findall(r"https?://\S+", text), [link])
+            self.assertLessEqual(len(re.sub(r"https?://\S+", "x" * 23, text)), 280)
+        self.assertEqual(tag.reply_text(tag.TagRequest("A", "AB"), link, seed="2102897602891321416"),
+                         tag.reply_text(tag.TagRequest("A", "AB"), link, seed=2102897602891321416))
+
+    def test_missing_parts_of_a_tag(self):
+        cases = {
+            "@CharlieSlugSOL launch Moon Dog $MDOG": [],
+            "@CharlieSlugSOL gm": [],
+            "launch Moon Dog": [],
+            "@someoneelse launch Moon Dog": [],
+            "@CharlieSlugSOL launch Moon Dog": ["a $TICKER"],
+            "@CharlieSlugSOL launch $MDOG": ["a name"],
+            "@CharlieSlugSOL launch": ["a name", "a $TICKER"],
+            "@CharlieSlugSOL launch Moon Dog $M": ["a $TICKER of 2 to 10 letters or numbers"],
+            "@CharlieSlugSOL launch Moon Dog $MDOG $CAT": ["just one $TICKER"],
+            "@CharlieSlugSOL launch $MDOG Moon Dog": ["the $TICKER at the end"],
+            "@CharlieSlugSOL launch Moon-Dog! $MDOG": ["a name of up to 32 letters, numbers and spaces"],
+            "@news @CharlieSlugSOL launch Plane https://t.co/A": ["a $TICKER"],
+            "so cool\n@CharlieSlugSOL launch Moon Dog": ["a $TICKER"],
+        }
+        for text, parts in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(tag.missing_parts(text), parts)
+
+    def test_every_answered_refusal_fits_a_post_with_no_link_or_address(self):
+        refusals = [tag.malformed(["a name", "a $TICKER"], no_image=True), tag.TagRefused("no_image", tag.NO_IMAGE),
+                    tag.content_refusal(tag.TagRequest("Moon Dog", "CHARLIE")),
+                    tag.content_refusal(tag.TagRequest("Coinbase", "CB"))]
+        for refused in refusals:
+            self.assertIn(refused.code, tag.REPLIED_CODES)
+            for seed in range(len(tag._REFUSAL_OPENERS)):
+                text = tag.refusal_text(refused, seed=seed)
+                self.assertLessEqual(len(text), 280)
+                self.assertIsNone(re.search(r"https?://|[1-9A-HJ-NP-Za-km-z]{32,44}", text))
+
     def test_metadata_credits_the_requester(self):
         fields = tag.metadata_fields(tag.TagRequest("Moon Dog", "MDOG"), "alice", "100", "MintAddr")
         self.assertEqual(fields["twitter"], "https://x.com/alice/status/100")

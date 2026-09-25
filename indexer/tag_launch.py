@@ -149,6 +149,8 @@ def dedupe_key(tweet: dict) -> str:
     return str(history[0] if history else tweet["id"])
 
 
+NO_IMAGE = ("the tag needs an image. post it again with the coin's image attached, "
+            "or tag under a post that has one.")
 PHOTO_TYPES = ("photo",)   # the bot pins stills only (tag_bot.image_of)
 IMAGE_SOURCES = ("replied_to", "quoted")   # after the tag's own media, in this order
 
@@ -184,9 +186,9 @@ def tweet_refusal(tweet: dict, now: datetime, media: dict | None = None, *,
         return TagRefused("stale", "The post is too old to act on.")
     keys = media_keys(tweet, refs)
     if not keys:
-        return TagRefused("no_image", "Attach the coin's image, or tag under a post that has one.")
+        return TagRefused("no_image", NO_IMAGE)
     if media is not None and not any((media.get(k) or {}).get("type") in PHOTO_TYPES for k in keys):
-        return TagRefused("no_image", "Attach the coin's image, or tag under a post that has one.")
+        return TagRefused("no_image", NO_IMAGE)
     return None
 
 
@@ -207,15 +209,15 @@ def account_refusal(user: dict, now: datetime, *, bot_id: str = "") -> TagRefuse
         return TagRefused("withheld", "This account is withheld.")
     avatar = user.get("profile_image_url")
     if not isinstance(avatar, str) or not avatar.strip() or "default_profile_images" in avatar:
-        return TagRefused("no_avatar", "Set a profile image before launching.")
+        return TagRefused("no_avatar", "set a profile image on your account, then tag again.")
     if (now - _when(user["created_at"])).days < MIN_ACCOUNT_AGE_DAYS:
-        return TagRefused("too_new", f"The account must be at least {MIN_ACCOUNT_AGE_DAYS} days old.")
+        return TagRefused("too_new", f"your X account has to be at least {MIN_ACCOUNT_AGE_DAYS} days old.")
     metrics = user.get("public_metrics") or {}
     verified = (user.get("verified_type") or "none") in ("blue", "business", "government")
     if not verified and metrics.get("followers_count", 0) < MIN_FOLLOWERS:
-        return TagRefused("few_followers", f"The account needs {MIN_FOLLOWERS} followers or a verified badge.")
+        return TagRefused("few_followers", f"your X account needs {MIN_FOLLOWERS} followers or a verified badge.")
     if metrics.get("tweet_count", 0) < MIN_POSTS:
-        return TagRefused("few_posts", f"The account needs at least {MIN_POSTS} posts.")
+        return TagRefused("few_posts", f"your X account needs at least {MIN_POSTS} posts.")
     return None
 
 
@@ -245,13 +247,13 @@ def content_refusal(request: TagRequest, *, taken=(), protected=()) -> TagRefuse
     (four letters or fewer) must match exactly to be refused; two edits on a
     short word would refuse half the dictionary."""
     if request.ticker in RESERVED_TICKERS or request.ticker in {t.upper() for t in taken}:
-        return TagRefused("ticker_taken", f"${request.ticker} is taken. Pick another ticker.")
+        return TagRefused("ticker_taken", f"${request.ticker} is taken. pick another ticker and tag again.")
     words = [w for w in (*PROTECTED_NAMES, *(_squash(p) for p in protected)) if w]
     for value in (_squash(request.name), _squash(request.ticker)):   # $OPENAI impersonates as well
         for word in words:
             close = value == word if len(word) <= 4 or len(value) <= 4 else _within_two(value, word)
             if close or (len(word) >= 5 and word in value):
-                return TagRefused("impersonation", "That name is too close to a real person, brand or project.")
+                return TagRefused("impersonation", "that name is too close to Charlie or a crypto brand. pick another and tag again.")
     return None
 
 
@@ -313,15 +315,30 @@ class Book:
     def limit_refusal(self, user_id: str, now: int) -> TagRefused | None:
         if self.db.execute("SELECT 1 FROM tag_bans WHERE user_id = ?", (user_id,)).fetchone():
             return TagRefused("banned", "This account is not served.")
-        if self._count(user_id, "refused", now - REFUSAL_TIMEOUT_DAYS * DAY) >= REFUSALS_BEFORE_TIMEOUT:
+        # A tag worded wrong is a typo, not probing; it never counts here.
+        refusals = self.db.execute(
+            "SELECT COUNT(*) FROM tag_requests WHERE user_id = ? AND outcome = 'refused' AND at > ? "
+            "AND COALESCE(code, '') != 'malformed'",
+            (user_id, now - REFUSAL_TIMEOUT_DAYS * DAY)).fetchone()[0]
+        if refusals >= REFUSALS_BEFORE_TIMEOUT:
             return TagRefused("timeout", "Too many refused requests; try again later.")
         if self._launches(user_id, now - DAY) >= PER_DAY:
-            return TagRefused("daily_limit", f"{PER_DAY} launch per account per day.")
+            return TagRefused("daily_limit", f"each account gets {PER_DAY} launch a day. try again in 24 hours.")
         if self._launches(user_id, now - 30 * DAY) >= PER_THIRTY_DAYS:
-            return TagRefused("monthly_limit", f"{PER_THIRTY_DAYS} launches per account per 30 days.")
+            return TagRefused("monthly_limit", f"each account gets {PER_THIRTY_DAYS} launches every 30 days, and you've used them.")
         if self.launched_since(now - DAY) >= DAILY_CEILING:
             return TagRefused("ceiling", "Launching is paused for today.")
         return None
+
+    def answered_refusal(self, user_id: str, since: int, *, besides: str) -> bool:
+        """Whether the account had a refusal the bot answers (REPLIED_CODES)
+        after `since`, other than tweet `besides`. The bot answers one a day
+        per account, so a stream of bad tags cannot make it post a stream of
+        replies, which X reads as spam."""
+        rows = self.db.execute(
+            "SELECT code FROM tag_requests WHERE user_id = ? AND at > ? AND tweet_key != ? "
+            "AND outcome = 'refused'", (user_id, since, besides))
+        return any(code in REPLIED_CODES for (code,) in rows)
 
     def record(self, tweet_key: str, user_id: str, now: int, outcome: str, *,
                code: str | None = None, ticker: str | None = None, mint: str | None = None) -> None:
@@ -480,14 +497,120 @@ def coin_link(tweet_id) -> str:
     return f"{SITE}/t/{tweet_id}"
 
 
-def reply_text(request: TagRequest, link: str) -> str:
-    """The only thing the bot says on success. Nothing from the tweet but
-    the ticker reaches it. One link only, to the coin page; the claim is
-    reached from that page rather than linked here. No address."""
-    return (f"${request.ticker} is live \N{SNAIL}\n\n"
-            "your share of its creator fees is yours to claim. sign in with X on the "
-            "coin page. after 7 days, unclaimed fees go to the $CHARLIE buy-and-burn.\n\n"
-            f"{link}")
+# The success reply in a few wordings with the same facts, picked by the tag's
+# tweet id: many identical replies in a row read as spam to X (Clanker varies
+# its wording the same way, seen 2026-09-25).
+_REPLIES = (
+    ("${ticker} is live \N{SNAIL}\n\n"
+     "your share of its creator fees is yours to claim. sign in with X on the "
+     "coin page. after 7 days, unclaimed fees go to the $CHARLIE buy-and-burn.\n\n{link}"),
+    ("${ticker} is live on pump.fun \N{SNAIL}\n\n"
+     "your share of its creator fees is waiting. open the coin page and sign in with X to claim it. "
+     "anything left unclaimed for 7 days goes to the $CHARLIE buy-and-burn.\n\n{link}"),
+    ("done. ${ticker} is live \N{SNAIL}\n\n"
+     "you get your share of its creator fees: claim it by signing in with X on the coin page. "
+     "fees unclaimed after 7 days go to the $CHARLIE buy-and-burn.\n\n{link}"),
+    ("${ticker} just launched \N{SNAIL}\n\n"
+     "claim your share of its creator fees on the coin page by signing in with X. "
+     "after 7 days, unclaimed fees go to the $CHARLIE buy-and-burn.\n\n{link}"),
+)
+
+
+def _pick(options, seed) -> str:
+    try:
+        index = int(seed)
+    except (TypeError, ValueError):
+        index = sum(map(ord, str(seed)))
+    return options[index % len(options)]
+
+
+def reply_text(request: TagRequest, link: str, seed=0) -> str:
+    """The bot's reply on success; `seed` (the tag's tweet id) picks the
+    wording. Nothing from the tweet but the ticker reaches it. One link only,
+    to the coin page; the claim is reached from that page rather than linked
+    here. No address."""
+    return _pick(_REPLIES, seed).format(ticker=request.ticker, link=link)
+
+
+# -- what the reply says when a tag does not launch --------------------------------
+
+# Refusals the requester can fix, or should hear about, get one reply. The
+# rest stay silent: bots, parodies, protected and withheld accounts (a reply
+# to a bot can start a loop), reposts, edits and stale posts (nobody is
+# waiting), bans and timeouts (the reply would be the prize), and the
+# launcher's own state (wallet_low, ceiling, no_user), which is not theirs.
+REPLIED_CODES = frozenset({
+    "malformed", "no_image", "bad_image", "image_refused",
+    "no_avatar", "too_new", "few_followers", "few_posts",
+    "ticker_taken", "impersonation", "daily_limit", "monthly_limit",
+})
+
+_REFUSAL_OPENERS = (
+    "can't launch this one yet.",
+    "not launched.",
+    "this tag didn't launch.",
+    "no coin this time.",
+)
+
+EXAMPLE_TAG = f"@{BOT_HANDLE} launch Moon Dog $MDOG"
+
+# A line that starts a launch tag at all, however it continues.
+_LOOSE = re.compile(r"^(?:@[A-Za-z0-9_]{1,15}\s+)*@(?P<bot>[A-Za-z0-9_]{1,15})\s+launch\b(?P<rest>.*)$",
+                    re.IGNORECASE)
+_TICKER_WORD = re.compile(r"(?<!\S)\$(\S*)")
+_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9 ]{0,30}[A-Za-z0-9])?$")
+
+
+def missing_parts(text: str, bot_handle: str = BOT_HANDLE) -> list[str]:
+    """What a launch tag lacks, as phrases for the reply ("a $TICKER"), when
+    one line of `text` starts `@bot launch` but `parse` does not take it.
+    Empty when the text is a good tag, or no launch tag at all (then it is
+    nobody's request and stays ignored)."""
+    if parse(text, bot_handle) is not None:
+        return []
+    body = _MEDIA_LINKS.sub("", unicodedata.normalize("NFKC", text or "")).strip()
+    handle = bot_handle.lstrip("@").lower()
+    lines = [m for m in map(_LOOSE.match, (line.strip() for line in body.splitlines()))
+             if m is not None and m["bot"].lower() == handle]
+    if len(lines) != 1:
+        return []
+    rest = lines[0]["rest"].strip()
+    tickers = _TICKER_WORD.findall(rest)
+    name = " ".join(_TICKER_WORD.sub(" ", rest).split())
+    missing = []
+    if not name:
+        missing.append("a name")
+    elif not _NAME.match(name):
+        missing.append("a name of up to 32 letters, numbers and spaces")
+    if not tickers:
+        missing.append("a $TICKER")
+    elif len(tickers) > 1:
+        missing.append("just one $TICKER")
+    elif not re.fullmatch(r"[A-Za-z0-9]{2,10}", tickers[0]):
+        missing.append("a $TICKER of 2 to 10 letters or numbers")
+    elif not rest.rstrip().endswith("$" + tickers[0]):
+        missing.append("the $TICKER at the end")
+    return missing
+
+
+def _and(parts) -> str:
+    parts = list(parts)
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def malformed(missing, *, no_image: bool = False) -> TagRefused:
+    """The refusal for a tag that lacks `missing` (from `missing_parts`),
+    and an image as well when `no_image`."""
+    parts = list(missing) + (["an image"] if no_image else [])
+    return TagRefused("malformed", f"the tag needs {_and(parts)}. write it on its own line, like:\n\n"
+                                   f"{EXAMPLE_TAG}\n\nwith the coin's image attached.")
+
+
+def refusal_text(refused: TagRefused, seed=0) -> str:
+    """The reply for a refusal in REPLIED_CODES: an opener picked by `seed`
+    (the tag's tweet id), then what went wrong and, where it helps, how to
+    try again. No link and no address."""
+    return f"{_pick(_REFUSAL_OPENERS, seed)} {refused}"
 
 
 def now_utc() -> datetime:

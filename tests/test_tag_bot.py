@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import tempfile
 import unittest
@@ -233,7 +234,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.outcome(), ("launched", None, "MDOG", mint))
         self.assertEqual(h.ledger.coin(mint), {"mint": mint, "user_id": "7", "handle": "alice",
                                                "tweet_id": "100", "at": TS})
-        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100")))])
+        self.assertEqual(h.x.replies, [("100", tag.reply_text(tag.TagRequest("Moon Dog", "MDOG"), tag.coin_link("100"), seed="100"))])
         self.assertEqual(h.kv.get_json(claim_session.coin_link_key("100")), mint)
         self.assertEqual(h.pins[0][0]["twitter"], "https://x.com/alice/status/100")
         self.assertEqual(h.pins[0][0]["website"], f"{tag.SITE}/coin/{mint}")     # the coin that launched
@@ -245,7 +246,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(h.x.since[-1], "100")
         self.assertEqual(h.x.query, "@CharlieSlugSOL launch -is:retweet")
 
-    def test_each_refusal_is_recorded_and_silent(self):
+    def test_each_refusal_is_recorded_and_answered_only_when_fixable(self):
         cases = {
             "not_original": dict(tweet=tweet(referenced_tweets=[{"type": "retweeted", "id": "1"}])),
             "stale": dict(tweet=tweet(created_at="2026-09-22T11:00:00Z")),
@@ -268,10 +269,84 @@ class TestMentions(unittest.TestCase):
                 h = Harness(x=x, rpc=FakeRpc({legs.CHARLIE_LAUNCH_WALLET: case.get("balance", SOL)}))
                 h.bot.moderate = case.get("moderate")
                 h.bot.tick_mentions()
-                self.assertEqual((h.sent, h.x.replies, h.pins), ([], [], []))
+                self.assertEqual((h.sent, h.pins), ([], []))
                 expected = {"no_photo": "no_image", "unsafe_text": "image_refused"}.get(code, code)
                 outcome = "failed" if code == "wallet_low" else "refused"
                 self.assertEqual(h.outcome()[:2], (outcome, expected))
+                if expected in tag.REPLIED_CODES:
+                    self.assertEqual(len(h.x.replies), 1)
+                    self.assertEqual(h.x.replies[0][0], "100")
+                    self.assertIsNone(re.search(r"https?://|[1-9A-HJ-NP-Za-km-z]{32,44}", h.x.replies[0][1]))
+                else:
+                    self.assertEqual(h.x.replies, [])
+
+    def test_a_malformed_tag_is_told_what_it_lacks(self):
+        cases = {
+            "@CharlieSlugSOL launch Moon Dog": ["a $TICKER"],
+            "@CharlieSlugSOL launch $MDOG": ["a name"],
+            "@CharlieSlugSOL launch": ["a name", "a $TICKER"],
+            "@CharlieSlugSOL launch Moon Dog $M": ["a $TICKER of 2 to 10 letters or numbers"],
+        }
+        for text, parts in cases.items():
+            with self.subTest(text=text):
+                h = Harness(x=FakeX([tweet(text=text)]))
+                row = h.bot.tick_mentions()[0]
+                self.assertEqual((row["outcome"], row["code"]), ("refused", "malformed"))
+                self.assertEqual(h.sent, [])
+                (target, said), = h.x.replies
+                self.assertEqual(target, "100")
+                for part in parts:
+                    self.assertIn(part, said)
+                self.assertIn(tag.EXAMPLE_TAG, said)
+                self.assertNotIn("an image", said)
+
+    def test_a_malformed_tag_without_an_image_is_told_both(self):
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog", attachments={})]))
+        h.bot.tick_mentions()
+        self.assertIn("a $TICKER and an image", h.x.replies[0][1])
+
+    def test_a_malformed_tag_from_an_account_not_served_is_silent(self):
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog")], users={"7": user(username="grok")}))
+        h.bot.tick_mentions()
+        self.assertEqual(h.outcome()[:2], ("refused", "ignored"))
+        self.assertEqual(h.x.replies, [])
+
+    def test_the_account_is_told_before_the_image(self):
+        h = Harness(x=FakeX([tweet(attachments={})], users={"7": user(created_at="2026-09-01T00:00:00Z")}))
+        h.bot.tick_mentions()
+        self.assertEqual(h.outcome()[:2], ("refused", "too_new"))
+        self.assertIn("90 days", h.x.replies[0][1])
+
+    def test_malformed_tags_never_time_an_account_out(self):
+        h = Harness(x=FakeX([]))
+        for i in range(tag.REFUSALS_BEFORE_TIMEOUT + 1):
+            h.book.record(str(i), "7", TS - 3600, "refused", code="malformed")
+        self.assertIsNone(h.book.limit_refusal("7", TS))
+
+    def test_one_refusal_reply_a_day_per_account(self):
+        second = tweet(id="200", edit_history_tweet_ids=["200"], text="@CharlieSlugSOL launch Moon Cat")
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog"), second]))
+        rows = h.bot.tick_mentions()
+        self.assertEqual([r["code"] for r in rows], ["malformed", "malformed"])
+        self.assertEqual([r[0] for r in h.x.replies], ["100"])
+        self.assertTrue(any(line.startswith("refusal_unanswered") for line in h.lines))
+
+    def test_a_failed_refusal_reply_still_records_the_refusal(self):
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog")]))
+
+        def refuse(*a):
+            raise RuntimeError("X answered HTTP 403")
+        h.x.post_reply = refuse
+        row = h.bot.tick_mentions()[0]
+        self.assertEqual((row["code"], row["reply"]), ("malformed", None))
+        self.assertTrue(h.book.seen("100"))
+        self.assertEqual(h.ledger.state(tag_bot.SINCE_KEY), "100")
+
+    def test_dry_run_never_answers_a_refusal(self):
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog")]), dry_run=True)
+        h.x.post_reply = lambda *a: self.fail("dry run posted")
+        self.assertEqual(h.bot.tick_mentions()[0]["code"], "malformed")
+        self.assertTrue(any(line.startswith("would_reply") for line in h.lines))
 
     def test_moderation_sees_the_image_before_anything_is_pinned(self):
         h = Harness(x=FakeX([tweet()]))
