@@ -211,7 +211,7 @@ class TestCodexModerator(unittest.TestCase):
         text, image = body["input"][0]["content"]
         self.assertEqual(image, {"type": "input_image",
                                  "image_url": "data:image/png;base64," + base64.b64encode(PNG).decode()})
-        for word in ("sexual", "minor", "gore", "hate symbols", "real, identifiable person", "brand logo"):
+        for word in ("nudity", "sexual", "child", "minor", "real people, logos and violence are allowed"):
             self.assertIn(word, text["text"])
 
     def test_the_model_is_configurable(self):

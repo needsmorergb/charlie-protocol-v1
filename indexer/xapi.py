@@ -37,7 +37,9 @@ TIMEOUT = 20
 TWEET_FIELDS = "created_at,edit_history_tweet_ids,referenced_tweets,attachments,author_id,text"
 USER_FIELDS = "created_at,public_metrics,verified_type,protected,profile_image_url,withheld,parody,username,name"
 MEDIA_FIELDS = "url,type"
-EXPANSIONS = "author_id,attachments.media_keys"
+# The referenced-post expansions bring the replied-to / quoted post and its
+# media, so a tag under a news post can take that post's picture.
+EXPANSIONS = "author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys"
 MAX_PAGES = 50        # a safety stop; a backlog deeper than this raises
 
 
@@ -174,7 +176,7 @@ class XClient:
         search already returned, which is longer than a tag stays fresh.
 
         Returns `{"tweets": [...], "users": {id: user}, "media": {key: media},
-        "newest_id": str | None}`. Follows `next_token` to the last page, so
+        "refs": {id: referenced tweet}, "newest_id": str | None}`. Follows `next_token` to the last page, so
         a burst between polls is never skipped: X pages newest first, and a
         caller that advanced `since_id` past a partial read would lose the
         older pages. A backlog deeper than MAX_PAGES raises instead, so
@@ -182,6 +184,7 @@ class XClient:
         tweets: dict[str, dict] = {}
         users: dict[str, dict] = {}
         media: dict[str, dict] = {}
+        refs: dict[str, dict] = {}
         newest: str | None = None
         token: str | None = None
         for _ in range(MAX_PAGES):
@@ -205,6 +208,7 @@ class XClient:
                 tweets[str(tweet.get("id"))] = tweet
             users.update(shaped["users"])
             media.update(shaped["media"])
+            refs.update(shaped["refs"])
             newest = _max_id(newest, shaped["newest_id"])
             token = (page.get("meta") or {}).get("next_token")
             if not token:
@@ -212,7 +216,7 @@ class XClient:
         else:
             raise XError(f"more than {MAX_PAGES} pages of mentions; not advancing past unread ones", 0)
         ordered = sorted(tweets.values(), key=lambda t: _id_int(t.get("id")))
-        return {"tweets": ordered, "users": users, "media": media, "newest_id": newest}
+        return {"tweets": ordered, "users": users, "media": media, "refs": refs, "newest_id": newest}
 
     def lookup(self, ids) -> dict:
         """The given tweets by id, shaped like `mentions` (for a replay)."""
@@ -260,16 +264,19 @@ def _max_id(a: str | None, b: str | None) -> str | None:
 
 def shape_mentions(page: dict) -> dict:
     """One mentions page, reshaped: tweets oldest first, users by id, media
-    by media_key, and the newest id (meta's, else the largest seen)."""
+    by media_key, referenced posts (`includes.tweets`) by id, and the newest
+    id (meta's, else the largest seen)."""
     data = [t for t in (page.get("data") or []) if isinstance(t, dict)]
     includes = page.get("includes") or {}
     users = {str(u["id"]): u for u in includes.get("users") or [] if isinstance(u, dict) and "id" in u}
     media = {str(m["media_key"]): m for m in includes.get("media") or [] if isinstance(m, dict) and "media_key" in m}
+    refs = {str(t["id"]): t for t in includes.get("tweets") or [] if isinstance(t, dict) and "id" in t}
     tweets = sorted(data, key=lambda t: _id_int(t.get("id")))
     newest = (page.get("meta") or {}).get("newest_id")
     if newest is None and tweets:
         newest = str(tweets[-1].get("id"))
-    return {"tweets": tweets, "users": users, "media": media, "newest_id": str(newest) if newest else None}
+    return {"tweets": tweets, "users": users, "media": media, "refs": refs,
+            "newest_id": str(newest) if newest else None}
 
 
 # -- OAuth 2.0 with PKCE (the claim page's sign-in) --------------------------------
