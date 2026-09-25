@@ -64,6 +64,13 @@ class TestParse(unittest.TestCase):
         self.assertEqual(tag.parse("@charlieslugsol launch Moon Dog $MDOG"), tag.TagRequest("Moon Dog", "MDOG"))
         self.assertIsNone(tag.parse("@Charlie launch Moon Dog $MDOG"))
 
+    def test_a_reply_starts_with_the_threads_handles(self):
+        self.assertEqual(tag.parse("@BBCBreaking @CharlieSlugSol launch Plane $PL"), tag.TagRequest("Plane", "PL"))
+        self.assertEqual(tag.parse("@a @b_2 @charlieslugsol launch Moon Dog $MDOG https://t.co/abc"),
+                         tag.TagRequest("Moon Dog", "MDOG"))
+        # the bot's handle must be the one right before "launch"
+        self.assertIsNone(tag.parse("@CharlieSlugSol @someone launch Plane $PL"))
+
     def test_a_tag_for_another_bot_is_not_ours(self):
         self.assertIsNone(tag.parse("@bankrbot launch Moon Dog $MDOG", "charlie"))
 
@@ -74,7 +81,7 @@ class TestTweet(unittest.TestCase):
 
     def test_refusals(self):
         cases = {
-            "not_original": tweet(referenced_tweets=[{"type": "replied_to", "id": "9"}]),
+            "not_original": tweet(referenced_tweets=[{"type": "retweeted", "id": "9"}]),
             "edited": tweet(id="101", edit_history_tweet_ids=["100", "101"]),
             "stale": tweet(created_at=(NOW - timedelta(minutes=11)).isoformat()),
             "no_image": tweet(attachments={}),
@@ -82,11 +89,30 @@ class TestTweet(unittest.TestCase):
         for code, t in cases.items():
             self.assertEqual(tag.tweet_refusal(t, NOW).code, code)
 
-    def test_a_quote_is_the_requesters_own_post(self):
-        self.assertIsNone(tag.tweet_refusal(tweet(referenced_tweets=[{"type": "quoted", "id": "9"}]), NOW))
-        for kind in ("replied_to", "retweeted"):
-            both = tweet(referenced_tweets=[{"type": "quoted", "id": "9"}, {"type": kind, "id": "8"}])
-            self.assertEqual(tag.tweet_refusal(both, NOW).code, "not_original", kind)
+    def test_a_quote_or_a_reply_may_launch_a_repost_may_not(self):
+        for kind in ("quoted", "replied_to"):
+            self.assertIsNone(tag.tweet_refusal(tweet(referenced_tweets=[{"type": kind, "id": "9"}]), NOW), kind)
+        both = tweet(referenced_tweets=[{"type": "quoted", "id": "9"}, {"type": "replied_to", "id": "8"}])
+        self.assertIsNone(tag.tweet_refusal(both, NOW))
+        repost = tweet(referenced_tweets=[{"type": "quoted", "id": "9"}, {"type": "retweeted", "id": "8"}])
+        self.assertEqual(tag.tweet_refusal(repost, NOW).code, "not_original")
+
+    def test_a_reply_takes_the_news_posts_picture(self):
+        news = {"8": {"id": "8", "attachments": {"media_keys": ["3_8"]}}}
+        media = {"3_8": {"type": "photo", "url": "https://pbs/news.jpg"}}
+        reply = tweet(attachments={}, referenced_tweets=[{"type": "replied_to", "id": "8"}])
+        self.assertEqual(tag.media_keys(reply, news), ["3_8"])
+        self.assertIsNone(tag.tweet_refusal(reply, NOW, media, refs=news))
+        # without the parent (X did not return it) there is no picture
+        self.assertEqual(tag.tweet_refusal(reply, NOW, media).code, "no_image")
+        # a parent with only a video is no picture either
+        self.assertEqual(tag.tweet_refusal(reply, NOW, {"3_8": {"type": "video"}}, refs=news).code, "no_image")
+
+    def test_the_taggers_own_photo_comes_first(self):
+        refs = {"8": {"id": "8", "attachments": {"media_keys": ["3_8"]}},
+                "9": {"id": "9", "attachments": {"media_keys": ["3_9", "3_1"]}}}
+        both = tweet(referenced_tweets=[{"type": "quoted", "id": "9"}, {"type": "replied_to", "id": "8"}])
+        self.assertEqual(tag.media_keys(both, refs), ["3_1", "3_8", "3_9"])
 
     def test_a_replay_ignores_only_the_age(self):
         old = (NOW - timedelta(hours=3)).isoformat()

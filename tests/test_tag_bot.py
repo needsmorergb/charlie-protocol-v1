@@ -85,8 +85,10 @@ def user(**over):
 
 
 class FakeX:
-    def __init__(self, tweets=(), users=None, media=None, image=("image/png", PNG)):
+    def __init__(self, tweets=(), users=None, media=None, image=("image/png", PNG), refs=None):
         self.tweets = list(tweets)
+        self.refs = refs or {}
+        self.fetched = []
         self.users = users if users is not None else {"7": user()}
         self.media = media if media is not None else {"3_1": {"type": "photo", "url": "https://pbs/x.png"}}
         self.image = image
@@ -96,10 +98,11 @@ class FakeX:
         self.since.append(since_id)
         self.query = query
         tweets, self.tweets = self.tweets, []
-        return {"tweets": tweets, "users": self.users, "media": self.media,
+        return {"tweets": tweets, "users": self.users, "media": self.media, "refs": self.refs,
                 "newest_id": tweets[-1]["id"] if tweets else None}
 
     def fetch(self, url, *, limit=5_000_000):
+        self.fetched.append(url)
         if isinstance(self.image, Exception):
             raise self.image
         return self.image
@@ -244,7 +247,7 @@ class TestMentions(unittest.TestCase):
 
     def test_each_refusal_is_recorded_and_silent(self):
         cases = {
-            "not_original": dict(tweet=tweet(referenced_tweets=[{"type": "replied_to", "id": "1"}])),
+            "not_original": dict(tweet=tweet(referenced_tweets=[{"type": "retweeted", "id": "1"}])),
             "stale": dict(tweet=tweet(created_at="2026-09-22T11:00:00Z")),
             "no_image": dict(tweet=tweet(attachments={})),
             "too_new": dict(users={"7": user(created_at="2026-09-01T00:00:00Z")}),
@@ -356,6 +359,17 @@ class TestMentions(unittest.TestCase):
                       referenced_tweets=[{"type": "quoted", "id": "9"}])
         h = Harness(x=FakeX([quote]))
         self.assertEqual(h.bot.tick_mentions()[0]["outcome"], "launched")
+
+    def test_a_reply_under_a_news_post_launches_with_the_news_picture(self):
+        reply = tweet(text="@BBCBreaking @CharlieSlugSOL launch Plane $PL", attachments={},
+                      referenced_tweets=[{"type": "replied_to", "id": "90"}])
+        news = {"90": {"id": "90", "attachments": {"media_keys": ["3_90"]}}}
+        media = {"3_90": {"type": "photo", "url": "https://pbs/news.jpg"}}
+        h = Harness(x=FakeX([reply], media=media, refs=news))
+        row = h.bot.tick_mentions()[0]
+        self.assertEqual(row["outcome"], "launched")
+        self.assertEqual(h.x.fetched, ["https://pbs/news.jpg"])
+        self.assertEqual(h.x.replies[0][0], "100")          # the reply goes to the tagger, not the news post
 
     def test_a_replay_launches_a_missed_stale_tag_once(self):
         old = tweet(created_at="2026-09-22T11:00:00Z")
@@ -1084,7 +1098,7 @@ class TestModeration(unittest.TestCase):
         image, text = body["messages"][0]["content"]
         self.assertEqual(image["source"], {"type": "base64", "media_type": "image/png",
                                            "data": base64.b64encode(PNG).decode()})
-        for word in ("sexual", "minor", "gore", "hate symbols", "real, identifiable person", "brand logo",
+        for word in ("nudity", "sexual", "child", "minor", "real people, logos and violence are allowed",
                      "SAFE", "UNSAFE"):
             self.assertIn(word, text["text"])
         self.assertEqual(timeout, moderation.TIMEOUT_SECONDS)

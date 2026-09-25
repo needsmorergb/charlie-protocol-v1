@@ -72,7 +72,8 @@ def _mentions_page(ids, *, newest=None, next_token=None):
         "data": [{"id": i, "text": f"@CharlieSlugSOL t{i}", "author_id": "u1",
                   "attachments": {"media_keys": ["3_1"]}} for i in ids],
         "includes": {"users": [{"id": "u1", "username": "alice"}],
-                     "media": [{"media_key": "3_1", "type": "photo", "url": "https://pbs.twimg.com/a.png"}]},
+                     "media": [{"media_key": "3_1", "type": "photo", "url": "https://pbs.twimg.com/a.png"}],
+                     "tweets": [{"id": "88", "attachments": {"media_keys": ["3_1"]}}]},
         "meta": {"newest_id": newest or (ids[0] if ids else None), "result_count": len(ids),
                  **({"next_token": next_token} if next_token else {})},
     }
@@ -86,6 +87,7 @@ class TestMentions(unittest.TestCase):
         self.assertEqual([t["id"] for t in out["tweets"]], ["9", "20", "30"])
         self.assertEqual(out["users"]["u1"]["username"], "alice")
         self.assertEqual(out["media"]["3_1"]["type"], "photo")
+        self.assertEqual(out["refs"]["88"]["attachments"], {"media_keys": ["3_1"]})   # the post replied to
         self.assertEqual(out["newest_id"], "30")
         request = opener.last()
         self.assertEqual(request.get_header("Authorization"), "Bearer B")
@@ -93,7 +95,8 @@ class TestMentions(unittest.TestCase):
         self.assertEqual(urlsplit(request.full_url).path, "/2/users/123/mentions")
         self.assertEqual(query["since_id"], ["5"])
         self.assertEqual(query["max_results"], ["100"])
-        self.assertEqual(query["expansions"], ["author_id,attachments.media_keys"])
+        self.assertEqual(query["expansions"], ["author_id,attachments.media_keys,referenced_tweets.id,"
+                                               "referenced_tweets.id.attachments.media_keys"])
         self.assertIn("parody", query["user.fields"][0])
         self.assertIn("edit_history_tweet_ids", query["tweet.fields"][0])
         self.assertEqual(query["media.fields"], ["url,type"])
@@ -101,7 +104,7 @@ class TestMentions(unittest.TestCase):
     def test_no_since_id_is_omitted(self):
         opener = FakeOpener({"/mentions": {"meta": {"result_count": 0}}})
         out = xapi.XClient(bearer="B", opener=opener).mentions("123", None)
-        self.assertEqual(out, {"tweets": [], "users": {}, "media": {}, "newest_id": None})
+        self.assertEqual(out, {"tweets": [], "users": {}, "media": {}, "refs": {}, "newest_id": None})
         self.assertNotIn("since_id", opener.last().full_url)
 
     def test_follows_pages(self):

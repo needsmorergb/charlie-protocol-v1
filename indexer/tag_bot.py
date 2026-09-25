@@ -163,11 +163,12 @@ def sniff(data: bytes) -> str | None:
     return None
 
 
-def image_of(x, tweet: dict, media: dict) -> tuple[str, str, bytes] | None:
-    """The tweet's first photo as `(filename, content type, bytes)`, or None
-    when there is none or it is not a PNG, JPEG, GIF or WebP of at most
-    MAX_IMAGE_BYTES. The bytes decide the type, not the header."""
-    for key in (tweet.get("attachments") or {}).get("media_keys") or []:
+def image_of(x, tweet: dict, media: dict, refs: dict | None = None) -> tuple[str, str, bytes] | None:
+    """The first photo among the tweet's own media, then the post it replies
+    to, then the post it quotes (`tag.media_keys`), as `(filename, content
+    type, bytes)`; None when there is none or it is not a PNG, JPEG, GIF or
+    WebP of at most MAX_IMAGE_BYTES. The bytes decide the type, not the header."""
+    for key in tag.media_keys(tweet, refs):
         item = media.get(key) or {}
         if item.get("type") != "photo" or not item.get("url"):
             continue
@@ -266,7 +267,8 @@ class Bot:
         held = False
         for tweet in page.get("tweets") or []:
             try:
-                row = self._one(tweet, page.get("users") or {}, page.get("media") or {})
+                row = self._one(tweet, page.get("users") or {}, page.get("media") or {},
+                                refs=page.get("refs") or {})
             except Exception as exc:  # noqa: BLE001 -- one bad tag never stops the rest
                 row = {"tweet": tweet.get("id"), "outcome": "error", "reason": f"{type(exc).__name__}: {exc}"}
                 self.log("error", tweet=tweet.get("id"), reason=row["reason"])
@@ -298,9 +300,11 @@ class Bot:
             self.log("replay_missing", tweet=tweet_id)
             return None
         self.log("replay", tweet=tweet_id)
-        return self._one(tweets[0], page.get("users") or {}, page.get("media") or {}, max_age=None)
+        return self._one(tweets[0], page.get("users") or {}, page.get("media") or {},
+                         refs=page.get("refs") or {}, max_age=None)
 
-    def _one(self, tweet: dict, users: dict, media: dict, *, max_age=tag.MAX_TWEET_AGE_SECONDS) -> dict | None:
+    def _one(self, tweet: dict, users: dict, media: dict, *, refs: dict | None = None,
+             max_age=tag.MAX_TWEET_AGE_SECONDS) -> dict | None:
         request = tag.parse(tweet.get("text") or "")
         if request is None:
             # Not recorded (it is nobody's request), but logged, so a tag
@@ -314,7 +318,7 @@ class Bot:
         user = users.get(user_id)
         now = self.now()
         ts = tag.epoch(now)
-        refused = tag.tweet_refusal(tweet, now, media, max_age=max_age)
+        refused = tag.tweet_refusal(tweet, now, media, refs=refs, max_age=max_age)
         if refused is None and user is None:
             refused = tag.TagRefused("no_user", "The author could not be read.")
         refused = (refused
@@ -324,7 +328,7 @@ class Bot:
                    or tag.wallet_refusal(self.rpc.balance(legs.CHARLIE_LAUNCH_WALLET)))
         if refused:
             return self._refuse(key, user_id, ts, refused, request.ticker)
-        image = image_of(self.x, tweet, media)
+        image = image_of(self.x, tweet, media, refs)
         if image is None:
             return self._refuse(key, user_id, ts, tag.TagRefused("bad_image", "The image is not usable."),
                                 request.ticker)

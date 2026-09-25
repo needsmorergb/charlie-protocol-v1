@@ -31,9 +31,8 @@ TIMEOUT_SECONDS = 30
 
 PROMPT = (
     "You screen images that would become the picture of a publicly traded meme coin. "
-    "Does this image contain any of: sexual content or nudity; a minor in any unsafe or "
-    "sexualised context; gore or graphic violence; hate symbols; a real, identifiable person; "
-    "a brand logo or trademark? "
+    "News photos, real people, logos and violence are allowed. Does this image contain "
+    "either of: nudity or sexual content; a child or minor (anyone who looks under 18)? "
     "Answer with exactly one word: SAFE if it contains none of these, UNSAFE otherwise."
 )
 

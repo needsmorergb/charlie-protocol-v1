@@ -112,7 +112,7 @@ class TagRequest:
 
 _MEDIA_LINKS = re.compile(r"(?:\s+https://t\.co/\w+)+\s*$")
 _TAG = re.compile(
-    r"^@(?P<bot>[A-Za-z0-9_]{1,15})\s+launch\s+"
+    r"^(?:@[A-Za-z0-9_]{1,15}\s+)*@(?P<bot>[A-Za-z0-9_]{1,15})\s+launch\s+"
     r"(?P<name>[A-Za-z0-9](?:[A-Za-z0-9 ]{0,30}[A-Za-z0-9])?)\s+"
     r"\$(?P<ticker>[A-Za-z0-9]{2,10})\s*$",
     re.IGNORECASE,
@@ -122,7 +122,9 @@ _TAG = re.compile(
 def parse(text: str, bot_handle: str = BOT_HANDLE) -> TagRequest | None:
     """The request in a tweet's text, or None when no line of it is exactly a
     launch tag addressed to `bot_handle`. X appends t.co links for attached
-    media and a quoted post; those are dropped first. Other lines ("gonna try
+    media and a quoted post; those are dropped first. A reply's text starts
+    with the handles X inserts for the thread ("@news @bot launch ..."), so
+    mentions ahead of the bot's handle are allowed. Other lines ("gonna try
     this") are allowed and never read; two tag lines are ambiguous and ignored."""
     body = _MEDIA_LINKS.sub("", unicodedata.normalize("NFKC", text or "")).strip()
     handle = bot_handle.lstrip("@").lower()
@@ -150,28 +152,43 @@ def dedupe_key(tweet: dict) -> str:
 
 
 PHOTO_TYPES = ("photo",)   # the bot pins stills only (tag_bot.image_of)
+IMAGE_SOURCES = ("replied_to", "quoted")   # after the tag's own media, in this order
+
+
+def media_keys(tweet: dict, refs: dict | None = None) -> list[str]:
+    """Where the coin's picture may come from, in order: the tag's own
+    attachments, then the post it replies to (the news post someone tagged
+    under), then the post it quotes. `refs` is X's `includes.tweets`, keyed
+    by id; a referenced post X did not return contributes nothing."""
+    keys = list((tweet.get("attachments") or {}).get("media_keys") or [])
+    by_type = {(r or {}).get("type"): str((r or {}).get("id")) for r in tweet.get("referenced_tweets") or []}
+    for kind in IMAGE_SOURCES:
+        parent = (refs or {}).get(by_type.get(kind)) or {}
+        keys += [k for k in (parent.get("attachments") or {}).get("media_keys") or [] if k not in keys]
+    return keys
 
 
 def tweet_refusal(tweet: dict, now: datetime, media: dict | None = None, *,
+                  refs: dict | None = None,
                   max_age: int | None = MAX_TWEET_AGE_SECONDS) -> TagRefused | None:
     """X API v2 tweet object (with `created_at`, `referenced_tweets`,
     `attachments`, `edit_history_tweet_ids`). With `media` (the includes,
-    keyed by media_key), at least one attached item must be a photo: media
-    keys alone are not enough. A quote is the requester's own post (the
-    image must still be attached to it); a reply or repost is not.
+    keyed by media_key), at least one candidate item must be a photo: media
+    keys alone are not enough. A reply or a quote may launch, and its image
+    may come from the post it answers (see `media_keys`); a repost may not.
     `max_age=None` is the owner's one-off replay of a missed tag."""
-    if any((ref or {}).get("type") != "quoted" for ref in tweet.get("referenced_tweets") or []):
-        return TagRefused("not_original", "Only an original post or a quote can launch, not a reply or repost.")
+    if any((ref or {}).get("type") not in IMAGE_SOURCES for ref in tweet.get("referenced_tweets") or []):
+        return TagRefused("not_original", "A repost cannot launch.")
     if dedupe_key(tweet) != str(tweet["id"]):
         return TagRefused("edited", "An edited post cannot launch; the first version is the request.")
     age = (now - _when(tweet["created_at"])).total_seconds()
     if max_age is not None and age > max_age:
         return TagRefused("stale", "The post is too old to act on.")
-    keys = (tweet.get("attachments") or {}).get("media_keys") or []
+    keys = media_keys(tweet, refs)
     if not keys:
-        return TagRefused("no_image", "Attach the coin's image to the post.")
+        return TagRefused("no_image", "Attach the coin's image, or tag under a post that has one.")
     if media is not None and not any((media.get(k) or {}).get("type") in PHOTO_TYPES for k in keys):
-        return TagRefused("no_image", "Attach the coin's image to the post.")
+        return TagRefused("no_image", "Attach the coin's image, or tag under a post that has one.")
     return None
 
 
