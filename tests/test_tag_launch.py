@@ -342,6 +342,8 @@ class TestWords(unittest.TestCase):
             "@CharlieSlugSOL launch Moon-Dog! $MDOG": ["a name of up to 32 letters, numbers and spaces"],
             "@news @CharlieSlugSOL launch Plane https://t.co/A": ["a $TICKER"],
             "so cool\n@CharlieSlugSOL launch Moon Dog": ["a $TICKER"],
+            "@CharlieSlugSOL launch when?": [],
+            "@CharlieSlugSOL launch soon, right?": [],
         }
         for text, parts in cases.items():
             with self.subTest(text=text):

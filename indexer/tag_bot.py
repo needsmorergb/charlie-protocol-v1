@@ -70,7 +70,8 @@ STATUS_BATCH = 256                         # getSignatureStatuses takes at most 
 
 SINCE_KEY = "mentions_since_id"
 # Tags are read through recent search, not the mentions timeline (see XClient.mentions).
-TAG_QUERY = f"@{tag.BOT_HANDLE} launch -is:retweet"
+# Never the bot's own posts: a refusal reply quotes an example tag.
+TAG_QUERY = f"@{tag.BOT_HANDLE} launch -is:retweet -from:{tag.BOT_HANDLE}"
 LAST_BURN_KEY = "last_burn_at"
 UNCONFIRMED_KEY = "unconfirmed_creates"   # mint -> what tag_coins needs if it lands
 QUEUE_KEY = "claim:queue"
@@ -401,7 +402,7 @@ class Bot:
         image = image_of(self.x, tweet, media, refs)
         if image is None:
             return self._refuse(key, user_id, ts, tag.TagRefused(
-                "bad_image", "the image couldn't be read. tag again with a PNG, JPG, GIF or WebP."),
+                "bad_image", "the image couldn't be read. tag again with a PNG, JPG or WebP photo under 5 MB."),
                 request.ticker, reply_to)
         if self.moderate is not None:
             try:

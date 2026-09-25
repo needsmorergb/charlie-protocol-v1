@@ -248,7 +248,7 @@ class TestMentions(unittest.TestCase):
         h.x.tweets = [tweet()]                          # seen: never twice
         self.assertEqual(h.bot.tick_mentions(), [])
         self.assertEqual(h.x.since[-1], "100")
-        self.assertEqual(h.x.query, "@CharlieSlugSOL launch -is:retweet")
+        self.assertEqual(h.x.query, "@CharlieSlugSOL launch -is:retweet -from:CharlieSlugSOL")
 
     def test_a_launch_is_quoted_by_default_and_never_also_replied(self):
         h = Harness(x=FakeX([tweet()]))
@@ -361,6 +361,21 @@ class TestMentions(unittest.TestCase):
         for i in range(tag.REFUSALS_BEFORE_TIMEOUT + 1):
             h.book.record(str(i), "7", TS - 3600, "refused", code="malformed")
         self.assertIsNone(h.book.limit_refusal("7", TS))
+
+    def test_the_bot_s_own_refusal_reply_is_never_a_tag(self):
+        own = tweet(id="300", edit_history_tweet_ids=["300"], author_id="999",
+                    text=f"@alice not launched. the tag needs a $TICKER.\n\n{tag.EXAMPLE_TAG}\n\nwith the image.")
+        h = Harness(x=FakeX([own], users={"999": user(id="999", username="CharlieSlugSOL")}))
+        h.bot.bot_id = "999"
+        h.bot.tick_mentions()
+        self.assertEqual(h.book.entry("300")["code"], "ignored")
+        self.assertEqual((h.sent, h.x.replies, h.x.quotes), ([], [], []))
+
+    def test_a_second_refusal_reply_goes_out_after_a_day(self):
+        h = Harness(x=FakeX([tweet(text="@CharlieSlugSOL launch Moon Dog")]))
+        h.book.record("50", "7", TS - 86_400 - 60, "refused", code="malformed")
+        h.bot.tick_mentions()
+        self.assertEqual([r[0] for r in h.x.replies], ["100"])
 
     def test_one_refusal_reply_a_day_per_account(self):
         second = tweet(id="200", edit_history_tweet_ids=["200"], text="@CharlieSlugSOL launch Moon Cat")

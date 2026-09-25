@@ -323,7 +323,7 @@ class Book:
         if refusals >= REFUSALS_BEFORE_TIMEOUT:
             return TagRefused("timeout", "Too many refused requests; try again later.")
         if self._launches(user_id, now - DAY) >= PER_DAY:
-            return TagRefused("daily_limit", f"each account gets {PER_DAY} launch a day. try again in 24 hours.")
+            return TagRefused("daily_limit", f"each account gets {PER_DAY} launch a day. try again 24 hours after your last one.")
         if self._launches(user_id, now - 30 * DAY) >= PER_THIRTY_DAYS:
             return TagRefused("monthly_limit", f"each account gets {PER_THIRTY_DAYS} launches every 30 days, and you've used them.")
         if self.launched_since(now - DAY) >= DAILY_CEILING:
@@ -577,6 +577,8 @@ def missing_parts(text: str, bot_handle: str = BOT_HANDLE) -> list[str]:
     rest = lines[0]["rest"].strip()
     tickers = _TICKER_WORD.findall(rest)
     name = " ".join(_TICKER_WORD.sub(" ", rest).split())
+    if not tickers and name and not _NAME.match(name):
+        return []   # "@bot launch when?" is talk, not a request: no reply
     missing = []
     if not name:
         missing.append("a name")
