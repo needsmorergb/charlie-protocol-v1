@@ -166,7 +166,9 @@ def build_bot(config: dict, *, dry_run: bool, config_dir: Path) -> tag_bot.Bot:
     return tag_bot.Bot(x, rpc, kv, book, ledger, keys, dry_run=dry_run, bot_id=str(config["bot_user_id"]),
                        pin=pin_metadata, stop_file=config_dir / "STOP", claim_secret=config.get("claim_secret", ""),
                        moderate=moderator_for(config, dry_run=dry_run), mint_keys=pool,
-                       log=file_logger(config["log"]))
+                       log=file_logger(config["log"]),
+                       priority_micro_lamports=int(config.get("priority_micro_lamports",
+                                                              tag.PRIORITY_MICRO_LAMPORTS)))
 
 
 def approve_held(db_path: str, xid: str) -> int:
@@ -179,25 +181,32 @@ def approve_held(db_path: str, xid: str) -> int:
 
 
 def run(bot: tag_bot.Bot, *, once: bool, clock=time.monotonic, sleep=time.sleep) -> None:
-    next_mentions = next_money = clock()
-    while True:
-        now = clock()
-        if now >= next_mentions:
+    """Tags as often as X's rate limit allows (at most MENTIONS_EVERY_SECONDS
+    apart), money every MONEY_EVERY_SECONDS. A due tag search also runs
+    between money steps, so a tag never waits out a whole money tick."""
+    due = {"mentions": clock()}
+
+    def mentions_if_due() -> None:
+        if clock() >= due["mentions"]:
             _guarded(bot, bot.tick_mentions)
-            next_mentions = now + MENTIONS_EVERY_SECONDS
-        if now >= next_money:
-            _guarded(bot, bot.tick_money)
-            next_money = now + MONEY_EVERY_SECONDS
+            due["mentions"] = clock() + bot.poll_seconds(MENTIONS_EVERY_SECONDS)
+
+    next_money = clock()
+    while True:
+        mentions_if_due()
+        if clock() >= next_money:
+            _guarded(bot, lambda: bot.tick_money(between=None if once else mentions_if_due), "tick_money")
+            next_money = clock() + MONEY_EVERY_SECONDS
         if once:
             return
-        sleep(max(1.0, min(next_mentions, next_money) - clock()))
+        sleep(max(0.5, min(due["mentions"], next_money) - clock()))
 
 
-def _guarded(bot, step) -> None:
+def _guarded(bot, step, name: str | None = None) -> None:
     try:
         step()
     except Exception as exc:  # noqa: BLE001 -- the loop outlives any one tick
-        bot.log("tick_error", step=step.__name__, reason=f"{type(exc).__name__}: {exc}")
+        bot.log("tick_error", step=name or step.__name__, reason=f"{type(exc).__name__}: {exc}")
 
 
 def main(argv=None) -> int:

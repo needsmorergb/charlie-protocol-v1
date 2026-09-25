@@ -98,16 +98,33 @@ def send_wire(rpc, wire: bytes) -> str:
     }])
 
 
-def latest_blockhash(rpc) -> tuple[str, int | None]:
+CONFIRM_INTERVAL_SECONDS = 0.4    # a launch is confirmed within a slot or two of landing
+
+
+def latest_blockhash(rpc, commitment: str = "finalized") -> tuple[str, int | None]:
     """`(blockhash, lastValidBlockHeight)`: past that height a transaction
     built on this blockhash can never land."""
-    value = rpc.call("getLatestBlockhash", [{"commitment": "finalized"}])["value"]
+    value = rpc.call("getLatestBlockhash", [{"commitment": commitment}])["value"]
     last_valid = value.get("lastValidBlockHeight")
     return value["blockhash"], int(last_valid) if isinstance(last_valid, int) else None
 
 
 def blockhash(rpc) -> str:
     return latest_blockhash(rpc)[0]
+
+
+def fresh_blockhash(rpc) -> str:
+    """The launch path's blockhash: `confirmed`, a few seconds newer than
+    `finalized`, so the create and the split never wait on an old one."""
+    return latest_blockhash(rpc, "confirmed")[0]
+
+
+def tweet_epoch(tweet_id) -> float | None:
+    """When X created a tweet, from its snowflake ID (ms precision)."""
+    try:
+        return ((int(tweet_id) >> 22) + 1_288_834_974_657) / 1000.0
+    except (TypeError, ValueError):
+        return None
 
 
 def pin_uri(pin, request: tag.TagRequest, image: tuple[str, str, bytes], handle: str, tweet_id: str,
@@ -207,7 +224,8 @@ class Bot:
     def __init__(self, x, rpc, kv, book: tag.Book, ledger: tag_ledger.Ledger, keys: dict | None, *,
                  dry_run: bool, now=tag.now_utc, bot_id: str = "", signer=None, transmit=None, pin=None,
                  confirm=None, distribute_run=distribute.run, stop_file: Path | str | None = None,
-                 claim_secret: str = "", moderate=None, mint_keys=None, log=None):
+                 claim_secret: str = "", moderate=None, mint_keys=None, log=None,
+                 priority_micro_lamports: int = tag.PRIORITY_MICRO_LAMPORTS):
         self.x, self.rpc, self.kv, self.book, self.ledger = x, rpc, kv, book, ledger
         self.keys = keys or {}
         self.dry_run = dry_run
@@ -216,7 +234,9 @@ class Bot:
         self.signer = signer or key_signer(self.keys)
         self.transmit = transmit or (lambda wire: send_wire(rpc, wire))
         self.pin = pin
-        self.confirm = confirm or (lambda signature: buyback.confirm(rpc, signature))
+        self.confirm = confirm or (lambda signature: buyback.confirm(
+            rpc, signature, interval=CONFIRM_INTERVAL_SECONDS))
+        self.priority_micro_lamports = priority_micro_lamports
         self.distribute_run = distribute_run
         self.stop_file = Path(stop_file) if stop_file else None
         self.claim_secret = claim_secret
@@ -364,9 +384,13 @@ class Bot:
             self.log("would_pin", tweet=key, ticker=request.ticker, bytes=len(image[2]))
         else:
             uri = pin_uri(self.pin, request, image, handle, tweet_id, mint_key.address)
-        built = tag.build(request, uri, blockhash(self.rpc), mint=mint_key)
+        recent = fresh_blockhash(self.rpc)
+        built = tag.build(request, uri, recent, mint=mint_key)
         mint = built.mint.address
         simulated = self._simulate(built.create, built.mint)
+        if simulated.get("err") is None and self.priority_micro_lamports:
+            built = tag.build(request, uri, recent, mint=mint_key, extra=tag.priority(
+                simulated.get("unitsConsumed"), self.priority_micro_lamports))
         if simulated.get("err") is not None:
             if not self.dry_run:
                 self.book.record(key, user_id, ts, "failed", code="create_simulation", ticker=request.ticker)
@@ -467,9 +491,11 @@ class Bot:
     def _announce(self, key: str, user_id: str, ts: int, ticker: str, mint: str, signature) -> dict:
         """The coin has its split: record it launched and reply."""
         self.book.record(key, user_id, ts, "launched", ticker=ticker, mint=mint)
-        self.log("launched", tweet=key, mint=mint, signature=signature)
         coin = self.ledger.coin(mint) or {}
         target = coin.get("tweet_id") or key
+        posted = tweet_epoch(target)
+        self.log("launched", tweet=key, mint=mint, signature=signature,
+                 seconds_since_tag=round(self.now().timestamp() - posted, 1) if posted else None)
         reply = None
         try:
             self.kv.set_json(claim_session.coin_link_key(target), mint)
@@ -479,13 +505,20 @@ class Bot:
             reply = self.x.post_reply(target, tag.reply_text(tag.TagRequest(ticker, ticker), tag.coin_link(target)))
         except Exception as exc:  # noqa: BLE001 -- the coin is live either way
             self.log("reply_failed", tweet=key, reason=f"{type(exc).__name__}: {exc}")
+        else:
+            self.log("replied", tweet=key, reply=reply,
+                     seconds_since_tag=round(self.now().timestamp() - posted, 1) if posted else None)
         return {"tweet": key, "outcome": "launched", "mint": mint, "reply": reply}
 
     def _split(self, mint: str) -> str:
-        message = tag.split_message(mint, blockhash(self.rpc))
+        recent = fresh_blockhash(self.rpc)
+        message = tag.split_message(mint, recent)
         checked = buyback.simulate(self.rpc, message)
         if checked.get("err") is not None:
             raise launch.LaunchError(f"split simulation: {checked.get('err')}")
+        if self.priority_micro_lamports:
+            message = tag.split_message(mint, recent, extra=tag.priority(
+                checked.get("unitsConsumed"), self.priority_micro_lamports))
         signature = self._send("launch", message)
         self.confirm(signature)
         return signature
@@ -532,9 +565,17 @@ class Bot:
 
     # -- money --
 
-    def tick_money(self) -> dict:
+    def poll_seconds(self, default: float) -> float:
+        """How long to wait before the next tag search: as often as X's rate
+        limit allows (`XClient.poll_wait`), or `default` without one."""
+        wait = getattr(self.x, "poll_wait", None)
+        return wait(default) if wait else default
+
+    def tick_money(self, between=None) -> dict:
         """Every money step, each on its own: one failing never stops the next.
-        The site sees every credit (the first mirror) before anything burns."""
+        The site sees every credit (the first mirror) before anything burns.
+        `between` runs before each step, so a tag never waits on the whole
+        money tick (the loop passes its mentions poll)."""
         out = {}
         for name, step in (("distribute", self._distribute), ("scan", self._scan),
                            ("reconcile", self.reconcile), ("mirror", self._mirror),
@@ -547,6 +588,8 @@ class Bot:
                 out[name] = {"skipped": "claims are still waiting in the queue"}
                 self.log("burn_skipped", reason=out[name]["skipped"])
                 continue
+            if between is not None:
+                between()
             try:
                 out[name] = step()
             except Exception as exc:  # noqa: BLE001

@@ -1019,14 +1019,140 @@ class TestXBotCli(unittest.TestCase):
             def tick_mentions(self):
                 calls.append("mentions")
 
-            def tick_money(self):
-                calls.append("money")
+            def tick_money(self, between=None):
+                calls.append(("money", between))
+
+            def poll_seconds(self, default):
+                return default
 
             def log(self, *a, **k):
                 calls.append("log")
 
         x_bot.run(Bot(), once=True, clock=lambda: 0.0, sleep=lambda s: self.fail("slept"))
-        self.assertEqual(calls, ["mentions", "money"])
+        self.assertEqual(calls, ["mentions", ("money", None)])
+
+
+class TestSpeed(unittest.TestCase):
+    def test_a_due_tag_search_runs_between_money_steps(self):
+        from tools import x_bot
+        t = [0.0]
+        calls = []
+
+        class Bot:
+            def tick_mentions(self):
+                calls.append(("mentions", t[0]))
+
+            def poll_seconds(self, default):
+                return 5.0
+
+            def tick_money(self, between=None):
+                for step in ("distribute", "scan", "burn"):
+                    between()
+                    calls.append((step, t[0]))
+                    t[0] += 4.0          # each money step takes 4 s
+                raise StopIteration      # end the loop after one money tick
+
+            def log(self, *a, **k):
+                pass
+
+        class Done(Exception):
+            pass
+
+        def sleep(_s):
+            raise Done
+
+        bot = Bot()
+        bot.log = lambda event, **k: (_ for _ in ()).throw(Done()) if event == "tick_error" else None
+        with self.assertRaises(Done):
+            x_bot.run(bot, once=False, clock=lambda: t[0], sleep=sleep)
+        # mentions at 0, then again once 5 s have passed (at the 8 s step), not after the whole tick
+        self.assertEqual(calls, [("mentions", 0.0), ("distribute", 0.0), ("scan", 4.0),
+                                 ("mentions", 8.0), ("burn", 8.0)])
+
+    def test_poll_wait_spreads_the_rate_window(self):
+        from indexer.xapi import XClient, MIN_POLL_SECONDS
+        x = XClient(bearer="B", now=lambda: 1000.0)
+        self.assertEqual(x.poll_wait(60), 60)                          # X has said nothing yet
+        x.rate = {"x-rate-limit-remaining": 61, "x-rate-limit-reset": 1900}
+        self.assertEqual(x.poll_wait(60), 15.0)                        # 900 s over 60 calls
+        x.rate = {"x-rate-limit-remaining": 451, "x-rate-limit-reset": 1900}
+        self.assertEqual(x.poll_wait(60), MIN_POLL_SECONDS)            # plenty left: as fast as allowed
+        x.rate = {"x-rate-limit-remaining": 1, "x-rate-limit-reset": 1300}
+        self.assertEqual(x.poll_wait(60), 301.0)                       # spent: wait out the window
+        x.rate = {"x-rate-limit-remaining": 3, "x-rate-limit-reset": 1900}
+        self.assertEqual(x.poll_wait(60), 60)                          # never slower than the default
+
+    def test_the_rate_headers_are_kept_on_success_and_on_429(self):
+        import io
+        import urllib.error
+        from indexer import xapi
+
+        class Resp(io.BytesIO):
+            headers = {"Content-Type": "application/json", "x-rate-limit-remaining": "42",
+                       "x-rate-limit-reset": "1900", "x-rate-limit-limit": "60"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        x = xapi.XClient(bearer="B", opener=lambda req, timeout: Resp(b"{}"))
+        x.mentions("1", None, query="q")
+        self.assertEqual(x.rate, {"x-rate-limit-limit": 60, "x-rate-limit-remaining": 42,
+                                  "x-rate-limit-reset": 1900})
+
+        def limited(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {"x-rate-limit-remaining": "0",
+                                                                         "x-rate-limit-reset": "2000"}, io.BytesIO(b""))
+        x.opener = limited
+        with self.assertRaises(xapi.XError):
+            x.mentions("1", None, query="q")
+        self.assertEqual(x.rate["x-rate-limit-remaining"], 0)
+
+    def test_priority_is_sized_from_the_simulation(self):
+        limit, price = tag.priority(100_000, 1_000_000)
+        self.assertEqual(limit, (tag.COMPUTE_BUDGET_PROGRAM, [], bytes([2]) + (125_000).to_bytes(4, "little")))
+        self.assertEqual(price, (tag.COMPUTE_BUDGET_PROGRAM, [], bytes([3]) + (1_000_000).to_bytes(8, "little")))
+        self.assertEqual(tag.priority(None)[0][2][1:], (200_000).to_bytes(4, "little"))
+        self.assertEqual(tag.priority(100_000, 0), ())
+
+    def test_the_launch_carries_the_priority_fee(self):
+        h = Harness(x=FakeX([tweet()]))
+        self.assertEqual(h.bot.tick_mentions()[0]["outcome"], "launched")
+        from indexer.base58 import decode as b58decode
+        budget = b58decode(tag.COMPUTE_BUDGET_PROGRAM)
+        for kind, message, _ in h.sent:
+            self.assertIn(budget, message, kind)       # the program is in the account keys of both txs
+
+    def test_no_priority_when_the_owner_turns_it_off(self):
+        from indexer.base58 import decode as b58decode
+        h = Harness(x=FakeX([tweet()]))
+        h.bot.priority_micro_lamports = 0
+        self.assertEqual(h.bot.tick_mentions()[0]["outcome"], "launched")
+        budget = b58decode(tag.COMPUTE_BUDGET_PROGRAM)
+        for kind, message, _ in h.sent:
+            self.assertNotIn(budget, message, kind)
+
+    def test_confirm_polls_at_the_given_interval(self):
+        from indexer import buyback
+        slept = []
+
+        class Rpc:
+            n = 0
+
+            def call(self, method, params):
+                self.n += 1
+                status = {"confirmationStatus": "confirmed", "err": None} if self.n == 3 else None
+                return {"value": [status]}
+
+        buyback.confirm(Rpc(), "sig", interval=0.4, sleep=slept.append, clock=lambda: 0.0)
+        self.assertEqual(slept, [0.4, 0.4])
+
+    def test_tweet_epoch_reads_the_snowflake(self):
+        # 1970-based ms of X's epoch plus the id's timestamp bits
+        self.assertAlmostEqual(tag_bot.tweet_epoch(str((1_000 << 22) | 5)), 1_288_834_975.657, places=3)
+        self.assertIsNone(tag_bot.tweet_epoch("not-an-id"))
 
 
 class TestImage(unittest.TestCase):
