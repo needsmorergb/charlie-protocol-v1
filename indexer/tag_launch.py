@@ -77,15 +77,13 @@ RESERVED_TICKERS = frozenset({
 })
 
 # Names a coin may not be, or be within two edits of, once lowercased and
-# stripped to letters and digits. People, brands and projects a coin could be
-# mistaken for. The caller adds more (`protected=`).
+# stripped to letters and digits: Charlie itself, and the crypto brands a
+# scam token would pose as. People and other brands are allowed, because a
+# tag under a news post names whoever the news is about (owner's call,
+# 2026-09-24). The caller adds more (`protected=`).
 PROTECTED_NAMES = frozenset({
     "charlie", "charlieprotocol", "charlieslug", "charlieslugsol", "pumpfun", "pump", "solana", "bitcoin", "ethereum",
     "coinbase", "binance", "phantom", "jupiter", "raydium", "tether", "circle",
-    "elonmusk", "elon", "tesla", "spacex", "twitter", "xai", "grok", "openai",
-    "anthropic", "claude", "google", "apple", "microsoft", "amazon", "nvidia", "meta",
-    "donaldtrump", "trump", "melania", "barron", "bidenjoe", "biden", "kamala",
-    "obama", "vitalik", "cz", "saylor", "blackrock", "whitehouse", "federalreserve",
 })
 
 SITE = "https://charlieprotocol.fun"

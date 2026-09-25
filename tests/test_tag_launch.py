@@ -170,11 +170,15 @@ class TestContent(unittest.TestCase):
                          "ticker_taken")
 
     def test_impersonation(self):
-        for name in ("Elon Musk", "El0n Musk", "Coinbase", "Solana Official", "Anthropic"):
+        for name in ("Charlie Slug", "Coinbase", "C0inbase", "Solana Official", "Binance", "Phantom Wallet"):
             self.assertEqual(tag.content_refusal(tag.TagRequest(name, "ABC")).code, "impersonation", name)
 
+    def test_news_names_are_allowed(self):
+        for name in ("Elon Musk", "Trump Plane", "Tesla Crash", "OpenAI", "Biden"):
+            self.assertIsNone(tag.content_refusal(tag.TagRequest(name, "ABC")), name)
+
     def test_the_ticker_is_screened_too(self):
-        for ticker in ("OPENAI", "NVIDIA", "COINBASE", "CLAUDE", "SOLANA2"):
+        for ticker in ("COINBASE", "BINANCE", "PHANTOM", "CHARLIES", "SOLANA2"):
             self.assertEqual(tag.content_refusal(tag.TagRequest("Moon Dog", ticker)).code, "impersonation", ticker)
         self.assertIsNone(tag.content_refusal(tag.TagRequest("Moon Dog", "MDOG")))
 

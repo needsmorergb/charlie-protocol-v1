@@ -254,7 +254,7 @@ class TestMentions(unittest.TestCase):
             "no_user": dict(users={}),
             "ignored": dict(users={"7": user(username="grok")}),
             "ticker_taken": dict(tweet=tweet(text="@CharlieSlugSOL launch Moon Dog $CHARLIE")),
-            "impersonation": dict(tweet=tweet(text="@CharlieSlugSOL launch Elon Musk $EM")),
+            "impersonation": dict(tweet=tweet(text="@CharlieSlugSOL launch Coinbase $CB")),
             "wallet_low": dict(balance=100_000_000),
             "bad_image": dict(image=("text/html", b"<html>")),
             "no_photo": dict(media={"3_1": {"type": "video", "url": "https://v"}}),
