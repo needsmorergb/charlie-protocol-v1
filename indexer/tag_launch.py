@@ -221,6 +221,12 @@ def account_refusal(user: dict, now: datetime, *, bot_id: str = "") -> TagRefuse
     return None
 
 
+# The account thresholds the owner may waive for one tag (`x_bot --replay
+# <id> --bypass-account`). Bots, parodies, protected and withheld accounts
+# are never waived.
+BYPASSABLE_ACCOUNT_CODES = frozenset({"too_new", "few_followers", "few_posts", "no_avatar"})
+
+
 # -- 4. the words, again ---------------------------------------------------------
 
 
@@ -339,6 +345,18 @@ class Book:
             "SELECT code FROM tag_requests WHERE user_id = ? AND at > ? AND tweet_key != ? "
             "AND outcome = 'refused'", (user_id, since, besides))
         return any(code in REPLIED_CODES for (code,) in rows)
+
+    def forget_account_refusal(self, tweet_key: str) -> bool:
+        """Drop the tweet's row when it is a refusal the owner may waive
+        (BYPASSABLE_ACCOUNT_CODES), so a bypass replay can rerun it. Any
+        other row stays: a launched tag never launches twice."""
+        codes = sorted(BYPASSABLE_ACCOUNT_CODES)
+        entry = self.entry(tweet_key)
+        if not entry or entry["outcome"] != "refused" or entry["code"] not in codes:
+            return False
+        with self.db:
+            self.db.execute("DELETE FROM tag_requests WHERE tweet_key = ?", (tweet_key,))
+        return True
 
     def record(self, tweet_key: str, user_id: str, now: int, outcome: str, *,
                code: str | None = None, ticker: str | None = None, mint: str | None = None) -> None:

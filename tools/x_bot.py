@@ -218,9 +218,14 @@ def main(argv=None) -> int:
     ap.add_argument("--approve-held", metavar="XID", help="approve a held claim; the running bot pays it without the caps")
     ap.add_argument("--replay", metavar="TWEET_ID",
                     help="rerun one missed tag with every rule but its age, then exit (stop the running bot first)")
+    ap.add_argument("--bypass-account", action="store_true",
+                    help="with --replay: the owner's one-time exception to the account age, follower, "
+                         "post and profile-image rules for that tag")
     ap.add_argument("--codex-login", action="store_true",
                     help="sign the image moderator in to ChatGPT (device code) and save the grant")
     args = ap.parse_args(argv)
+    if args.bypass_account and not args.replay:
+        ap.error("--bypass-account needs --replay")
     if args.codex_login:
         try:
             loose = json.loads(args.config.read_text(encoding="utf-8")) if args.config.exists() else {}
@@ -245,7 +250,7 @@ def main(argv=None) -> int:
         return 2
     try:
         if args.replay:
-            row = bot.replay(args.replay)
+            row = bot.replay(args.replay, bypass_account=args.bypass_account)
             print(json.dumps(row))
             return 0 if row and row.get("outcome") in ("launched", "simulated") else 1
         bot.log("start", dry_run=args.dry_run, once=args.once)

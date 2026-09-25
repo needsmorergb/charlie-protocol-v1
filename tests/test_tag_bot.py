@@ -510,6 +510,31 @@ class TestMentions(unittest.TestCase):
         self.assertIsNone(h.bot.replay("555"))
         self.assertIsNone(h.ledger.state(tag_bot.SINCE_KEY))       # the mention cursor is not touched
 
+    def test_a_bypass_replay_launches_a_tag_refused_for_a_new_account_once(self):
+        young = {"7": user(created_at="2026-09-01T00:00:00Z")}
+        old = tweet(created_at="2026-09-22T11:00:00Z")
+        x = FakeX(users=young)
+        x.lookup = lambda ids: {"tweets": [old], "users": x.users, "media": x.media}
+        h = Harness(x=x)
+        self.assertEqual(h.bot.replay("100")["code"], "too_new")          # no bypass: the rule holds
+        self.assertIsNone(h.bot.replay("100"))                           # recorded
+        row = h.bot.replay("100", bypass_account=True)
+        self.assertEqual(row["outcome"], "launched")
+        self.assertEqual(h.outcome()[:2], ("launched", None))
+        self.assertIsNone(h.bot.replay("100", bypass_account=True))      # launched: never twice
+        self.assertTrue(any(line.startswith("account_bypassed") for line in h.lines))
+
+    def test_a_bypass_never_waives_a_bot_or_the_other_rules(self):
+        x = FakeX(users={"7": user(username="grok")})
+        x.lookup = lambda ids: {"tweets": [tweet()], "users": x.users, "media": x.media}
+        h = Harness(x=x)
+        self.assertEqual(h.bot.replay("100", bypass_account=True)["code"], "ignored")
+        x2 = FakeX(users={"7": user(created_at="2026-09-01T00:00:00Z")})
+        x2.lookup = lambda ids: {"tweets": [tweet(text="@CharlieSlugSOL launch Moon Dog $CHARLIE")],
+                                 "users": x2.users, "media": x2.media}
+        h2 = Harness(x=x2)
+        self.assertEqual(h2.bot.replay("100", bypass_account=True)["code"], "ticker_taken")
+
     def test_a_failed_split_is_pending_and_retried_next_tick(self):
         h = Harness(x=FakeX([tweet()]), rpc=FakeRpc(sim_errors=[None, {"InstructionError": [0, "x"]}]))
         rows = h.bot.tick_mentions()

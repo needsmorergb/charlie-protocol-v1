@@ -347,21 +347,26 @@ class Bot:
         self.log("replied", tweet=key, reply=reply, code=refused.code)
         return reply
 
-    def replay(self, tweet_id: str) -> dict | None:
+    def replay(self, tweet_id: str, *, bypass_account: bool = False) -> dict | None:
         """The owner's one-off rerun of a tag the bot missed: every rule
-        applies except the tweet's age. A tag already recorded is not rerun.
-        The mention cursor is not touched."""
+        applies except the tweet's age. A tag already recorded is not rerun,
+        except that `bypass_account` (the owner's one-time exception) reruns
+        a tag refused for an account threshold and waives those thresholds
+        (`tag.BYPASSABLE_ACCOUNT_CODES`) for this tag only. The mention
+        cursor is not touched."""
         page = self.x.lookup([tweet_id])
         tweets = page.get("tweets") or []
         if not tweets:
             self.log("replay_missing", tweet=tweet_id)
             return None
-        self.log("replay", tweet=tweet_id)
+        self.log("replay", tweet=tweet_id, bypass_account=bypass_account)
+        if bypass_account and not self.dry_run and self.book.forget_account_refusal(tag.dedupe_key(tweets[0])):
+            self.log("account_refusal_forgotten", tweet=tweet_id)
         return self._one(tweets[0], page.get("users") or {}, page.get("media") or {},
-                         refs=page.get("refs") or {}, max_age=None)
+                         refs=page.get("refs") or {}, max_age=None, bypass_account=bypass_account)
 
     def _one(self, tweet: dict, users: dict, media: dict, *, refs: dict | None = None,
-             max_age=tag.MAX_TWEET_AGE_SECONDS) -> dict | None:
+             max_age=tag.MAX_TWEET_AGE_SECONDS, bypass_account: bool = False) -> dict | None:
         text = tweet.get("text") or ""
         request = tag.parse(text)
         missing = tag.missing_parts(text) if request is None else []
@@ -387,8 +392,12 @@ class Bot:
         refused = None if no_image else problem
         if refused is None and user is None:
             refused = tag.TagRefused("no_user", "The author could not be read.")
+        account = None if refused else tag.account_refusal(user, now, bot_id=self.bot_id)
+        if account is not None and bypass_account and account.code in tag.BYPASSABLE_ACCOUNT_CODES:
+            self.log("account_bypassed", tweet=key, code=account.code)
+            account = None
         refused = (refused
-                   or tag.account_refusal(user, now, bot_id=self.bot_id)
+                   or account
                    or self.book.limit_refusal(user_id, ts))
         if refused is None and missing:
             refused = tag.malformed(missing, no_image=no_image)
