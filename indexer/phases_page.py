@@ -252,19 +252,20 @@ _STYLE = """
    state of each condition read off the checks rather than asserted. */
 .phases { list-style: none; padding: 0; margin: var(--sp-xl) 0 0 0; }
 .phase {
-  border-top: 1px solid var(--unchecked);
-  padding: var(--sp-lg) 0;
+  border: 1px solid var(--border-subtle); border-radius: 22px;
+  background: var(--panel); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  padding: var(--sp-lg); margin-bottom: var(--sp-md);
 }
-.phase:last-child { border-bottom: 1px solid var(--unchecked); }
 .phase-head {
   display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   align-items: baseline; margin-bottom: var(--sp-sm);
 }
 .phase-n {
-  font-variant-numeric: tabular-nums; font-size: 14px;
-  color: var(--pass-glyph);
+  font-variant-numeric: tabular-nums; font-size: 12px;
+  font-family: var(--font-mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--accent);
 }
-.phase-date { font-size: 14px; color: var(--pass-glyph); }
+.phase-date { font-size: 12px; font-family: var(--font-mono); letter-spacing: .1em; color: var(--accent); }
 .phase-date.open { font-style: italic; }
 .phase-date.target { font-style: italic; }
 /* Same token the FAIL badge uses, so a slipped target reads as the same
@@ -279,35 +280,37 @@ _STYLE = """
   font-size: clamp(15px, 1.8vw, 17px); }
 .phase p:last-child { margin-bottom: 0; }
 .criterion {
-  padding: var(--sp-md); background: var(--panel);
-  border-left: 3px solid var(--unchecked);
+  padding: var(--sp-md); background: rgba(255,255,255,.04);
+  border: 1px solid var(--border-glass); border-left: 3px solid var(--accent);
+  border-radius: 14px;
 }
 .criterion-label {
   display: block; font-size: 13px; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--pass-glyph);
+  text-transform: uppercase; color: var(--accent); font-family: var(--font-mono);
   margin-bottom: var(--sp-xs);
 }
 .gates { list-style: none; padding: 0; margin: var(--sp-sm) 0 0 0; }
 .gates li {
   display: flex; gap: var(--sp-sm); align-items: baseline;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px; padding: 2px 0;
 }
 .gates .gate-name { flex: 1 1 auto; word-break: break-all; }
 .phase-code {
   display: block; margin-top: var(--sp-md); padding: var(--sp-sm);
-  background: var(--panel); border: 1px solid var(--unchecked);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 12px;
+  font-family: var(--font-mono);
   font-size: 13px; word-break: break-all;
 }
 .phase-code-label {
   display: block; margin-top: var(--sp-xs);
-  font-size: 13px; color: var(--pass-glyph);
+  font-size: 13px; color: var(--accent);
 }
-.blocked { color: var(--pass-glyph); }
+.blocked { color: var(--accent); }
 .gate-note {
   margin: var(--sp-xl) 0 0 0; padding: var(--sp-md);
-  background: var(--panel); border-left: 3px solid var(--unchecked);
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent); border-radius: 14px;
 }
 """
 

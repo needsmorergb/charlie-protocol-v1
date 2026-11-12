@@ -211,17 +211,17 @@ _STYLE = """
    as a schedule running to a finish line nobody has committed to. */
 .log { list-style: none; padding: 0; margin: var(--sp-xl) 0 0 0; }
 .log-entry {
-  border-top: 1px solid var(--unchecked);
-  padding: var(--sp-lg) 0;
+  border: 1px solid var(--border-subtle); border-radius: 22px;
+  background: var(--panel); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  padding: var(--sp-lg); margin-bottom: var(--sp-md);
 }
-.log-entry:last-child { border-bottom: 1px solid var(--unchecked); }
 .log-head {
   display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   align-items: baseline; margin-bottom: var(--sp-sm);
 }
 .log-date {
-  font-variant-numeric: tabular-nums; font-size: 14px;
-  color: var(--pass-glyph);
+  font-variant-numeric: tabular-nums; font-size: 12px;
+  font-family: var(--font-mono); letter-spacing: .1em; color: var(--accent);
 }
 .log-date.open { font-style: italic; }
 .log-entry h3 {
@@ -231,17 +231,18 @@ _STYLE = """
 .log-entry p { margin: 0; line-height: 1.6; font-size: clamp(15px, 1.8vw, 17px); }
 .log-code {
   display: block; margin-top: var(--sp-md); padding: var(--sp-sm);
-  background: var(--panel); border: 1px solid var(--unchecked);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 12px;
+  font-family: var(--font-mono);
   font-size: 13px; word-break: break-all;
 }
 .log-code-label {
   display: block; margin-top: var(--sp-xs);
-  font-size: 13px; color: var(--pass-glyph);
+  font-size: 13px; color: var(--accent);
 }
 .gate-note {
   margin: var(--sp-xl) 0 0 0; padding: var(--sp-md);
-  background: var(--panel); border-left: 3px solid var(--unchecked);
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent); border-radius: 14px;
 }
 """
 

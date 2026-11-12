@@ -304,34 +304,35 @@ h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 var(--sp-sm); }
 h2 { font-size: 1.1rem; margin: var(--sp-2xl) 0 var(--sp-md); }
 p { margin: 0 0 var(--sp-md); }
 a { color: var(--accent); }
-code { background: var(--panel); padding: 1px 4px; }
+code { background: var(--bg-input); padding: 1px 6px; border-radius: 6px; }
 .lede { font-size: 1.05rem; }
 .banner {
-  border: 1px solid var(--unchecked); background: rgba(122, 90, 18, 0.07);
+  border: 1px solid var(--border-subtle); border-left: 3px solid var(--accent);
+  background: rgba(255, 176, 58, 0.08); border-radius: 14px;
   padding: var(--sp-md); margin: var(--sp-lg) 0;
 }
 .banner p:last-child { margin-bottom: 0; }
 table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .scroll { overflow-x: auto; margin: var(--sp-md) 0; }
 th, td {
-  border-bottom: 1px solid var(--panel); padding: var(--sp-sm);
+  border-bottom: 1px solid var(--border-glass); padding: var(--sp-sm);
   text-align: left; vertical-align: top;
 }
-th { font-weight: 700; border-bottom: 1px solid var(--ink); }
+th { font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-tfoot td { border-top: 1px solid var(--ink); font-weight: 700; }
-tfoot .why, .why { font-weight: 400; color: var(--pass-glyph); font-size: 0.82rem; }
+tfoot td { border-top: 1px solid var(--border-subtle); font-weight: 700; }
+tfoot .why, .why { font-weight: 400; color: var(--text-secondary); font-size: 0.82rem; }
 .why { display: block; margin-top: var(--sp-xs); }
 .refusals { list-style: none; padding: 0; }
 .refusals li { margin-bottom: var(--sp-md); }
 .mark { font-weight: 700; }
-.mark.ok { color: var(--accent); }
+.mark.ok { color: var(--pass-glyph); }
 .mark.bad { color: var(--destructive); }
 .facts { list-style: none; padding: 0; font-size: 0.9rem; }
 .facts li { margin-bottom: var(--sp-sm); }
-.meta { color: var(--pass-glyph); font-size: 0.82rem; }
-footer { margin-top: var(--sp-3xl); border-top: 1px solid var(--panel);
-  padding-top: var(--sp-md); font-size: 0.82rem; color: var(--pass-glyph); }
+.meta { color: var(--text-secondary); font-size: 0.82rem; }
+footer { margin-top: var(--sp-3xl); border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-md); font-size: 0.82rem; color: var(--text-secondary); }
 """
 
 

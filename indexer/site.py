@@ -132,8 +132,8 @@ INCINERATOR_STACK_SRC = "/assets/incinerator-stack.png"
 INCINERATOR_INTRINSIC = (241, 333)
 
 _INK = {
-    "g": "#8FE13F",   # brand green, chart bars
-    "d": "#3E6B1C",   # chart grid
+    "g": "#ff6a1a",   # ember, chart bars
+    "d": "#7a2e0c",   # chart grid
 }
 
 _FLAME_RECTS = (
@@ -1385,27 +1385,28 @@ def _sections(observation) -> str:
 # than two that could drift -- `_STYLE` and `_LANDING_STYLE` both begin with
 # this same string, asserted (not asserted-by-eye) in tests/test_site.py.
 #
-# The values are the live site's (the hand-authored pages in
-# charlie-protocol-site, e.g. web/coin.html): near-black ground, light type,
-# the ember green. The old names stay so every rule that reads them follows:
-# --paper is the page ground, --ink the type, --panel a raised block.
+# The values are the Burn SOL kit's (assets/burn.css on the live site): near-
+# black ground, warm light type, ember-orange accents. The old names stay so
+# every rule that reads them follows: --paper is the page ground, --ink the
+# type, --panel a raised glass block, --accent the link/ember colour. Status
+# colours match the kit's badges (pass green, fail red, unchecked ash).
 _TOKENS = """
 :root {
-  --paper: #060806;
-  --panel: #101610;
-  --accent: #8FE13F;
-  --destructive: #FF5A4E;
-  --unchecked: #E8B44A;
-  --ink: #F5F9F4;
-  --pass-glyph: #C9D4C8;
-  --bg-input: #040604;
-  --border-subtle: rgba(143,225,63,.12);
-  --border-glass: rgba(255,255,255,.08);
-  --text-secondary: #9BA89A;
-  --text-muted: #5D685C;
-  --font-display: 'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
+  --paper: #050403;
+  --panel: rgba(16,11,8,.8);
+  --accent: #ffb03a;
+  --destructive: #e23a14;
+  --unchecked: #b3a89e;
+  --ink: #f6efe6;
+  --pass-glyph: #3ddc97;
+  --bg-input: rgba(10,6,4,.8);
+  --border-subtle: rgba(255,150,60,.25);
+  --border-glass: rgba(255,255,255,.1);
+  --text-secondary: #b3a89e;
+  --text-muted: #8d847b;
+  --font-display: 'Space Grotesk','Arial Black',Impact,system-ui,sans-serif;
+  --font-sans: Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,Consolas,monospace;
   --sp-xs: 4px;
   --sp-sm: 8px;
   --sp-md: 16px;
@@ -1449,7 +1450,7 @@ _STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 .bar-pass { fill: var(--pass-glyph); }
 .bar-fail { fill: var(--destructive); }
 .bar-unchecked { fill: none; stroke: var(--unchecked); stroke-width: 1; stroke-dasharray: 3 3; }
-.bar-neutral { fill: var(--pass-glyph); }
+.bar-neutral { fill: var(--accent); }
 
 * { box-sizing: border-box; }
 body {
@@ -1618,7 +1619,7 @@ _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
   animation: fly-crawl 5.5s linear infinite;
 }
 @keyframes fly-crawl { to { stroke-dashoffset: -40; } }
-.fly-ticks circle { fill: var(--pass-glyph); opacity: 0.5; }
+.fly-ticks circle { fill: var(--accent); opacity: 0.5; }
 .fly-hub {
   position: absolute;
   left: 50%; top: 50%;
@@ -1657,7 +1658,7 @@ _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 }
 .fly figcaption {
   text-align: center; font-size: 14px; margin-top: var(--sp-md);
-  color: var(--pass-glyph);
+  color: var(--text-secondary);
 }
 .fly-steps {
   list-style: none; counter-reset: fly; padding: 0;
@@ -1667,7 +1668,7 @@ _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 }
 .fly-steps li {
   counter-increment: fly;
-  border-left: 1px dashed var(--unchecked);
+  border-left: 2px solid var(--border-subtle);
   padding-left: var(--sp-md);
 }
 .fly-steps li h3 {
@@ -1675,7 +1676,7 @@ _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
 }
 .fly-steps li h3::before {
   content: counter(fly) " ";
-  color: var(--pass-glyph); font-weight: 400;
+  color: var(--accent); font-weight: 400;
 }
 .fly-steps li p { margin: 0; font-size: 15px; }
 
@@ -1690,12 +1691,10 @@ _LANDING_STYLE = _TOKENS + _VERIFY_FORM_CSS + """
      near-black ground with the brand green as the single accent. Matching it
      is the point -- two surfaces for one project should not disagree about
      what colour the project is. */
-  --ash: #0D0F0C;
-  --ash-raised: #161A14;
-  --ash-ink: #EAF3E3;
-  --ash-muted: #8B9585;
-  --ember: #8FE13F;
-  --hair: #D3D8CD;
+  --ash-raised: rgba(16,11,8,.8);
+  --ash-ink: #f6efe6;
+  --ash-muted: #b3a89e;
+  --hair: rgba(255,150,60,.25);
   --measure: 62ch;
   --shell: 1120px;
 }
@@ -1733,7 +1732,7 @@ body {
 
 /* -- hero ------------------------------------------------------------ */
 .hero {
-  background: var(--ash);
+  background: transparent;
   color: var(--ash-ink);
   padding: clamp(var(--sp-2xl), 9vw, 104px) var(--sp-lg) clamp(var(--sp-xl), 6vw, 72px);
 }
@@ -1961,10 +1960,10 @@ a { color: var(--accent); }
 #two-ways-in p { margin: 0; }
 #two-ways-in a {
   display: inline-block; padding: var(--sp-md) var(--sp-lg);
-  background: var(--ash); color: var(--ash-ink); text-decoration: none;
-  font-size: 15px; border: 1px solid var(--ash);
+  background: var(--panel); color: var(--ash-ink); text-decoration: none;
+  font-size: 15px; border: 1px solid var(--border-subtle); border-radius: 999px;
 }
-#two-ways-in a:hover, #two-ways-in a:focus-visible { background: var(--ember); border-color: var(--ember); color: var(--ash); }
+#two-ways-in a:hover, #two-ways-in a:focus-visible { background: var(--ember); border-color: var(--ember); color: #1a0800; }
 footer { border-top: 1px solid var(--hair); padding-top: var(--sp-lg); margin-top: var(--sp-2xl); }
 footer p { font-size: 13px; font-weight: 400; margin: 0 0 var(--sp-sm) 0; color: var(--unchecked); max-width: var(--measure); }
 footer a { word-break: break-all; overflow-wrap: anywhere; }
@@ -2039,70 +2038,122 @@ def _no_split_breakdown(observation) -> str:
     )
 
 
-# The live site's chrome, laid over every generated page: its fonts, its
-# sticky header and nav, and the rules that make an older page sheet read in
-# the site's type. Last in the <head>, so it wins over the page's own sheet.
-# Links are root-absolute because /api/verify serves these pages too.
+# The Burn SOL kit's chrome, laid over every generated page: its fonts, the
+# kit stylesheet and script (served by the site at /assets/burn.css and
+# /assets/burn.js; this repo does not carry them), the fire backdrop layers,
+# the fixed header and the footer. Links are root-absolute because
+# /api/verify serves these pages too. The `js`/`fx` snippet is the kit's: it
+# turns the effects on unless the reader asked for reduced motion.
 _FONTS_HTML = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800'
-    '&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600'
+    '&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">'
+    '<link rel="stylesheet" href="/assets/burn.css">'
+)
+
+_FX_SNIPPET = (
+    "<script>(function(d){d.classList.add('js');if(!(window.matchMedia&&"
+    "matchMedia('(prefers-reduced-motion: reduce)').matches))d.classList.add('fx');})"
+    "(document.documentElement);</script>"
+    '<script defer src="/assets/burn.js"></script>'
+)
+
+_SITE_BACKDROP = (
+    '<a class="skip" href="#main">Skip to content</a>'
+    '<div class="fire-fallback" aria-hidden="true"></div>'
+    '<canvas id="fire" aria-hidden="true"></canvas>'
+    '<div class="veil" aria-hidden="true"></div>'
+    '<div class="grain" aria-hidden="true"></div>'
 )
 
 _SITE_HEADER = (
-    '<header class="site-header"><div class="header-inner">'
-    '<a href="/" class="brand-lockup"><span class="flame-box">'
-    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12'
-    'c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0'
-    'c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><span>Charlie Protocol</span></a>'
-    '<nav class="site-nav" aria-label="Site">'
-    '<a href="/" class="nav-link">Home</a>'
-    '<a href="/launch" class="nav-link">Launch Coin</a>'
-    '<a href="/enroll" class="nav-link">Enroll Coin</a>'
-    '<a href="/coins" class="nav-link">Directory</a>'
-    '<a href="/phases" class="nav-link">Phases</a>'
-    '</nav></div></header>'
+    '<header class="top">'
+    '<a class="brand" href="/" aria-label="Burn SOL home">'
+    '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><defs>'
+    '<linearGradient id="fl" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff4d1a"/>'
+    '<stop offset="1" stop-color="#ffc247"/></linearGradient></defs>'
+    '<path d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3-1-4 0-7 1-10z" fill="url(#fl)"/>'
+    '</svg><span>Burn SOL</span></a>'
+    '<nav class="links" aria-label="Primary">'
+    '<a href="/coins">Coins</a>'
+    '<a href="/#record">Record</a>'
+    '<a href="/verify">Verify</a>'
+    '<a href="/phases">Phases</a>'
+    '<a href="/flywheel">Flywheel</a>'
+    '</nav>'
+    '<div class="top-cta">'
+    '<a class="btn sm ghost" href="/enroll">Enroll</a>'
+    '<a class="btn sm primary" href="/launch">Launch</a>'
+    '</div></header>'
 )
 
+_SITE_FOOTER = (
+    '<footer class="foot"><div class="wrap foot-in"><div>'
+    '<a class="brandline" href="/">Burn SOL</a>'
+    '<p class="pw"><img src="/assets/charlie.png" alt="Charlie, the Charlie Protocol mascot" '
+    'width="28" height="28"> Powered by Charlie Protocol</p></div>'
+    '<nav aria-label="Footer">'
+    '<a href="/launch">Launch</a><a href="/enroll">Enroll</a><a href="/coins">Coins</a>'
+    '<a href="/verify">Verify</a><a href="/claim">Claim</a><a href="/phases">Phases</a>'
+    '<a href="/flywheel">Flywheel</a>'
+    '<a href="https://x.com/CharlieSlugSOL" rel="noopener">X @CharlieSlugSOL</a>'
+    '</nav></div></footer>'
+)
+
+# Last in the <head>, so it wins over a page's own sheet and over burn.css:
+# makes the older page sheets read in the kit's type and colour, keeps the
+# fire visible behind them, and maps the renderers' status classes
+# (`badge status-pass` ...) onto the kit's badge look.
 _SITE_LOOK = """
-html, body { background: var(--paper); }
-body { margin: 0 !important; padding: 0 !important; max-width: none !important;
+html { background: #050403; }
+body { margin: 0 !important; padding: 0 !important; max-width: none !important; background: transparent !important;
   color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
-.site-page { max-width: 62rem; margin: 0 auto; padding: var(--sp-2xl) var(--sp-lg) var(--sp-3xl);
-  overflow-wrap: anywhere; }
-h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--ink); }
-code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); }
+.site-page { max-width: 62rem; padding-top: 96px; padding-bottom: 64px; overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
+h1 { text-shadow: 0 0 .5em rgba(255,140,40,.25); }
+code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); color: #ffe2b0; }
 a { color: var(--accent); }
-a:hover { color: var(--ink); }
+a:hover { color: #ffe2b0; }
+.btn, .btn:hover, .top a, .foot a { text-decoration: none; }
+.btn.primary, .btn.primary:hover { color: #1a0800; }
+.top .links a { color: #b3a89e; }
+.top .links a:hover { color: #fff1d6; }
+.foot nav a { color: #b3a89e; }
+.foot nav a:hover { color: #ffb03a; }
+footer.foot { margin-top: 0; font-size: 1rem; color: inherit; }
+.foot .brandline { color: var(--ink); }
+.foot .pw { color: #b3a89e; font-size: 1rem; max-width: none; }
 table { border-color: var(--border-glass); }
-th { overflow-wrap: normal; word-break: normal; }
+th { overflow-wrap: normal; word-break: normal; font-family: var(--font-mono); }
 th, td { border-color: var(--border-glass); }
 hr { border: 0; border-top: 1px solid var(--border-subtle); }
-.verify-form button, button.primary { background: var(--accent); border-color: var(--accent);
-  color: var(--paper); font-weight: 700; border-radius: 4px; }
+.verify-form input { border-radius: 999px; font-family: var(--font-mono); border-color: rgba(255,190,110,.4);
+  padding: var(--sp-sm) 20px; }
+.verify-form button, button.primary { background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a);
+  border: 1px solid transparent; color: #1a0800; font-weight: 600; border-radius: 999px; }
 .verify-form button:hover, .verify-form button:focus-visible, button.primary:hover {
-  background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.verify-form input { border-radius: 4px; font-family: var(--font-mono); }
-.site-header { position: sticky; top: 0; z-index: 1000; background: rgba(11,14,11,.88);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border-glass); padding: 12px var(--sp-lg); }
-.header-inner { max-width: 62rem; margin: 0 auto; display: flex; align-items: center;
-  justify-content: space-between; gap: var(--sp-md); flex-wrap: wrap; }
-.brand-lockup { display: inline-flex; align-items: center; gap: var(--sp-sm); font-family: var(--font-display);
-  font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
-.brand-lockup:hover { color: var(--ink); }
-.flame-box { display: inline-flex; color: #FF8A1F; filter: drop-shadow(0 0 8px rgba(255,138,31,.6)); }
-.site-nav { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
-.nav-link { font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 6px 12px;
-  border-radius: 4px; text-decoration: none; }
-.nav-link:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+  background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a); border-color: transparent; color: #1a0800;
+  box-shadow: 0 0 0 6px rgba(255,106,26,.16); }
+.figure-row, .check-row, .history-note pre { border-radius: 14px; }
+.check-row { background: var(--panel); border: 1px solid var(--border-subtle);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.check-row .badge { margin: 0 var(--sp-sm); }
+.check-name { font-family: var(--font-mono); font-weight: 600; color: #ffe2b0; }
+.check-equation, .check-expected-actual { font-family: var(--font-mono); color: var(--text-secondary); }
+.figure-row { border: 1px solid var(--border-subtle); border-left: 3px solid var(--unchecked); }
+.figure-row.status-fail-row { border-left-color: var(--destructive); }
+.badge.status-pass, .badge.status-fail, .badge.status-unchecked {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid currentColor; font: 600 .72rem var(--font-mono);
+  letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+.badge.status-pass::before, .badge.status-fail::before, .badge.status-unchecked::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.status-pass { color: #3ddc97; background: rgba(61,220,151,.08); }
+.badge.status-fail { color: #ff6b4a; background: rgba(255,107,74,.1); }
+.badge.status-unchecked { color: #b3a89e; background: rgba(255,255,255,.04); border-style: solid; }
 @media (max-width: 640px) {
-  .site-header { padding: 8px var(--sp-md); }
-  .site-nav { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .nav-link { flex: none; white-space: nowrap; }
-  .site-page { padding: var(--sp-xl) var(--sp-md) var(--sp-2xl); }
+  .site-page { padding-top: 84px; padding-bottom: 48px; }
 }
 """
 
@@ -2116,6 +2167,12 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
     page's own `_STYLE` so every existing call site is unaffected.
     """
     body = re.sub(r"\bFAIL\b", "Needs review", body)
+    # The site is Burn SOL, powered by Charlie Protocol: a page title that
+    # ends in the old product name takes the site name instead.
+    if title.endswith(" -- Charlie Protocol"):
+        title = title[: -len(" -- Charlie Protocol")] + " | Burn SOL"
+    elif title == "Charlie Protocol":
+        title = "Burn SOL"
     summary = description or SITE_DESCRIPTION
     return (
         "<!doctype html>"
@@ -2139,6 +2196,7 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
         f'<meta name="twitter:title" content="{esc(title)}">'
         f'<meta name="twitter:description" content="{esc(summary)}">'
         f'<meta name="twitter:image" content="{SITE_ORIGIN}{META_IMAGE_SRC}">'
+        '<meta name="theme-color" content="#050403">'
         f"{_FONTS_HTML}"
         f"<style>{style}{_SITE_LOOK}</style>"
         "<script>"
@@ -2147,8 +2205,12 @@ def _document(title: str, body: str, *, style: str = _STYLE, description: str = 
         "</script>"
         '<script defer src="https://va.vercel-scripts.com/v1/script.js"></script>'
         '<script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script>'
+        # After the analytics block on purpose: the kit's `js`/`fx` switch and
+        # its deferred script. No page carries a script of its own for them.
+        f"{_FX_SNIPPET}"
         "</head>"
-        f"<body>{_SITE_HEADER}<div class=\"site-page\">{body}</div></body>"
+        f"<body>{_SITE_BACKDROP}{_SITE_HEADER}"
+        f"<div class=\"wrap page site-page\" id=\"main\">{body}</div>{_SITE_FOOTER}</body>"
         "</html>"
     )
 

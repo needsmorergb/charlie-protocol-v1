@@ -1,20 +1,20 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Launch a coin -- Charlie Protocol</title><meta name="description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta property="og:title" content="Launch a coin -- Charlie Protocol"><meta property="og:description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Launch a coin -- Charlie Protocol"><meta name="twitter:description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Launch a coin | Burn SOL</title><meta name="description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta property="og:title" content="Launch a coin | Burn SOL"><meta property="og:description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Launch a coin | Burn SOL"><meta name="twitter:description" content="Create a pump.fun coin and set its permanent fee split in the next transaction. Two approvals; your key stays in your wallet."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="theme-color" content="#050403"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/assets/burn.css"><style>
 :root {
-  --paper: #060806;
-  --panel: #101610;
-  --accent: #8FE13F;
-  --destructive: #FF5A4E;
-  --unchecked: #E8B44A;
-  --ink: #F5F9F4;
-  --pass-glyph: #C9D4C8;
-  --bg-input: #040604;
-  --border-subtle: rgba(143,225,63,.12);
-  --border-glass: rgba(255,255,255,.08);
-  --text-secondary: #9BA89A;
-  --text-muted: #5D685C;
-  --font-display: 'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
+  --paper: #050403;
+  --panel: rgba(16,11,8,.8);
+  --accent: #ffb03a;
+  --destructive: #e23a14;
+  --unchecked: #b3a89e;
+  --ink: #f6efe6;
+  --pass-glyph: #3ddc97;
+  --bg-input: rgba(10,6,4,.8);
+  --border-subtle: rgba(255,150,60,.25);
+  --border-glass: rgba(255,255,255,.1);
+  --text-secondary: #b3a89e;
+  --text-muted: #8d847b;
+  --font-display: 'Space Grotesk','Arial Black',Impact,system-ui,sans-serif;
+  --font-sans: Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,Consolas,monospace;
   --sp-xs: 4px;
   --sp-sm: 8px;
   --sp-md: 16px;
@@ -107,7 +107,8 @@ a { color: var(--accent); }
 [hidden] { display: none !important; }
 .btn-conic-glow:has(> [hidden]), .note:empty { display: none; }
 * { box-sizing: border-box; }
-.launch-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--unchecked); }
+.launch-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--border-subtle);
+  border-radius: 22px; background: var(--panel); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .launch-hero h1 { font-size: clamp(36px, 5vw, 56px); max-width: 16ch; }
 .launch-stepper { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
@@ -129,15 +130,15 @@ button.primary:hover, button.primary:focus-visible {
   background: var(--accent); border-color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--sp-md); }
 .field input, .field textarea { padding: var(--sp-sm); font-family: inherit; font-size: 16px;
-  border: 1px solid var(--unchecked); background: #fff; max-width: 100%; }
+  border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); max-width: 100%; }
 .field textarea { min-height: 4em; }
 .field label { font-size: 14px; }
 .share-row { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   margin-bottom: var(--sp-sm); align-items: center; }
 .share-row .share-addr { flex: 1 1 18em; min-width: 0; padding: var(--sp-sm);
-  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .share-bps { flex: 0 0 6em; padding: var(--sp-sm); font-family: inherit;
-  font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
 .share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;
@@ -156,44 +157,56 @@ pre.note { background: var(--panel); padding: var(--sp-md); overflow-x: auto; ma
   padding: var(--sp-md); margin: var(--sp-md) 0; }
 ol.steps li { margin-bottom: var(--sp-sm); }
 
-html, body { background: var(--paper); }
-body { margin: 0 !important; padding: 0 !important; max-width: none !important;
+html { background: #050403; }
+body { margin: 0 !important; padding: 0 !important; max-width: none !important; background: transparent !important;
   color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
-.site-page { max-width: 62rem; margin: 0 auto; padding: var(--sp-2xl) var(--sp-lg) var(--sp-3xl);
-  overflow-wrap: anywhere; }
-h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--ink); }
-code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); }
+.site-page { max-width: 62rem; padding-top: 96px; padding-bottom: 64px; overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
+h1 { text-shadow: 0 0 .5em rgba(255,140,40,.25); }
+code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); color: #ffe2b0; }
 a { color: var(--accent); }
-a:hover { color: var(--ink); }
+a:hover { color: #ffe2b0; }
+.btn, .btn:hover, .top a, .foot a { text-decoration: none; }
+.btn.primary, .btn.primary:hover { color: #1a0800; }
+.top .links a { color: #b3a89e; }
+.top .links a:hover { color: #fff1d6; }
+.foot nav a { color: #b3a89e; }
+.foot nav a:hover { color: #ffb03a; }
+footer.foot { margin-top: 0; font-size: 1rem; color: inherit; }
+.foot .brandline { color: var(--ink); }
+.foot .pw { color: #b3a89e; font-size: 1rem; max-width: none; }
 table { border-color: var(--border-glass); }
-th { overflow-wrap: normal; word-break: normal; }
+th { overflow-wrap: normal; word-break: normal; font-family: var(--font-mono); }
 th, td { border-color: var(--border-glass); }
 hr { border: 0; border-top: 1px solid var(--border-subtle); }
-.verify-form button, button.primary { background: var(--accent); border-color: var(--accent);
-  color: var(--paper); font-weight: 700; border-radius: 4px; }
+.verify-form input { border-radius: 999px; font-family: var(--font-mono); border-color: rgba(255,190,110,.4);
+  padding: var(--sp-sm) 20px; }
+.verify-form button, button.primary { background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a);
+  border: 1px solid transparent; color: #1a0800; font-weight: 600; border-radius: 999px; }
 .verify-form button:hover, .verify-form button:focus-visible, button.primary:hover {
-  background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.verify-form input { border-radius: 4px; font-family: var(--font-mono); }
-.site-header { position: sticky; top: 0; z-index: 1000; background: rgba(11,14,11,.88);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border-glass); padding: 12px var(--sp-lg); }
-.header-inner { max-width: 62rem; margin: 0 auto; display: flex; align-items: center;
-  justify-content: space-between; gap: var(--sp-md); flex-wrap: wrap; }
-.brand-lockup { display: inline-flex; align-items: center; gap: var(--sp-sm); font-family: var(--font-display);
-  font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
-.brand-lockup:hover { color: var(--ink); }
-.flame-box { display: inline-flex; color: #FF8A1F; filter: drop-shadow(0 0 8px rgba(255,138,31,.6)); }
-.site-nav { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
-.nav-link { font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 6px 12px;
-  border-radius: 4px; text-decoration: none; }
-.nav-link:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+  background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a); border-color: transparent; color: #1a0800;
+  box-shadow: 0 0 0 6px rgba(255,106,26,.16); }
+.figure-row, .check-row, .history-note pre { border-radius: 14px; }
+.check-row { background: var(--panel); border: 1px solid var(--border-subtle);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.check-row .badge { margin: 0 var(--sp-sm); }
+.check-name { font-family: var(--font-mono); font-weight: 600; color: #ffe2b0; }
+.check-equation, .check-expected-actual { font-family: var(--font-mono); color: var(--text-secondary); }
+.figure-row { border: 1px solid var(--border-subtle); border-left: 3px solid var(--unchecked); }
+.figure-row.status-fail-row { border-left-color: var(--destructive); }
+.badge.status-pass, .badge.status-fail, .badge.status-unchecked {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid currentColor; font: 600 .72rem var(--font-mono);
+  letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+.badge.status-pass::before, .badge.status-fail::before, .badge.status-unchecked::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.status-pass { color: #3ddc97; background: rgba(61,220,151,.08); }
+.badge.status-fail { color: #ff6b4a; background: rgba(255,107,74,.1); }
+.badge.status-unchecked { color: #b3a89e; background: rgba(255,255,255,.04); border-style: solid; }
 @media (max-width: 640px) {
-  .site-header { padding: 8px var(--sp-md); }
-  .site-nav { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .nav-link { flex: none; white-space: nowrap; }
-  .site-page { padding: var(--sp-xl) var(--sp-md) var(--sp-2xl); }
+  .site-page { padding-top: 84px; padding-bottom: 48px; }
 }
-</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script></head><body><header class="site-header"><div class="header-inner"><a href="/" class="brand-lockup"><span class="flame-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><span>Charlie Protocol</span></a><nav class="site-nav" aria-label="Site"><a href="/" class="nav-link">Home</a><a href="/launch" class="nav-link">Launch Coin</a><a href="/enroll" class="nav-link">Enroll Coin</a><a href="/coins" class="nav-link">Directory</a><a href="/phases" class="nav-link">Phases</a></nav></div></header><div class="site-page"><p class="meta">LAUNCH STATUS: <span id="launchStatus">CHECKING</span></p>
+</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script><script>(function(d){d.classList.add('js');if(!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches))d.classList.add('fx');})(document.documentElement);</script><script defer src="/assets/burn.js"></script></head><body><a class="skip" href="#main">Skip to content</a><div class="fire-fallback" aria-hidden="true"></div><canvas id="fire" aria-hidden="true"></canvas><div class="veil" aria-hidden="true"></div><div class="grain" aria-hidden="true"></div><header class="top"><a class="brand" href="/" aria-label="Burn SOL home"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><defs><linearGradient id="fl" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff4d1a"/><stop offset="1" stop-color="#ffc247"/></linearGradient></defs><path d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3-1-4 0-7 1-10z" fill="url(#fl)"/></svg><span>Burn SOL</span></a><nav class="links" aria-label="Primary"><a href="/coins">Coins</a><a href="/#record">Record</a><a href="/verify">Verify</a><a href="/phases">Phases</a><a href="/flywheel">Flywheel</a></nav><div class="top-cta"><a class="btn sm ghost" href="/enroll">Enroll</a><a class="btn sm primary" href="/launch">Launch</a></div></header><div class="wrap page site-page" id="main"><p class="meta">LAUNCH STATUS: <span id="launchStatus">CHECKING</span></p>
 <main>
   <div class="launch-hero">
     <canvas id="launchEmbers" aria-hidden="true"></canvas>
@@ -324,7 +337,7 @@ hr { border: 0; border-top: 1px solid var(--border-subtle); }
     </div>
   </section>
 </main>
-<p class="meta">generated at 2026-11-12 13:58:11Z</p><script>
+<p class="meta">generated at 2026-11-12 22:16:05Z</p><script>
 var state = {wallet: null, toll: null, buyback: null, open: false, uri: null, built: null, mint: null,
   createSig: null, splitSig: null, enroll: null, revision: 0, busy: false, locked: false, phase: 'draft'};
 var INCINERATOR = '1nc1nerator11111111111111111111111111111111';
@@ -782,4 +795,4 @@ document.addEventListener('DOMContentLoaded', function () {
 window.addEventListener('beforeunload', function (e) {
   if (state.locked && state.phase !== 'done') { e.preventDefault(); e.returnValue = ''; }
 });
-</script></div></body></html>
+</script></div><footer class="foot"><div class="wrap foot-in"><div><a class="brandline" href="/">Burn SOL</a><p class="pw"><img src="/assets/charlie.png" alt="Charlie, the Charlie Protocol mascot" width="28" height="28"> Powered by Charlie Protocol</p></div><nav aria-label="Footer"><a href="/launch">Launch</a><a href="/enroll">Enroll</a><a href="/coins">Coins</a><a href="/verify">Verify</a><a href="/claim">Claim</a><a href="/phases">Phases</a><a href="/flywheel">Flywheel</a><a href="https://x.com/CharlieSlugSOL" rel="noopener">X @CharlieSlugSOL</a></nav></div></footer></body></html>

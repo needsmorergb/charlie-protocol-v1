@@ -497,7 +497,8 @@ _STYLE = """
 [hidden] { display: none !important; }
 .btn-conic-glow:has(> [hidden]), .note:empty { display: none; }
 * { box-sizing: border-box; }
-.launch-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--unchecked); }
+.launch-card { margin-bottom: 24px; padding: 24px; border: 1px solid var(--border-subtle);
+  border-radius: 22px; background: var(--panel); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .launch-hero h1 { font-size: clamp(36px, 5vw, 56px); max-width: 16ch; }
 .launch-stepper { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
@@ -519,15 +520,15 @@ button.primary:hover, button.primary:focus-visible {
   background: var(--accent); border-color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--sp-md); }
 .field input, .field textarea { padding: var(--sp-sm); font-family: inherit; font-size: 16px;
-  border: 1px solid var(--unchecked); background: #fff; max-width: 100%; }
+  border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); max-width: 100%; }
 .field textarea { min-height: 4em; }
 .field label { font-size: 14px; }
 .share-row { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   margin-bottom: var(--sp-sm); align-items: center; }
 .share-row .share-addr { flex: 1 1 18em; min-width: 0; padding: var(--sp-sm);
-  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .share-bps { flex: 0 0 6em; padding: var(--sp-sm); font-family: inherit;
-  font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
 .share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;

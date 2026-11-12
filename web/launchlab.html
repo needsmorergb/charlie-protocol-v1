@@ -1,20 +1,20 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The LaunchLab rail, run on devnet -- Charlie Protocol</title><meta name="description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta property="og:title" content="The LaunchLab rail, run on devnet -- Charlie Protocol"><meta property="og:description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="The LaunchLab rail, run on devnet -- Charlie Protocol"><meta name="twitter:description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The LaunchLab rail, run on devnet | Burn SOL</title><meta name="description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta property="og:title" content="The LaunchLab rail, run on devnet | Burn SOL"><meta property="og:description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta property="og:type" content="website"><meta property="og:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="The LaunchLab rail, run on devnet | Burn SOL"><meta name="twitter:description" content="Charlie Protocol&#x27;s Raydium LaunchLab rail on devnet: the curve, pool, LP and platform fee cranks, each a landed transaction with its figures."><meta name="twitter:image" content="https://charlieprotocol.fun/assets/meta-image.png"><meta name="theme-color" content="#050403"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/assets/burn.css"><style>
 :root {
-  --paper: #060806;
-  --panel: #101610;
-  --accent: #8FE13F;
-  --destructive: #FF5A4E;
-  --unchecked: #E8B44A;
-  --ink: #F5F9F4;
-  --pass-glyph: #C9D4C8;
-  --bg-input: #040604;
-  --border-subtle: rgba(143,225,63,.12);
-  --border-glass: rgba(255,255,255,.08);
-  --text-secondary: #9BA89A;
-  --text-muted: #5D685C;
-  --font-display: 'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
+  --paper: #050403;
+  --panel: rgba(16,11,8,.8);
+  --accent: #ffb03a;
+  --destructive: #e23a14;
+  --unchecked: #b3a89e;
+  --ink: #f6efe6;
+  --pass-glyph: #3ddc97;
+  --bg-input: rgba(10,6,4,.8);
+  --border-subtle: rgba(255,150,60,.25);
+  --border-glass: rgba(255,255,255,.1);
+  --text-secondary: #b3a89e;
+  --text-muted: #8d847b;
+  --font-display: 'Space Grotesk','Arial Black',Impact,system-ui,sans-serif;
+  --font-sans: Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,Consolas,monospace;
   --sp-xs: 4px;
   --sp-sm: 8px;
   --sp-md: 16px;
@@ -33,70 +33,83 @@ h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 var(--sp-sm); }
 h2 { font-size: 1.1rem; margin: var(--sp-2xl) 0 var(--sp-md); }
 p { margin: 0 0 var(--sp-md); }
 a { color: var(--accent); }
-code { background: var(--panel); padding: 1px 4px; }
+code { background: var(--bg-input); padding: 1px 6px; border-radius: 6px; }
 .lede { font-size: 1.05rem; }
 .banner {
-  border: 1px solid var(--unchecked); background: rgba(122, 90, 18, 0.07);
+  border: 1px solid var(--border-subtle); border-left: 3px solid var(--accent);
+  background: rgba(255, 176, 58, 0.08); border-radius: 14px;
   padding: var(--sp-md); margin: var(--sp-lg) 0;
 }
 .banner p:last-child { margin-bottom: 0; }
 table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .scroll { overflow-x: auto; margin: var(--sp-md) 0; }
 th, td {
-  border-bottom: 1px solid var(--panel); padding: var(--sp-sm);
+  border-bottom: 1px solid var(--border-glass); padding: var(--sp-sm);
   text-align: left; vertical-align: top;
 }
-th { font-weight: 700; border-bottom: 1px solid var(--ink); }
+th { font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-tfoot td { border-top: 1px solid var(--ink); font-weight: 700; }
-tfoot .why, .why { font-weight: 400; color: var(--pass-glyph); font-size: 0.82rem; }
+tfoot td { border-top: 1px solid var(--border-subtle); font-weight: 700; }
+tfoot .why, .why { font-weight: 400; color: var(--text-secondary); font-size: 0.82rem; }
 .why { display: block; margin-top: var(--sp-xs); }
 .refusals { list-style: none; padding: 0; }
 .refusals li { margin-bottom: var(--sp-md); }
 .mark { font-weight: 700; }
-.mark.ok { color: var(--accent); }
+.mark.ok { color: var(--pass-glyph); }
 .mark.bad { color: var(--destructive); }
 .facts { list-style: none; padding: 0; font-size: 0.9rem; }
 .facts li { margin-bottom: var(--sp-sm); }
-.meta { color: var(--pass-glyph); font-size: 0.82rem; }
-footer { margin-top: var(--sp-3xl); border-top: 1px solid var(--panel);
-  padding-top: var(--sp-md); font-size: 0.82rem; color: var(--pass-glyph); }
+.meta { color: var(--text-secondary); font-size: 0.82rem; }
+footer { margin-top: var(--sp-3xl); border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-md); font-size: 0.82rem; color: var(--text-secondary); }
 
-html, body { background: var(--paper); }
-body { margin: 0 !important; padding: 0 !important; max-width: none !important;
+html { background: #050403; }
+body { margin: 0 !important; padding: 0 !important; max-width: none !important; background: transparent !important;
   color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
-.site-page { max-width: 62rem; margin: 0 auto; padding: var(--sp-2xl) var(--sp-lg) var(--sp-3xl);
-  overflow-wrap: anywhere; }
-h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--ink); }
-code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); }
+.site-page { max-width: 62rem; padding-top: 96px; padding-bottom: 64px; overflow-wrap: anywhere; }
+h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
+h1 { text-shadow: 0 0 .5em rgba(255,140,40,.25); }
+code, pre, kbd, samp, .mono, .index-mint, .meta code { font-family: var(--font-mono); color: #ffe2b0; }
 a { color: var(--accent); }
-a:hover { color: var(--ink); }
+a:hover { color: #ffe2b0; }
+.btn, .btn:hover, .top a, .foot a { text-decoration: none; }
+.btn.primary, .btn.primary:hover { color: #1a0800; }
+.top .links a { color: #b3a89e; }
+.top .links a:hover { color: #fff1d6; }
+.foot nav a { color: #b3a89e; }
+.foot nav a:hover { color: #ffb03a; }
+footer.foot { margin-top: 0; font-size: 1rem; color: inherit; }
+.foot .brandline { color: var(--ink); }
+.foot .pw { color: #b3a89e; font-size: 1rem; max-width: none; }
 table { border-color: var(--border-glass); }
-th { overflow-wrap: normal; word-break: normal; }
+th { overflow-wrap: normal; word-break: normal; font-family: var(--font-mono); }
 th, td { border-color: var(--border-glass); }
 hr { border: 0; border-top: 1px solid var(--border-subtle); }
-.verify-form button, button.primary { background: var(--accent); border-color: var(--accent);
-  color: var(--paper); font-weight: 700; border-radius: 4px; }
+.verify-form input { border-radius: 999px; font-family: var(--font-mono); border-color: rgba(255,190,110,.4);
+  padding: var(--sp-sm) 20px; }
+.verify-form button, button.primary { background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a);
+  border: 1px solid transparent; color: #1a0800; font-weight: 600; border-radius: 999px; }
 .verify-form button:hover, .verify-form button:focus-visible, button.primary:hover {
-  background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.verify-form input { border-radius: 4px; font-family: var(--font-mono); }
-.site-header { position: sticky; top: 0; z-index: 1000; background: rgba(11,14,11,.88);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border-glass); padding: 12px var(--sp-lg); }
-.header-inner { max-width: 62rem; margin: 0 auto; display: flex; align-items: center;
-  justify-content: space-between; gap: var(--sp-md); flex-wrap: wrap; }
-.brand-lockup { display: inline-flex; align-items: center; gap: var(--sp-sm); font-family: var(--font-display);
-  font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
-.brand-lockup:hover { color: var(--ink); }
-.flame-box { display: inline-flex; color: #FF8A1F; filter: drop-shadow(0 0 8px rgba(255,138,31,.6)); }
-.site-nav { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
-.nav-link { font-size: 14px; font-weight: 600; color: var(--text-secondary); padding: 6px 12px;
-  border-radius: 4px; text-decoration: none; }
-.nav-link:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+  background: linear-gradient(135deg,#ff3a00,#ff9a1f 60%,#ffd27a); border-color: transparent; color: #1a0800;
+  box-shadow: 0 0 0 6px rgba(255,106,26,.16); }
+.figure-row, .check-row, .history-note pre { border-radius: 14px; }
+.check-row { background: var(--panel); border: 1px solid var(--border-subtle);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.check-row .badge { margin: 0 var(--sp-sm); }
+.check-name { font-family: var(--font-mono); font-weight: 600; color: #ffe2b0; }
+.check-equation, .check-expected-actual { font-family: var(--font-mono); color: var(--text-secondary); }
+.figure-row { border: 1px solid var(--border-subtle); border-left: 3px solid var(--unchecked); }
+.figure-row.status-fail-row { border-left-color: var(--destructive); }
+.badge.status-pass, .badge.status-fail, .badge.status-unchecked {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid currentColor; font: 600 .72rem var(--font-mono);
+  letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+.badge.status-pass::before, .badge.status-fail::before, .badge.status-unchecked::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.status-pass { color: #3ddc97; background: rgba(61,220,151,.08); }
+.badge.status-fail { color: #ff6b4a; background: rgba(255,107,74,.1); }
+.badge.status-unchecked { color: #b3a89e; background: rgba(255,255,255,.04); border-style: solid; }
 @media (max-width: 640px) {
-  .site-header { padding: 8px var(--sp-md); }
-  .site-nav { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .nav-link { flex: none; white-space: nowrap; }
-  .site-page { padding: var(--sp-xl) var(--sp-md) var(--sp-2xl); }
+  .site-page { padding-top: 84px; padding-bottom: 48px; }
 }
-</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script></head><body><header class="site-header"><div class="header-inner"><a href="/" class="brand-lockup"><span class="flame-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><span>Charlie Protocol</span></a><nav class="site-nav" aria-label="Site"><a href="/" class="nav-link">Home</a><a href="/launch" class="nav-link">Launch Coin</a><a href="/enroll" class="nav-link">Enroll Coin</a><a href="/coins" class="nav-link">Directory</a><a href="/phases" class="nav-link">Phases</a></nav></div></header><div class="site-page"><h1>The LaunchLab rail, run on devnet</h1><p class="lede">A coin launched on Raydium LaunchLab through Charlie has a program address as its creator, so its creator fees cannot be sent anywhere the program does not send them. Below are the four cranks that route them, each a landed transaction.</p><div class="banner"><p><strong>This is devnet.</strong> Nothing upstream is mocked: the curve, the pool and the LP lock are Raydium's own devnet programs, the fees came from real trades, and Raydium's bot did the graduation. It proves the mechanism, and says nothing about volume, price, or what any coin would earn.</p><p>The program is <strong>upgradeable</strong>, and for now only its admin can run the cranks, because the buy that funds the own-token burn has no on-chain price bound yet.</p></div><h2>What ran</h2><ul class="facts"><li>program <code>4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX</code> <a href="https://explorer.solana.com/address/4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX?cluster=devnet" rel="noopener"><code>4WgYTm...JWgX</code></a>, on devnet</li></ul><div class="scroll"><table><thead><tr><th>coin</th><th>stage</th></tr></thead><tbody><tr><td><a href="https://explorer.solana.com/address/CA6NcWcELpoJWBeigPxSuShyGi84L7V5vFJvkYbryBrc?cluster=devnet" rel="noopener"><code>CA6NcW...yBrc</code></a></td><td>on the curve</td></tr><tr><td><a href="https://explorer.solana.com/address/BuX4dNXZDyhYfLWQyZoHpRDYrHWpHkEVFqxFDpRrgLbV?cluster=devnet" rel="noopener"><code>BuX4dN...gLbV</code></a></td><td>graduated to CPMM</td></tr></tbody></table></div><h2>The cranks</h2><ul class="facts"><li><strong>Curve creator fee.</strong> The coin is still on the LaunchLab curve. Its 0.50% creator fee is claimed into the coin&#x27;s collect address and split: 40% buys the coin and burns it, 40% goes to the incinerator, 20% to the dev&#x27;s ops address.</li><li><strong>Pool creator fee.</strong> The coin graduated to a Raydium CPMM pool whose creator is the coin&#x27;s collect address. The pool&#x27;s creator fee, in both SOL and coin, is collected and split the same way; the coin side is burned.</li><li><strong>LP fees.</strong> At graduation the pool&#x27;s LP fee NFT went to the program&#x27;s signer. Its LP fees are claimed: 25% of the SOL side to Charlie&#x27;s pool, the rest split the same way as above, and the coin side burned.</li><li><strong>Platform fee.</strong> Charlie&#x27;s 0.25% platform fee on every curve trade, claimed from LaunchLab and paid in full to Charlie&#x27;s pool.</li></ul><div class="scroll"><table><thead><tr><th>crank</th><th>to incinerator (lamports)</th><th>to Charlie's pool (lamports)</th><th>to ops (lamports)</th><th>coin burned (base units)</th><th>compute units</th></tr></thead><tbody><tr><td>Curve creator fee<br><a href="https://explorer.solana.com/tx/pkhWM6jq371aiNs8K4fMPoRovSHq8UUYVSFP3dAE7awvMyRrkuG7U3oWw47e8RmJPHSs6LgAKJaKD9RGyUpjukX?cluster=devnet" rel="noopener">pkhWM6jq...UpjukX</a></td><td>400,000</td><td>0</td><td>200,000</td><td>366,958,220,004</td><td>131,512</td></tr><tr><td>Pool creator fee<br><a href="https://explorer.solana.com/tx/CcAeLt5XXRJsg1VpPUbrNathyrxaioCJMZ1mAiZEFp8FkixayoHxFpBwVFVcYjTaiX7FRrHav6ZXxp5gGvDZj9s?cluster=devnet" rel="noopener">CcAeLt5X...vDZj9s</a></td><td>300,259</td><td>0</td><td>150,129</td><td>1,562,071,801,337</td><td>131,943</td></tr><tr><td>LP fees<br><a href="https://explorer.solana.com/tx/3Js81pDkDQ9pgkzKiQKkQ9VEoHxyS6KuC8XQ664Utjahu1LUdkwzDGzM9nSerhrCyJuzts9mY7Lx5NpHZNZAmdp?cluster=devnet" rel="noopener">3Js81pDk...NZAmdp</a></td><td>61,976</td><td>51,646</td><td>30,988</td><td>750,608,893,424</td><td>258,683</td></tr><tr><td>Platform fee<br><a href="https://explorer.solana.com/tx/2kbrzESNQ36kmzVAn8gEjLa9novDofBxuJSPi3qDonWUKhBTL9uLGK5BMLeWqGkr1g99YThEGp27NvggqFyuXUSd?cluster=devnet" rel="noopener">2kbrzESN...yuXUSd</a></td><td>0</td><td>1,258,576</td><td>0</td><td>0</td><td>67,316</td></tr></tbody></table></div><p>Every figure is a balance change or a burn read off that transaction. The incinerator's balance is destroyed by the runtime at the end of the block, so those lamports leave circulation. The ops address on devnet is the keeper's own wallet; its transaction fee is added back so the column reads as what the program paid.</p><h2>What can still change</h2><p>No key the coin's dev holds can redirect these fees. Charlie's admin key can upgrade the program today, and Raydium controls its own programs, including a creator-fee share setting on its pools that is zero on every mainnet config as of 18 September 2026.</p><footer><p>Rendered from <code>state/launchlab/devnet.json</code>, written by <code>tools/launchlab_devnet.py</code> from the transactions themselves. Every signature above is checkable on devnet.</p><p><a href="/">Charlie Protocol</a> &middot; <a href="/flywheel">/flywheel</a> &middot; <a href="/buildlog">/buildlog</a></p></footer></div></body></html>
+</style><script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script><script defer src="https://va.vercel-scripts.com/v1/script.js"></script><script defer src="https://va.vercel-scripts.com/v1/speed-insights/script.js"></script><script>(function(d){d.classList.add('js');if(!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches))d.classList.add('fx');})(document.documentElement);</script><script defer src="/assets/burn.js"></script></head><body><a class="skip" href="#main">Skip to content</a><div class="fire-fallback" aria-hidden="true"></div><canvas id="fire" aria-hidden="true"></canvas><div class="veil" aria-hidden="true"></div><div class="grain" aria-hidden="true"></div><header class="top"><a class="brand" href="/" aria-label="Burn SOL home"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><defs><linearGradient id="fl" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff4d1a"/><stop offset="1" stop-color="#ffc247"/></linearGradient></defs><path d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3-1-4 0-7 1-10z" fill="url(#fl)"/></svg><span>Burn SOL</span></a><nav class="links" aria-label="Primary"><a href="/coins">Coins</a><a href="/#record">Record</a><a href="/verify">Verify</a><a href="/phases">Phases</a><a href="/flywheel">Flywheel</a></nav><div class="top-cta"><a class="btn sm ghost" href="/enroll">Enroll</a><a class="btn sm primary" href="/launch">Launch</a></div></header><div class="wrap page site-page" id="main"><h1>The LaunchLab rail, run on devnet</h1><p class="lede">A coin launched on Raydium LaunchLab through Charlie has a program address as its creator, so its creator fees cannot be sent anywhere the program does not send them. Below are the four cranks that route them, each a landed transaction.</p><div class="banner"><p><strong>This is devnet.</strong> Nothing upstream is mocked: the curve, the pool and the LP lock are Raydium's own devnet programs, the fees came from real trades, and Raydium's bot did the graduation. It proves the mechanism, and says nothing about volume, price, or what any coin would earn.</p><p>The program is <strong>upgradeable</strong>, and for now only its admin can run the cranks, because the buy that funds the own-token burn has no on-chain price bound yet.</p></div><h2>What ran</h2><ul class="facts"><li>program <code>4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX</code> <a href="https://explorer.solana.com/address/4WgYTmPM9VHyFACSMdw4Bh9jkK9BETjWV5tNrDzuJWgX?cluster=devnet" rel="noopener"><code>4WgYTm...JWgX</code></a>, on devnet</li></ul><div class="scroll"><table><thead><tr><th>coin</th><th>stage</th></tr></thead><tbody><tr><td><a href="https://explorer.solana.com/address/CA6NcWcELpoJWBeigPxSuShyGi84L7V5vFJvkYbryBrc?cluster=devnet" rel="noopener"><code>CA6NcW...yBrc</code></a></td><td>on the curve</td></tr><tr><td><a href="https://explorer.solana.com/address/BuX4dNXZDyhYfLWQyZoHpRDYrHWpHkEVFqxFDpRrgLbV?cluster=devnet" rel="noopener"><code>BuX4dN...gLbV</code></a></td><td>graduated to CPMM</td></tr></tbody></table></div><h2>The cranks</h2><ul class="facts"><li><strong>Curve creator fee.</strong> The coin is still on the LaunchLab curve. Its 0.50% creator fee is claimed into the coin&#x27;s collect address and split: 40% buys the coin and burns it, 40% goes to the incinerator, 20% to the dev&#x27;s ops address.</li><li><strong>Pool creator fee.</strong> The coin graduated to a Raydium CPMM pool whose creator is the coin&#x27;s collect address. The pool&#x27;s creator fee, in both SOL and coin, is collected and split the same way; the coin side is burned.</li><li><strong>LP fees.</strong> At graduation the pool&#x27;s LP fee NFT went to the program&#x27;s signer. Its LP fees are claimed: 25% of the SOL side to Charlie&#x27;s pool, the rest split the same way as above, and the coin side burned.</li><li><strong>Platform fee.</strong> Charlie&#x27;s 0.25% platform fee on every curve trade, claimed from LaunchLab and paid in full to Charlie&#x27;s pool.</li></ul><div class="scroll"><table><thead><tr><th>crank</th><th>to incinerator (lamports)</th><th>to Charlie's pool (lamports)</th><th>to ops (lamports)</th><th>coin burned (base units)</th><th>compute units</th></tr></thead><tbody><tr><td>Curve creator fee<br><a href="https://explorer.solana.com/tx/pkhWM6jq371aiNs8K4fMPoRovSHq8UUYVSFP3dAE7awvMyRrkuG7U3oWw47e8RmJPHSs6LgAKJaKD9RGyUpjukX?cluster=devnet" rel="noopener">pkhWM6jq...UpjukX</a></td><td>400,000</td><td>0</td><td>200,000</td><td>366,958,220,004</td><td>131,512</td></tr><tr><td>Pool creator fee<br><a href="https://explorer.solana.com/tx/CcAeLt5XXRJsg1VpPUbrNathyrxaioCJMZ1mAiZEFp8FkixayoHxFpBwVFVcYjTaiX7FRrHav6ZXxp5gGvDZj9s?cluster=devnet" rel="noopener">CcAeLt5X...vDZj9s</a></td><td>300,259</td><td>0</td><td>150,129</td><td>1,562,071,801,337</td><td>131,943</td></tr><tr><td>LP fees<br><a href="https://explorer.solana.com/tx/3Js81pDkDQ9pgkzKiQKkQ9VEoHxyS6KuC8XQ664Utjahu1LUdkwzDGzM9nSerhrCyJuzts9mY7Lx5NpHZNZAmdp?cluster=devnet" rel="noopener">3Js81pDk...NZAmdp</a></td><td>61,976</td><td>51,646</td><td>30,988</td><td>750,608,893,424</td><td>258,683</td></tr><tr><td>Platform fee<br><a href="https://explorer.solana.com/tx/2kbrzESNQ36kmzVAn8gEjLa9novDofBxuJSPi3qDonWUKhBTL9uLGK5BMLeWqGkr1g99YThEGp27NvggqFyuXUSd?cluster=devnet" rel="noopener">2kbrzESN...yuXUSd</a></td><td>0</td><td>1,258,576</td><td>0</td><td>0</td><td>67,316</td></tr></tbody></table></div><p>Every figure is a balance change or a burn read off that transaction. The incinerator's balance is destroyed by the runtime at the end of the block, so those lamports leave circulation. The ops address on devnet is the keeper's own wallet; its transaction fee is added back so the column reads as what the program paid.</p><h2>What can still change</h2><p>No key the coin's dev holds can redirect these fees. Charlie's admin key can upgrade the program today, and Raydium controls its own programs, including a creator-fee share setting on its pools that is zero on every mainnet config as of 18 September 2026.</p><footer><p>Rendered from <code>state/launchlab/devnet.json</code>, written by <code>tools/launchlab_devnet.py</code> from the transactions themselves. Every signature above is checkable on devnet.</p><p><a href="/">Charlie Protocol</a> &middot; <a href="/flywheel">/flywheel</a> &middot; <a href="/buildlog">/buildlog</a></p></footer></div><footer class="foot"><div class="wrap foot-in"><div><a class="brandline" href="/">Burn SOL</a><p class="pw"><img src="/assets/charlie.png" alt="Charlie, the Charlie Protocol mascot" width="28" height="28"> Powered by Charlie Protocol</p></div><nav aria-label="Footer"><a href="/launch">Launch</a><a href="/enroll">Enroll</a><a href="/coins">Coins</a><a href="/verify">Verify</a><a href="/claim">Claim</a><a href="/phases">Phases</a><a href="/flywheel">Flywheel</a><a href="https://x.com/CharlieSlugSOL" rel="noopener">X @CharlieSlugSOL</a></nav></div></footer></body></html>

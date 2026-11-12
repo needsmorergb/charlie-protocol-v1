@@ -101,6 +101,9 @@ def referenced_assets() -> set[str]:
     found = set()
     for page in pages:
         found |= {f"web{ref}" for ref in re.findall(r"/assets/[A-Za-z0-9._-]+", page)}
+    # The Burn SOL kit (burn.css, burn.js) is the site's own: the site repo
+    # serves it, so this repository neither carries nor syncs it.
+    found -= {"web/assets/burn.css", "web/assets/burn.js"}
     return found
 
 

@@ -288,9 +288,9 @@ button.primary:hover, button.primary:focus-visible {
 .share-row { display: flex; flex-wrap: wrap; gap: var(--sp-sm);
   margin-bottom: var(--sp-sm); align-items: center; }
 .share-row .share-addr { flex: 1 1 18em; min-width: 0; padding: var(--sp-sm);
-  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-family: inherit; font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .share-bps { flex: 0 0 6em; padding: var(--sp-sm); font-family: inherit;
-  font-size: 16px; border: 1px solid var(--unchecked); background: #fff; }
+  font-size: 16px; border: 1px solid var(--unchecked); background: var(--bg-input); color: var(--ink); }
 .share-row .rm { padding: var(--sp-sm); font-family: inherit; background: none;
   border: 1px dashed var(--unchecked); cursor: pointer; min-height: 44px; color: var(--ink); }
 .share-row .share-what { flex: 1 1 100%; font-size: 14px; line-height: 1.4;

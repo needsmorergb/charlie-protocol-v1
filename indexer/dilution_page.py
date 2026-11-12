@@ -66,24 +66,24 @@ SOURCE_LINE = (
 
 _STYLE = """
 /* The site's tokens (`_TOKENS`, the live site's dark palette): --paper ground, --ink type,
-   --panel for raised blocks, --accent green, --destructive red, --unchecked
-   amber, --ember the brand green. This page uses those and adds none of its
+   --panel for raised glass blocks, --accent ember amber, --destructive red,
+   --unchecked ash, --ember the kit orange. This page uses those and adds none of its
    own, so it cannot drift from the rest of the site. */
 .dil-lede{font-size:1.02rem;line-height:1.65;max-width:var(--measure)}
-.dil-card{border:1px solid var(--pass-glyph);background:var(--panel);
+.dil-card{border:1px solid var(--border-subtle);border-radius:22px;background:var(--panel);
   padding:var(--sp-md) var(--sp-md) var(--sp-lg);margin:var(--sp-lg) 0}
 .dil-k{font-size:13px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--pass-glyph);margin:0 0 var(--sp-sm)}
+  color:var(--text-secondary);margin:0 0 var(--sp-sm)}
 .dil-row{display:flex;align-items:center;gap:var(--sp-sm);flex-wrap:wrap}
 .dil-row input[type=text]{font-family:inherit;font-size:30px;font-weight:700;
-  background:#fff;color:var(--ink);border:1px solid var(--unchecked);
+  background:var(--bg-input);color:var(--ink);border:1px solid var(--border-subtle);border-radius:999px;
   padding:var(--sp-sm) var(--sp-md);width:10em;
   font-variant-numeric:tabular-nums;min-height:44px}
 .dil-row input[type=text]:focus{outline:2px solid var(--accent);outline-offset:2px}
-.dil-unit{font-size:15px;color:var(--pass-glyph)}
+.dil-unit{font-size:15px;color:var(--text-secondary)}
 .dil-chips{display:flex;gap:var(--sp-sm);flex-wrap:wrap;margin-top:var(--sp-md)}
 .dil-chips button{font-family:inherit;font-size:14px;background:var(--paper);
-  color:var(--ink);border:1px solid var(--pass-glyph);
+  color:var(--ink);border:1px solid var(--border-subtle);border-radius:999px;
   padding:var(--sp-sm) var(--sp-md);cursor:pointer;min-height:44px}
 .dil-chips button:hover{border-color:var(--ink)}
 .dil-chips button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -91,14 +91,14 @@ _STYLE = """
   color:var(--destructive);line-height:1;margin:0;
   font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .dil-bigu{font-size:17px;margin:var(--sp-md) 0 0;line-height:1.5;max-width:34ch}
-.dil-note{font-size:14px;color:var(--pass-glyph);margin:var(--sp-sm) 0 0;
+.dil-note{font-size:14px;color:var(--text-secondary);margin:var(--sp-sm) 0 0;
   line-height:1.55;max-width:var(--measure)}
-.dil-strip{margin:var(--sp-lg) 0 0;border-top:1px solid var(--pass-glyph);
+.dil-strip{margin:var(--sp-lg) 0 0;border-top:1px solid var(--border-subtle);
   padding-top:var(--sp-md)}
 .dil-bar{display:grid;grid-template-columns:4.2rem 1fr 4rem;align-items:center;
   gap:var(--sp-sm);margin-bottom:var(--sp-sm)}
-.dil-bar .yr{font-size:14px;color:var(--pass-glyph)}
-.dil-trk{height:22px;background:#fff;border:1px solid var(--pass-glyph);
+.dil-bar .yr{font-size:14px;color:var(--text-secondary)}
+.dil-trk{height:22px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:999px;
   position:relative;overflow:hidden}
 .dil-fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);
   transition:width .45s cubic-bezier(.22,1,.36,1)}
@@ -116,8 +116,8 @@ _STYLE = """
 input[type=range].dil-range{-webkit-appearance:none;appearance:none;width:100%;
   height:44px;background:transparent;cursor:pointer;margin:0;display:block}
 input[type=range].dil-range::-webkit-slider-runnable-track{height:8px;
-  background:linear-gradient(90deg,var(--ink) 0%,var(--ink) var(--f,0%),#D8D2C6 var(--f,0%),#D8D2C6 100%)}
-input[type=range].dil-range::-moz-range-track{height:8px;background:#D8D2C6}
+  background:linear-gradient(90deg,var(--ink) 0%,var(--ink) var(--f,0%),rgba(255,255,255,.18) var(--f,0%),rgba(255,255,255,.18) 100%)}
+input[type=range].dil-range::-moz-range-track{height:8px;background:rgba(255,255,255,.18)}
 input[type=range].dil-range::-moz-range-progress{height:8px;background:var(--ink)}
 input[type=range].dil-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
   width:26px;height:26px;margin-top:-9px;border-radius:50%;background:var(--ink);
@@ -125,9 +125,9 @@ input[type=range].dil-range::-webkit-slider-thumb{-webkit-appearance:none;appear
 input[type=range].dil-range::-moz-range-thumb{width:26px;height:26px;border-radius:50%;
   background:var(--ink);border:3px solid var(--panel)}
 input[type=range].dil-range:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
-.dil-ceil{margin-top:var(--sp-md);border-top:1px solid var(--pass-glyph);
+.dil-ceil{margin-top:var(--sp-md);border-top:1px solid var(--border-subtle);
   padding-top:var(--sp-md)}
-.dil-ceil-trk{height:28px;background:#fff;border:1px solid var(--pass-glyph);
+.dil-ceil-trk{height:28px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:999px;
   position:relative;overflow:hidden}
 .dil-ceil-fill{position:absolute;left:0;top:0;bottom:0;background:var(--ink);
   transition:width .35s cubic-bezier(.22,1,.36,1)}
@@ -135,7 +135,7 @@ input[type=range].dil-range:focus-visible{outline:2px solid var(--accent);outlin
   background:repeating-linear-gradient(135deg,rgba(122,90,18,.30) 0 7px,rgba(122,90,18,.08) 7px 14px);
   transition:width .35s cubic-bezier(.22,1,.36,1)}
 .dil-ceil-ends{display:flex;justify-content:space-between;margin-top:var(--sp-sm);
-  font-size:14px;color:var(--pass-glyph);gap:var(--sp-md)}
+  font-size:14px;color:var(--text-secondary);gap:var(--sp-md)}
 .dil-ceil-ends b{color:var(--ink)}
 .dil-ceil-note{font-size:16px;margin:var(--sp-md) 0 0;line-height:1.55;
   max-width:var(--measure)}
